@@ -1474,6 +1474,43 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //            -$1.473M -> -$1.466M. 69 fields do not move (counts, exposure,
 //            membership, the cover's terms). No field added or removed.
 //   854ed47, 083e5c0 (gates, save key) — nothing.
+// v91: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
+// e698c79, RE-TAKEN AFTER MERGING multiplayer ba409c1 (which reproduces v90
+// here): identical, value for value, to the capture before the merge. The control ran first: e698c79 reproduces v90 here, and this build
+// with LARGE_CLAIMS_BY_FREQUENCY switched off at run time reproduces v90
+// exactly. With the switch on, each line draws at most one large claim a year,
+// at Low 7.5% / Mid 5.25% / High 2.25%, sized by the existing ranges × the
+// year's growth factor; catalogue events no longer bring large claims. This
+// moves 10,932 of 39,600 values across 89 fields, on all 300 instance-years
+// (Y1 1,292 · Y2 2,048 · Y3 2,050 · Y4 2,635 · Y5 2,907). They are the losses,
+// reserves, LAE, income, surplus and capital that follow (first instance's WC
+// Y1 gross ultimate $22.18M -> $23.93M; tri Y5 pool ending surplus -$0.31M ->
+// -$6.19M). Exposure, membership, the covers' terms and recoveries do not move
+// (both arms buy no cover). No field is added or removed.
+// RATES: finalRatePer100 and the fields priced on it move in 36 line-years,
+// Y3 to Y5, by 0.03%–0.25%. This is the harness, not a leak. It calls
+// processYear alone, without the shock-free pricing shadow that playWorldsYear
+// keeps, so its rates read the game's own ledger. That ledger carried the
+// catalogue's large claims in v90 just as it carries these now (with the
+// frequencies zeroed, 16 Property line-years move instead). On the game's own
+// path the rate is struck from the shadow, which draws no large claims.
+// large-claim-frequency-check proves that, with a control that fails when the
+// shadow is bypassed.
+// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS),
+// captured into this same v91 before landing. Against the capture without it,
+// 300 values move, all on GL: expectedLoss and clfAdjustedExpectedLoss (GL and
+// pool rows) and lossPurePremiumPer100, in every GL-solo and tri instance-year,
+// carrying NV's claim at its catalogue odds (first instance's GL Y1 $21.79M ->
+// $22.20M). No Nuclear Verdict fires in these games, so no loss or rate moves.
+// LARGE CLAIMS IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME) moves nothing here:
+// every game in this harness has its shocks on.
+// BACK TO v90: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-
+// from-events), on multiplayer e93c7ea, which reproduces v91 here. The
+// separate draw is gone, so every v91 move above is undone: against v91, the
+// same 10,932 of 39,600 values across 89 fields move back, and the result is
+// v90 value for value (0 of 39,600 differ). Every game here has its shocks
+// on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
+// prices reach nothing. v91 is retired.
 const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v90.json');
 
 function seedOf(id: string) {

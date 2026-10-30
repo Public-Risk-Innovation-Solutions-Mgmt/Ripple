@@ -152,7 +152,7 @@ import {
   type Dynamo, type DynamoConfig,
 } from './dynamo';
 import {
-  buildCallerView, buildRoomView, orderedRoster, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
+  buildCallerView, buildRoomView, orderedRoster, rosterNumbers, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
 } from './views';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -180,6 +180,15 @@ const MAX_RECLAIM_ATTEMPTS = 5;
 // recovery code at all, and dodge the rate limiter on exactly the path that
 // invites probing for teams without one.
 const PLACEHOLDER_RECOVERY_HASH = '0'.repeat(64);
+
+/**
+ * ⚠ HOW MANY TIMES A JOIN MAY LOSE THE RACE FOR A TEAM NUMBER, ON TOP OF
+ * MAX_ATTEMPTS. A class joining at once all claim the room's one counter, and
+ * each loser re-reads and tries the next number — so the last of N teams joining
+ * together can lose N - 1 times. Counted apart from MAX_ATTEMPTS so a room of
+ * twenty is not refused for having twenty people in it.
+ */
+const MAX_NUMBER_RACES = 60;
 
 // sameLines is gone with LINES_LOCKED: a join carries no lines, so there are
 // never two sets to compare.
@@ -553,6 +562,7 @@ export class DynamoSessionTransport implements SessionTransport {
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
           roster: {},
+          nextTeamNumber: 1,
           createdAt: now,
           updatedAt: now,
           rev: 0,
@@ -657,6 +667,7 @@ export class DynamoSessionTransport implements SessionTransport {
       // what changed and may well decide differently — a rejoin rather than
       // TEAM_TAKEN. See the file header, point 2.
       let lastFailure: SessionError | null = null;
+      let numberRaces = 0;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const header = await this.getHeader(code);
         const name = rawName !== undefined ? rawName.trim() : undefined;
@@ -787,6 +798,15 @@ export class DynamoSessionTransport implements SessionTransport {
           lockedYears: {},
           joinedAt: Date.now(),
         };
+        // ⚠ THE TEAM'S NUMBER IS THE ROOM'S NEXT ONE, CLAIMED UNDER A CONDITION
+        // (contract teamNumbers). The update below sets the room's counter one
+        // past it only if the counter is still what this pass read, so two teams
+        // joining at once cannot take one number: the second's condition fails
+        // and its next pass reads the new counter. An older room's teams without
+        // a number are given theirs, by join order, in the same write.
+        const numbering = rosterNumbers(header);
+        entry.teamNumber = numbering.next;
+        const backfill = numbering.missing.map((id, i) => ({ id, i, n: numbering.byTeam.get(id)! }));
         const tx = await this.transact([
           // 0 — the name is claimed once.
           { Put: {
@@ -810,10 +830,18 @@ export class DynamoSessionTransport implements SessionTransport {
           { Update: {
             TableName: this.db.table,
             Key: { pk, sk: ROOM_HEADER_SK },
-            UpdateExpression: 'SET roster.#tid = :entry, updatedAt = :now ADD rev :one',
-            ConditionExpression: 'attribute_exists(pk)',
-            ExpressionAttributeNames: { '#tid': newId },
-            ExpressionAttributeValues: { ':entry': entry, ':now': Date.now(), ':one': 1 },
+            UpdateExpression: 'SET roster.#tid = :entry, nextTeamNumber = :next, updatedAt = :now'
+              + backfill.map(b => `, roster.#m${b.i}.teamNumber = :m${b.i}`).join('')
+              + ' ADD rev :one',
+            ConditionExpression: header.nextTeamNumber === undefined
+              ? 'attribute_exists(pk) AND attribute_not_exists(nextTeamNumber)'
+              : 'attribute_exists(pk) AND nextTeamNumber = :read',
+            ExpressionAttributeNames: { '#tid': newId, ...Object.fromEntries(backfill.map(b => [`#m${b.i}`, b.id])) },
+            ExpressionAttributeValues: {
+              ':entry': entry, ':now': Date.now(), ':one': 1, ':next': numbering.next + 1,
+              ...(header.nextTeamNumber === undefined ? {} : { ':read': header.nextTeamNumber }),
+              ...Object.fromEntries(backfill.map(b => [`:m${b.i}`, b.n])),
+            },
           } },
           // 4 — the PIN is claimed once, globally (outside this room's
           // partition — keys.ts's pinPk).
@@ -829,6 +857,17 @@ export class DynamoSessionTransport implements SessionTransport {
           // it is not reported if the OTHERS also failed; it just means this
           // attempt's PIN was already in use somewhere, and the next attempt
           // mints a fresh one.
+          // ⚠ THE TEAM NUMBER TAKEN BY A JOIN THAT LANDED FIRST, ALONE: the
+          // roster write's condition failed and nothing else did. Re-read and
+          // take the next number, without spending an attempt (MAX_NUMBER_RACES)
+          // and after a short random wait, so a class joining together spreads
+          // out. A room that has gone is caught by the re-read.
+          if (tx.failed.length === 1 && tx.failed[0] === 3 && numberRaces < MAX_NUMBER_RACES) {
+            numberRaces++;
+            attempt--;
+            await sleep(Math.random() * Math.min(200, 10 * 2 ** Math.min(numberRaces, 5)));
+            continue;
+          }
           if (tx.failed.length === 1 && tx.failed[0] === 4) {
             lastFailure = new SessionError('TRANSPORT_FAILURE', 'Could not allocate a viewer PIN.', true);
             continue;
@@ -1409,11 +1448,37 @@ export class DynamoSessionTransport implements SessionTransport {
 
   // ---- read ------------------------------------------------------------
 
+  /**
+   * ⚠ AN OLDER ROOM'S TEAM NUMBERS, SAVED THE FIRST TIME IT IS READ. A header
+   * written before numbers existed has no counter; its teams are numbered by
+   * join order (rosterNumbers) and saved, so they never change after. Written
+   * only while the counter is still absent — a join or another read that got
+   * there first wins, with the same numbers. NO rev BUMP: the view is the same
+   * before and after, since it numbers the same way.
+   */
+  private async saveTeamNumbers(header: RoomHeader): Promise<void> {
+    if (header.nextTeamNumber !== undefined) return;
+    const { byTeam, next, missing } = rosterNumbers(header);
+    try {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table,
+        Key: { pk: roomPk(header.code), sk: ROOM_HEADER_SK },
+        UpdateExpression: 'SET nextTeamNumber = :next' + missing.map((_, i) => `, roster.#m${i}.teamNumber = :m${i}`).join(''),
+        ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(nextTeamNumber)',
+        ...(missing.length ? { ExpressionAttributeNames: Object.fromEntries(missing.map((id, i) => [`#m${i}`, id])) } : {}),
+        ExpressionAttributeValues: { ':next': next, ...Object.fromEntries(missing.map((id, i) => [`:m${i}`, byTeam.get(id)!])) },
+      }));
+    } catch (e) {
+      if (!(e instanceof ConditionalCheckFailedException)) throw e;
+    }
+  }
+
   read(req: ReadRequest): Promise<ReadResponse> {
     return this.call(async () => {
       const code = requireString(req.code, 'code');
       const token = req.token ? requireString(req.token, 'token') : undefined;
       const { header, viewerTeamId } = await this.getHeaderAndViewer(code, token ? hashToken(token) : null);
+      await this.saveTeamNumbers(header);
       const { role, teamId } = await this.resolve(header, token, viewerTeamId);
       return this.viewFor(header, role, teamId);
     });

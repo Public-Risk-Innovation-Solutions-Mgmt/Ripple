@@ -13,12 +13,14 @@ import { lineDisplayName } from '../utils/lineDisplay';
 const f4 = (x: number) => x.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }).replace(/^-/, '−');
 const pct4 = (x: number) => `${f4(x * 100)}%`;
 
-function Step({ label, op, value, testId, strong }: { label: string; op?: string; value: number; testId?: string; strong?: boolean }) {
+// `pct`: the figure as a percentage to one decimal ("20.0%") — the expense ratio
+// block, as the Rate Indication, the Decisions panel and the Year Walkthrough show it.
+function Step({ label, op, value, testId, strong, pct }: { label: string; op?: string; value: number; testId?: string; strong?: boolean; pct?: boolean }) {
   return (
     <tr className={`border-b border-gray-50 ${strong ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
       <td className="px-3 py-1">{label}</td>
       <td className="px-3 py-1 text-gray-500 font-mono text-xs whitespace-nowrap">{op ?? ''}</td>
-      <td data-testid={testId} data-value={value} className="px-3 py-1 text-right font-mono tabular-nums whitespace-nowrap">{f4(value)}</td>
+      <td data-testid={testId} data-value={value} className="px-3 py-1 text-right font-mono tabular-nums whitespace-nowrap">{pct ? `${(value * 100).toFixed(1)}%` : f4(value)}</td>
     </tr>
   );
 }
@@ -106,17 +108,32 @@ function SectionA({ m }: { m: ModelRate }) {
           <Step label="Admin per $100" op={`${f4(m.rateBeforeReinsurancePer100)} (rate before reinsurance) × ${pct4(m.adminShare)}`} value={m.adminPer100} testId="model-a-admin" />
 
           <Heading n={5} title="Expenses, as shares of the rate at Expected" />
-          <Step label="Admin" value={m.expenses.admin} testId="model-a-exp-admin" />
-          <Step label="Risk control" value={m.expenses.riskControl} testId="model-a-exp-risk-control" />
-          <Step label="Total expense ratio" op="sum" value={m.expenses.total} testId="model-a-exp-total" strong />
-          <Step label="Permissible loss ratio" op="1 − total expense ratio" value={m.expenses.permissibleLossRatio} testId="model-a-plr" strong />
+          {/* The expense ratio block (wip/risk-control-divisor): admin and the
+              year's Risk Control slider, both in the divisor. */}
+          <Step label="Admin" value={m.expenses.admin} testId="model-a-exp-admin" pct />
+          <Step label="Risk control" op="the line's choice" value={m.expenses.riskControl} testId="model-a-exp-risk-control" pct />
+          <Step label="Total expense ratio" op="sum" value={m.expenses.total} testId="model-a-exp-total" strong pct />
+          <Step label="Permissible loss ratio" op="1 − total expense ratio" value={m.expenses.permissibleLossRatio} testId="model-a-plr" strong pct />
           <Step label="Indicated rate at Expected per $100" op={`${f4(m.projectedPurePremiumPer100)} ÷ ${f4(m.expenses.permissibleLossRatio)}`}
             value={m.indicatedRatePer100} testId="model-a-indicated" strong />
 
           <Heading n={6} title="Funding and reinsurance" />
           <Step label={`Funding level: ${m.funding.label}`} op="CLF" value={m.funding.clf} testId="model-a-clf" />
-          <Step label="Expense divisor" op={`1 − risk control ${pct4(m.riskControl)} − admin ${pct4(m.adminShare)}`} value={m.divisor} />
-          <Step label="Reinsurance price per $100" value={m.reinsurancePer100} testId="model-a-reins" />
+          <Step label="Expense divisor" op={`1 − admin ${pct4(m.adminShare)} − risk control ${pct4(m.riskControl)}`} value={m.divisor} />
+          {m.aggregateCover && (() => {
+            const c = m.aggregateCover;
+            return (<>
+              <Step label={`Aggregate stop-loss ${c.name}: expected normal losses`} op={`${f4(m.quotedExposure)} × 10,000 × the ordinary cost`} value={c.expectedNormal} testId="model-a-agg-normal" />
+              <Step label="Average surge, as priced" value={c.averageSurge} testId="model-a-agg-surge" />
+              <Step label="Expected attritional losses" op={`× (1 + ${f4(c.averageSurge)})`} value={c.expectedAttritional} testId="model-a-agg-expected" />
+              <Step label="Attachment" op={`× ${f4(c.attachmentShare)}`} value={c.attachment} testId="model-a-agg-attachment" />
+              <Step label="Limit" op={`× ${f4(c.limitShare)}`} value={c.limit} testId="model-a-agg-limit" />
+              <Step label="Expected recovery" op="four surge cases, normal luck" value={c.expectedRecovery} testId="model-a-agg-recovery" />
+              <Step label="Aggregate stop-loss annual premium" op={`× load ${f4(c.load)}`} value={c.price} testId="model-a-agg-price" />
+              <Step label="Aggregate stop-loss per $100" op={`÷ (${f4(m.quotedExposure)} × 10,000)`} value={c.pricePer100} testId="model-a-agg-per100" />
+            </>);
+          })()}
+          <Step label="Reinsurance price per $100" op={m.aggregateCover ? 'per-claim cover + aggregate cover' : undefined} value={m.reinsurancePer100} testId="model-a-reins" />
 
           <Heading n={7} title="The rate" />
           <Step label="Pure premium × CLF" op={`retained × ${f4(m.funding.clf)}`} value={m.pieces.purePremium} testId="model-a-piece-pure-premium" />

@@ -4,7 +4,7 @@
 import type { Region, CoverageLine } from '../types/simulation';
 import type { PayoutPattern } from '../utils/payoutPattern';
 import type { ClosureCurve } from '../utils/claimClosure';
-import { FUNDING_SLIDER_RANGE } from './pricingParameters';
+import { DIVIDEND_ASSESSMENT_RANGE, FUNDING_SLIDER_RANGE } from './pricingParameters';
 
 // Administrative expense is 15% of Pure Premium at CLF 1.000. It is added
 // after the selected CLF is applied and is not itself multiplied by the CLF.
@@ -2705,27 +2705,16 @@ export const SLIDER_RANGES = {
   // ⚠ 30% TO 90% IN TENS SINCE THE FUNDING TABLES WIRING — the BaselineCV
   // tables' own columns. Stated in pricingParameters (FUNDING_SLIDER_RANGE).
   fundingConfidenceLevel: FUNDING_SLIDER_RANGE,
-  dividendPct: { min: 0, max: 0.15, step: 0.005, default: 0 },
-  assessmentPct: { min: 0, max: 0.25, step: 0.005, default: 0 },
-  // The combined dividend/assessment control's own range: zero at centre,
-  // positive is a dividend, negative is an assessment. dividendPct and
-  // assessmentPct above remain the fields the engine reads; this exists only
-  // for the collapsed input.
-  //
-  // ⚠ SYMMETRIC AT +/-15%, AND NO LONGER THE TWO FIELDS' OWN MAXIMA. It ran
-  // -25% to +15% — assessmentPct.max against dividendPct.max — which made the
-  // centre sit off-centre on the track and gave the two directions different
-  // reach for no stated reason. A control whose zero is not in the middle reads
-  // as a bug every time somebody new looks at it. The underlying fields keep
-  // their own ranges; this control simply does not drive them to the ends.
-  //
-  // ⚠ STEP IS 1%, UP FROM 0.5%. The percentage is a share of SURPLUS now and
-  // the note under the slider prints it as a whole number beside the dollars it
-  // buys, so every stop the player can reach is a figure the note can show
-  // exactly. A 0.5% step put half the stops at a precision the note rounds
-  // away, and a slider that reads "10%" while meaning 9.5% is the same class of
-  // quiet wrongness the basis change was made to remove. 31 stops, -15% to +15%.
-  dividendAssessment: { min: -0.15, max: 0.15, step: 0.01, default: 0 },
+  // ⚠ IN DOLLARS, $1M A NOTCH (wip/dividends-in-dollars). They were shares of
+  // the opening surplus (-15% to +15% in 1% steps); the control keeps its 31
+  // notches, each now $1M. The engine reads dividendAmount and assessmentAmount;
+  // dividendAssessment is the collapsed control (zero at centre, positive a
+  // dividend, negative an assessment). See dividendAssessment.ts for how each is
+  // charged: an assessment in full whatever the surplus, a dividend limited to
+  // the opening surplus.
+  dividendAmount: { min: 0, max: DIVIDEND_ASSESSMENT_RANGE.max, step: DIVIDEND_ASSESSMENT_RANGE.step, default: 0 },
+  assessmentAmount: { min: 0, max: -DIVIDEND_ASSESSMENT_RANGE.min, step: DIVIDEND_ASSESSMENT_RANGE.step, default: 0 },
+  dividendAssessment: DIVIDEND_ASSESSMENT_RANGE,
   riskControlPct: { min: 0, max: 0.08, step: 0.01, default: 0 },
   // PER LINE, and SCREEN ONLY — the share of that line's premium spent on risk
   // control incentives. Not read by the engine (see

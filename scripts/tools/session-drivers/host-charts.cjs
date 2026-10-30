@@ -4,7 +4,7 @@
 // the start, then each year as it is played — and every year once the event is
 // over. Each expectation below is the count AT that latest known year. (They
 // ran a year behind, N - 2, until results stopped running a year behind.)
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -142,7 +142,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   for (let year = 1; year <= 3; year++) {
     const live = year === 1 ? players : [harbour, cedar];
     for (const p of live) {
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(p);
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]');
@@ -170,6 +170,23 @@ const activeView = page => page.$$eval('nav button', bs =>
 
   for (const id of ['surplus', 'exposure', 'losses', 'developed']) {
     ok(await host.$(`[data-testid="chart-${id}"]`) !== null, `the ${id} chart is drawn`);
+  }
+
+  // TEAM NUMBERS: the legend and the lines' end labels pair each team's number
+  // with its name, "Team 1 | Harbour Mutual", Team 1 the first to join — and
+  // Lakeside, the late fourth joiner, Team 4.
+  {
+    const want = ['Team 1 | Harbour Mutual', 'Team 2 | Cedar Valley', 'Team 3 | Tri-County', 'Team 4 | Lakeside'];
+    const legend = await host.$$eval('[data-testid^="chart-legend-"]', els => els.map(e => e.textContent.trim()));
+    ok(JSON.stringify(legend) === JSON.stringify(want), `the legend pairs each team's number with its name (${legend.join(', ')})`);
+    const ends = await host.$$eval('[data-testid="chart-surplus"] text', els => els.map(e => e.textContent.trim()).filter(t => /^Team \d+ \|/.test(t)));
+    ok(want.every(w => ends.includes(w)), `and so do the lines' end labels, in full (${ends.join(', ')})`);
+    // Inside the chart: the right margin widened for them (HostChartsTab, M.right).
+    const overhang = await host.$$eval('[data-testid="chart-surplus"] text', els => Math.max(0, ...els
+      .filter(e => /^Team \d+ \|/.test(e.textContent.trim()))
+      .map(e => { const b = e.getBBox(); return b.x + b.width - e.ownerSVGElement.viewBox.baseVal.width; })));
+    ok(overhang <= 0, `and every end label fits inside the chart (${overhang.toFixed(1)} px past its right edge)`);
+    if (process.env.CHARTS_SHOT) await host.locator('[data-testid="chart-surplus"]').screenshot({ path: process.env.CHARTS_SHOT });
   }
 
   // ---- AS BOOKED vs AS DEVELOPED ---------------------------------------

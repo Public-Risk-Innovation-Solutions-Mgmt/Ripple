@@ -47,7 +47,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken, eventStatusOf, mayCreateTeam, type EventStatus } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
@@ -485,7 +485,7 @@ export default function PlayScreen({ code, role }: Props) {
                   className="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-700 hover:border-blue-400 hover:bg-blue-50"
                 >
                   <span>
-                    <span className="font-medium">{t.name}</span>
+                    <span className="font-medium">{teamLabel(t)}</span>
                     <span className="ml-2 text-xs text-slate-600">{t.lines.join(' + ')}</span>
                   </span>
                   <span className="text-xs">{claiming === t.name ? 'Opening…' : 'watch'}</span>
@@ -540,7 +540,7 @@ export default function PlayScreen({ code, role }: Props) {
 
               {room.teams.length > 0 && (
                 <p className="text-xs text-slate-600">
-                  Already in: {room.teams.map(t => `${t.name} (${t.lines.join('+')})`).join(', ')}
+                  Already in: {room.teams.map(t => `${teamLabel(t)} (${t.lines.join('+')})`).join(', ')}
                 </p>
               )}
             </div>
@@ -573,7 +573,7 @@ export default function PlayScreen({ code, role }: Props) {
   const myTeam = room.teams.find(t => t.name === you.teamName);
   const locked = myTeam?.locked ?? false;
   const complete = room.status === 'complete';
-  const outstanding = room.teams.filter(t => t.joined && !t.locked).map(t => t.name);
+  const outstanding = room.teams.filter(t => t.joined && !t.locked).map(teamLabel);
   const processing = game.phase === 'processing';
 
   return (
@@ -610,11 +610,16 @@ export default function PlayScreen({ code, role }: Props) {
                 <Eye size={13} /> Watching
               </span>
             )}
-            <span
-              className="font-medium text-slate-700"
-              data-testid={isViewer ? 'watched-team' : 'my-team'}
-            >
-              {you.teamName}
+            {/* The team's number beside its name, "Team 1 | Harbour Mutual" — the
+                pairing every host screen shows (contract teamNumbers). The name
+                keeps its own span, as drivers and viewers read it. */}
+            <span className="font-medium text-slate-700">
+              {myTeam && (
+                <span data-testid={isViewer ? 'watched-team-number' : 'my-team-number'} className="text-slate-500">
+                  Team {myTeam.teamNumber} |{' '}
+                </span>
+              )}
+              <span data-testid={isViewer ? 'watched-team' : 'my-team'}>{you.teamName}</span>
             </span>
             {/* ⚠ SHOWN, WITH NO CONTROL BESIDE IT. After the join the lines are
                 a fact about this team rather than a setting, so the strip states

@@ -8,12 +8,16 @@ import AllocationBar from '../components/AllocationBar';
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
 import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
-import { dividendAssessmentBasis } from '../utils/dividendAssessment';
+import { dividendAssessmentBasis, dividendPaid } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
 import { bookExposureOf, bookRiskOf, isRoster, shockBaseOf, type Book } from '../utils/lineHelpers';
 import { shockCostFactor } from '../utils/shockCost';
 import { stopQuote } from '../utils/aggregateStop';
+import {
+  AGGREGATE_COVER_FOOTNOTE, AGGREGATE_COVER_NOTE, AGGREGATE_COVER_TITLE,
+  aggregateCoverLabel, aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
+} from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -23,7 +27,7 @@ import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, RISK_CONTROL,
+  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER,
 } from '../data/pricingParameters';
 
 export interface LineLoanInfo {
@@ -128,14 +132,13 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
     onChange({ ...decisions, byLine: { ...decisions.byLine, [selectedLine]: { ...d, fundingConfidenceLevel: v, fundingAtExpected: false } } });
   const setFundingAtExpected = () => set('fundingAtExpected', true);
 
-  // COMBINED DIVIDEND/ASSESSMENT CONTROL (Part 1). One slider, zero at centre:
-  // positive is a dividend, negative is an assessment. dividendPct and
-  // assessmentPct stay separate engine fields — setting one always zeros the
-  // other, which is what makes both-in-one-year structurally impossible where
-  // the engine previously permitted it. Assessments remain OUTSIDE
-  // totalMemberCharge in the engine (unchanged) — folding them in would
-  // improve the loss ratio for the very members being billed.
-  const dividendAssessmentValue = d.dividendPct > 0 ? d.dividendPct : -d.assessmentPct;
+  // COMBINED DIVIDEND/ASSESSMENT CONTROL, IN DOLLARS: one slider, zero at
+  // centre, $1M a notch — positive a dividend, negative an assessment.
+  // dividendAmount and assessmentAmount stay separate engine fields — setting
+  // one always zeros the other, so both in one year is structurally impossible.
+  // Assessments remain OUTSIDE totalMemberCharge in the engine (unchanged) —
+  // folding them in would improve the loss ratio for the very members billed.
+  const dividendAssessmentValue = d.dividendAmount > 0 ? d.dividendAmount : -d.assessmentAmount;
   const setDividendAssessment = (v: number) => {
     onChange({
       ...decisions,
@@ -143,34 +146,23 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
         ...decisions.byLine,
         [selectedLine]: {
           ...d,
-          dividendPct: v > 0 ? v : 0,
-          assessmentPct: v < 0 ? -v : 0,
+          dividendAmount: v > 0 ? v : 0,
+          assessmentAmount: v < 0 ? -v : 0,
         },
       },
     });
   };
-  // ⚠ "0%" AT CENTRE, NOT "None". The slider is a percentage of surplus along
-  // its whole length and the note below it prints that percentage; a centre
-  // reading "None" made the one position the player starts on the only one that
-  // did not say what it was a percentage OF. Zero is a percentage like the rest.
   const dividendAssessmentDisplay = (v: number) => {
-    if (v > 0.0001) return `Dividend ${(v * 100).toFixed(0)}%`;
-    if (v < -0.0001) return `Assessment ${(-v * 100).toFixed(0)}%`;
-    return '0%';
+    if (v > 0) return `Dividend ${formatCurrency(v, true)}`;
+    if (v < 0) return `Assessment ${formatCurrency(-v, true)}`;
+    return '$0';
   };
-  // THE SURPLUS THE PERCENTAGE IS A SHARE OF, read from the engine's own figure
-  // rather than recomputed here. This line's opening surplus for the year IS
-  // last year's endingSurplus carried forward (simulationEngine assigns
-  // `updatedLineState.surplus = result.endingSurplus`), and the engine applies
-  // the percentage to exactly this number through the same clamp — see
-  // dividendAssessment.ts. Undefined only before the pre-game has produced
-  // anything, where there is no surplus to show and the note is omitted.
-  const dividendAssessmentSurplus = lastLineResult
-    ? dividendAssessmentBasis(lastLineResult.endingSurplus)
-    : null;
-  // Dividend side clamped to 0 while blocked (negative surplus carried in);
-  // the assessment side stays fully available, unlike disabling the whole
-  // control would allow.
+  // THIS LINE'S OPENING SURPLUS for the year: last year's endingSurplus carried
+  // forward (simulationEngine assigns `updatedLineState.surplus =
+  // result.endingSurplus`). A dividend is limited to it (dividendPaid, the
+  // engine's own rule); an assessment is charged in full whatever it is.
+  // Undefined only before the pre-game has produced anything.
+  const openingSurplus = lastLineResult ? lastLineResult.endingSurplus : null;
   const dividendAssessmentMax = selectedLoanInfo.dividendBlocked ? 0 : SLIDER_RANGES.dividendAssessment.max;
 
   return (
@@ -249,23 +241,24 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
         </SectionCard>
 
         <SectionCard title="Risk Control" icon={<Shield size={16} />}>
-          {/* ⚠ DISABLED AT 0% WHILE RISK_CONTROL IS OFF, and the cost box shows
-              $0: the engine charges nothing for it, and the box never shows a
-              cost the game does not charge (derivations.ts riskControlCost).
-              When the flag comes on it must be charged as a share of the PURE
-              PREMIUM, matching the slider's end label — see RISK_CONTROL. */}
+          {/* THE RISK CONTROL SLIDER (wip/risk-control; RISK_CONTROL_CHARGE): 0% to
+              5% of the line's rate before reinsurance, charged in the rate and
+              booked as Other Admin Expense. The box shows the charge in dollars
+              at the current exposure (derivations.ts riskControlCost) — the
+              engine's own figure. It replaces the on/off switch that held the
+              slider disabled at 0% ("coming soon"). */}
           <RiskControlIncentives
             line={selectedLine}
-            value={RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default) : 0}
+            value={d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default}
             onChange={v => set('riskControlIncentivePct', v)}
-            disabled={disabled || !RISK_CONTROL.enabled}
+            disabled={disabled}
             cost={riskControlCost}
           />
         </SectionCard>
 
         <SectionCard title="Dividends and Assessments" icon={<DollarSign size={16} />}>
-          <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
-          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
+          <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control, in dollars, $1M a notch: positive returns money to members as a dividend, paid out of surplus and limited to the surplus available; negative charges members an assessment beyond premium, in full whatever the surplus. Exactly one may apply in a given year. Assessments are never counted toward the loss ratio of the members being billed." />
+          <DividendAssessmentNote openingSurplus={openingSurplus} amount={dividendAssessmentValue} blocked={selectedLoanInfo.dividendBlocked} />
           <p data-testid="dividend-assessment-note" className="text-xs text-gray-500 -mt-3">
             A dividend reduces the Pool&rsquo;s net position; an assessment increases it.
           </p>
@@ -605,7 +598,7 @@ function NewRatePanel({ n, prior }: {
   // most). Admin is its share of premium (ADMIN_SHARE_OF_PREMIUM), labelled
   // with that share, and the permissible loss ratio is printed below the rate. Your rate's pure premium is the retained figure x the CLF, so it
   // moves with the funding level; its Risk Control is the Risk Control box's
-  // cost per $100 ($0.00 while risk control is off). Indicated stays at
+  // cost per $100 ($0.00 at 0%). Indicated stays at
   // Expected, self-funded. See ratePieces.
   const pieces = ratePieces(n);
   const ind = pieceCents(pieces.indicated), yours = pieceCents(pieces.yours);
@@ -614,9 +607,20 @@ function NewRatePanel({ n, prior }: {
     [`+ Admin (${(n.adminShare * 100).toFixed(0)}% of premium)`, 'admin', c2(ind.admin), c2(yours.admin)],
     ['+ Risk Control', 'risk-control', c2(ind.riskControl), c2(yours.riskControl)],
   ];
-  // The permissible loss ratio: 1 - admin's share - risk control's (off).
-  const plrIndicated = 1 - n.adminShare - (n.firstIndicationPer100 > 0 ? n.indicatedRiskControlPer100 / n.firstIndicationPer100 : 0);
-  const plrYours = 1 - n.adminShare - (n.finalRatePer100 - n.reinsRatePer100 > 0 ? n.riskControlPer100 / (n.finalRatePer100 - n.reinsRatePer100) : 0);
+  // THE EXPENSE RATIO (wip/risk-control-divisor): admin's share and the line's
+  // current Risk Control choice, both in the divisor, so the pure premium's
+  // share of the rate before reinsurance — the permissible loss ratio — is 1 -
+  // their total. The same in both columns: both carry the same admin share and
+  // slider.
+  const expenseTotal = n.adminShare + n.riskControlPct;
+  const plrIndicated = 1 - expenseTotal;
+  const plrYours = plrIndicated;
+  const p1 = (v: number) => `${(v * 100).toFixed(1)}%`;
+  const expenseRows: Array<[string, string, number]> = [
+    ['Admin', 'exp-admin', n.adminShare],
+    ['Risk control', 'exp-risk-control', n.riskControlPct],
+    ['Total expense ratio', 'exp-total', expenseTotal],
+  ];
 
   return (
     <div data-testid="new-rate-panel" className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -647,10 +651,17 @@ function NewRatePanel({ n, prior }: {
             {/* data-value: the full figure, for the rate-indication driver; the text is unchanged. */}
             <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{c2(yours.rate)}</td>
           </tr>
+          {expenseRows.map(([label, id, v]) => (
+            <tr key={id} className={`border-t ${id === 'exp-total' ? 'border-gray-300 font-medium' : 'border-gray-200/70'}`}>
+              <td className="py-1 text-gray-600">{label}</td>
+              <td data-testid={`new-rate-indicated-${id}`} data-value={v} className="py-1 text-right tabular-nums">{p1(v)}</td>
+              <td data-testid={`new-rate-yours-${id}`} data-value={v} className="py-1 text-right tabular-nums">{p1(v)}</td>
+            </tr>
+          ))}
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">Permissible loss ratio</td>
-            <td data-testid="new-rate-indicated-plr" data-value={plrIndicated} className="py-1 text-right tabular-nums">{(plrIndicated * 100).toFixed(0)}%</td>
-            <td data-testid="new-rate-yours-plr" data-value={plrYours} className="py-1 text-right tabular-nums">{(plrYours * 100).toFixed(0)}%</td>
+            <td data-testid="new-rate-indicated-plr" data-value={plrIndicated} className="py-1 text-right tabular-nums">{p1(plrIndicated)}</td>
+            <td data-testid="new-rate-yours-plr" data-value={plrYours} className="py-1 text-right tabular-nums">{p1(plrYours)}</td>
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
@@ -973,14 +984,14 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
   value: number;
   onChange: (v: number) => void;
   disabled: boolean;
-  /** What the setting costs at the line's current exposure, in dollars — $0 while RISK_CONTROL is off. Absent shows no box. */
+  /** What the setting costs at the line's current exposure, in dollars — the rate's charge for it. Absent shows no box. */
   cost?: number | null;
 }) {
   const r = SLIDER_RANGES.riskControlIncentivePct;
   return (
     <div className="space-y-3">
-      {/* The program is the label; the value reads as an approximate share of
-          pure premium, the right end as the most of the pure premium it can spend. */}
+      {/* The program is the label; the value is the slider's share of the rate
+          before reinsurance — in the divisor beside admin (RISK_CONTROL_CHARGE). */}
       <SliderInput
         label={RISK_CONTROL_PROGRAM_NAME[line]}
         value={value}
@@ -988,12 +999,14 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
         max={r.max}
         step={r.step}
         onChange={onChange}
-        formatValue={v => `~${Number((v * 100).toFixed(1))}% of pure premium`}
+        formatValue={v => `${Number((v * 100).toFixed(1))}% of the rate`}
         leftLabel="None"
-        rightLabel={`${Number((r.max * 100).toFixed(1))}% of Pure Premium`}
+        rightLabel={`${Number((r.max * 100).toFixed(1))}% of the rate`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
         disabled={disabled}
-        helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}.`}
+        helpText={`This share of ${lineDisplayName(line)}'s rate before reinsurance, beside admin's, is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
+          + 'It cuts this year\'s normal losses — never shocks, large claims or older years — by an amount that varies '
+          + 'from year to year; on average the losses and loss expense saved equal the cost.'}
       />
       {cost !== null && cost !== undefined && (
         <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-gray-600">
@@ -1006,41 +1019,32 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
 }
 
 // ============================================================================
-// WHAT THE DIVIDEND / ASSESSMENT SLIDER COSTS, IN DOLLARS.
+// WHAT THE DIVIDEND / ASSESSMENT SLIDER PAYS OR CHARGES, IN DOLLARS.
 //
-//   Surplus: $52.4M   +10% ($5.2M)     green, for a dividend
-//   Surplus: $52.4M   -10% ($5.2M)     red and signed, for an assessment
-//   Surplus: $52.4M   0%               gray, and NO dollar amount
+//   Surplus available: $52.4M   Dividend paid: $3.00M              green
+//   Surplus available: $1.2M    Dividend paid: $1.20M (limited to the surplus available)
+//   Surplus available: $0       Assessment charged: $5.00M          red
+//   Surplus available: $52.4M   No dividend or assessment           gray
 //
-// ⚠ THE DOLLARS ARE THE ENGINE'S, NOT A SECOND SUM. `surplus` arrives already
-// put through dividendAssessmentBasis — the same function simulationEngine
-// multiplies — so `surplus * pct` here is arithmetic on the engine's own two
-// inputs rather than a parallel model of the payment. That is the only reason
-// the figure can be stated as what is paid or charged.
-//
-// ⚠ NO DOLLAR FIGURE AT ZERO, DELIBERATELY. "$0" is a quantity and invites the
-// reading that something moved and netted out. Nothing moves at 0%: the row
-// says what the surplus is and that the share of it is none.
-//
-// ⚠ THE MINUS SIGN IS KEPT ON THE ASSESSMENT and the dollars are not negated.
-// The sign belongs to the DIRECTION of the percentage — money leaving members
-// rather than reaching them — and the amount is an amount either way. Printing
-// "-10% (-$5.2M)" would state the direction twice and read as a negative
-// charge, which is what the basis clamp in dividendAssessment.ts exists to
-// prevent in the engine.
-function DividendAssessmentNote({ surplus, pct }: { surplus: number | null; pct: number }) {
-  if (surplus === null) return null;
-  const isDividend = pct > 0.0001;
-  const isAssessment = pct < -0.0001;
-  const amount = surplus * Math.abs(pct);
+// ⚠ THE DOLLARS ARE THE ENGINE'S. A dividend goes through dividendPaid — the
+// function simulationEngine calls — so a dividend above the surplus shows the
+// capped amount actually paid, and says so; an assessment is charged in full
+// whatever the surplus (assessmentCharged), so a pool with none can still assess.
+// ============================================================================
+function DividendAssessmentNote({ openingSurplus, amount, blocked }: { openingSurplus: number | null; amount: number; blocked: boolean }) {
+  if (openingSurplus === null) return null;
+  const available = dividendAssessmentBasis(openingSurplus);
+  const isDividend = amount > 0;
+  const isAssessment = amount < 0;
+  const paid = isDividend ? dividendPaid(amount, openingSurplus, blocked) : 0;
   const tone = isDividend ? 'text-emerald-600' : isAssessment ? 'text-red-600' : 'text-gray-500';
-  const signedPct = `${isDividend ? '+' : isAssessment ? '−' : ''}${Math.round(Math.abs(pct) * 100)}%`;
   return (
-    <p className="flex items-center gap-2 text-xs text-gray-500 -mt-3">
-      <span>Surplus: {formatCurrency(surplus, true)}</span>
+    <p data-testid="dividend-assessment-dollars" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 -mt-3">
+      <span>Surplus available: {formatCurrency(available, true)}</span>
       <span className={`font-semibold ${tone}`}>
-        {signedPct}
-        {(isDividend || isAssessment) && ` (${formatCurrency(amount, true)})`}
+        {isDividend && `Dividend paid: ${formatCurrency(paid, true)}${paid < amount ? ' (limited to the surplus available)' : ''}`}
+        {isAssessment && `Assessment charged: ${formatCurrency(-amount, true)}`}
+        {!isDividend && !isAssessment && 'No dividend or assessment'}
       </span>
     </p>
   );
@@ -1088,7 +1092,72 @@ function PackageControls(props: {
   yearNumber: number;
   shocks: boolean;
 }) {
-  return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
+  return (
+    <div className="space-y-5">
+      {AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />}
+      <AggregateCoverControls {...props} />
+    </div>
+  );
+}
+
+// ============================================================================
+// THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover) — one option
+// per line, beside the per-claim cover above: its title and note, each
+// option's label and annual premium, and what it pays — the wording built from
+// each option's layer (aggregateCover.aggregateCoverLabel). The price is the engine's
+// own quote (aggregateCover.aggregateCoverQuote) on the line's book and year —
+// the book the rate is quoted on — so the panel cannot show a figure the
+// engine does not charge. Offered in every game, shocks on or off,
+// as the per-claim covers are (COVERS_IN_EVERY_GAME; aggregateCoverOptionIds).
+// ============================================================================
+function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+  shocks: boolean;
+}) {
+  const exposure = bookExposureOf(book, line, yearNumber);
+  const held = aggregateCoverOf(d);
+  return (
+    <div className="space-y-3 border-t border-gray-100 pt-4" data-testid={`agg-cover-${line}`}>
+      <div>
+        <h4 data-testid={`agg-cover-title-${line}`} className="text-sm font-semibold text-gray-900">{AGGREGATE_COVER_TITLE}</h4>
+        <p data-testid={`agg-cover-note-${line}`} className="text-xs text-gray-600 leading-relaxed">{AGGREGATE_COVER_NOTE}</p>
+      </div>
+      {/* Two columns: the option's label, and its annual premium for this line and year. */}
+      <div className="flex items-center justify-between px-3 text-xs font-medium text-gray-500">
+        <span>Label</span>
+        <span>Annual Premium</span>
+      </div>
+      <div className="space-y-1.5" data-testid={`agg-cover-options-${line}`}>
+        {aggregateCoverOptionIds(shocks).map(id => {
+          const label = aggregateCoverLabel(id);
+          const chosen = held === id;
+          const price = aggregateCoverQuote(line, id, exposure, yearNumber).price;
+          return (
+            <button
+              key={id}
+              type="button"
+              data-testid={`agg-cover-option-${line}-${id}`}
+              data-price={price}
+              disabled={disabled}
+              onClick={() => !disabled && setMany({ aggregateCover: id })}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              <span data-testid={`agg-cover-label-${line}-${id}`}>{label.label}</span>
+              <span className="text-xs text-gray-600 whitespace-nowrap pl-3">{formatCurrency(price)}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p data-testid={`agg-cover-footnote-${line}`} className="text-xs text-gray-500 leading-relaxed">{AGGREGATE_COVER_FOOTNOTE}</p>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -1147,8 +1216,9 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
 // THE T COVERS (wip/shocks) — per occurrence, on the single T claim, from
 // REINSURANCE_OPTIONS. ⚠ EACH OPTION'S NAME AND ITS FIXED PRICE ONLY
 // (tCoverPrice, via optionPrice — the price the engine charges), never a
-// description, its expected recovery or how it was priced. While the game's
-// shocks are off only None is offered (reinsuranceOptionIds).
+// description, its expected recovery or how it was priced. Every game is
+// offered all of them, shocks on or off (COVERS_IN_EVERY_GAME;
+// reinsuranceOptionIds).
 function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;
   d: LineDecisionSet;

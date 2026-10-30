@@ -7,7 +7,7 @@
 // the tab across the advance and asserts both sides of it.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -64,7 +64,7 @@ async function join(ctx, code, name) {
 
   // Both teams lock year 1 and the host advances.
   for (const p of [a, b]) {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(p);
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
 
@@ -106,7 +106,7 @@ async function join(ctx, code, name) {
   await host.waitForFunction(
     () => {
       const rs = [...document.querySelectorAll('[data-testid^="decisions-row-"]')];
-      return rs.length >= 2 && rs.every(r => r.children.length === 8);
+      return rs.length >= 2 && rs.every(r => r.children.length === 9);
     },
     null, { timeout: 60000 }).catch(() => {});
 
@@ -118,25 +118,31 @@ async function join(ctx, code, name) {
   ok(rows.length === 2, `both teams appear (${rows.length} rows)`);
   // A reported row has a cell per decision column; a non-reported one collapses
   // to a single spanning cell, exactly as the Teams tab does.
-  ok(rows.every(r => r.length === 8),
-     'every row is REPORTED — eight cells, not a collapsed "not reported" span');
+  ok(rows.every(r => r.length === 9),
+     'every row is REPORTED — nine cells (the team number, the name and seven decisions), not a collapsed "not reported" span');
+  // TEAM NUMBERS: "Team number" before "Team", Team 1 the first to join.
+  {
+    const heads = await host.$$eval('[data-testid="decisions-table"] th', hs => hs.map(h => h.textContent.trim()));
+    const pairs = rows.map(r => `${r[0]} | ${r[1]}`);
+    ok(heads[0] === 'Team number' && heads[1] === 'Team' && JSON.stringify(pairs) === JSON.stringify(['Team 1 | Harbour Mutual', 'Team 2 | Cedar Valley']),
+       `the Decisions tab pairs each team's number with its name, in join order (${pairs.join(', ')})`);
+  }
   ok(rows.every(r => !/Decisions not recorded/.test(r.join(' '))),
      'and none reads "not recorded" — the posted rows carry their decisions block');
   // The Reinsurance column is each line's cover, by name (stable-scenarios
   // commit 6: the aggregate stop). Both teams locked on the defaults, so it
-  // reads the default cover's name — None, because this room schedules no
-  // shocks and a room with its shocks off defaults to None
-  // (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF).
-  ok(rows.every(r => r[2] === 'None'),
-     `the Reinsurance column shows the package the team chose (${rows.map(r => r[2]).join(', ')})`);
+  // reads the default cover's name — None, the default in every game, shocks
+  // on or off (REINSURANCE_DEFAULT_OPTION; this room schedules no shocks).
+  ok(rows.every(r => r[3] === 'None'),
+     `the Reinsurance column shows the package the team chose (${rows.map(r => r[3]).join(', ')})`);
   // Simple underwriting: the two underwriting sliders, by name, as percentages
   // — both teams locked on the defaults, 0% and 0%.
   {
     const heads = await host.$$eval('[data-testid="decisions-table"] th', hs => hs.map(h => h.textContent.trim()));
     ok(heads.includes('Non-renewal') && heads.includes('New members'),
        `the Decisions tab names both sliders (${heads.join(' | ')})`);
-    ok(rows.every(r => r[3] === '0%' && r[4] === '0%'),
-       `and shows both as percentages (${rows.map(r => `${r[3]} / ${r[4]}`).join(', ')})`);
+    ok(rows.every(r => r[4] === '0%' && r[5] === '0%'),
+       `and shows both as percentages (${rows.map(r => `${r[4]} / ${r[5]}`).join(', ')})`);
   }
 
   // ⚠ ADDED AFTER THIS DRIVER FOUND THE BUG. The allocation column rendered

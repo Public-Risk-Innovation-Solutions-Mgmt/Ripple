@@ -20,7 +20,7 @@ import { CheckCircle2, Circle, Clock, Copy, Eye, EyeOff, KeyRound, Loader2 } fro
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { loadActive, loadHeld, rememberHostToken, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
-import { eventStatusOf } from '../contract';
+import { eventStatusOf, teamLabel } from '../contract';
 
 interface Props {
   code: string;
@@ -302,6 +302,7 @@ export default function HostRoomScreen({ code }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-600">
+                <th className="px-5 py-2 font-medium">Team number</th>
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-5 py-2 font-medium">Lines</th>
                 <th className="px-5 py-2 font-medium">Joined</th>
@@ -312,7 +313,7 @@ export default function HostRoomScreen({ code }: Props) {
             <tbody data-testid="team-table">
               {teams.length === 0 && (
                 <tr>
-                  <td colSpan={4} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-slate-600">
+                  <td colSpan={6} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-slate-600">
                     Waiting for teams to join at /join/{code}. Each names itself and picks its own lines.
                     {expectedTeams !== null && ` Expecting ${expectedTeams}.`}
                   </td>
@@ -320,6 +321,7 @@ export default function HostRoomScreen({ code }: Props) {
               )}
               {teams.map(t => (
                 <tr key={t.name} data-testid={`team-row-${t.name}`} className="border-t border-slate-50">
+                  <td data-testid={`setup-number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-slate-600">Team {t.teamNumber}</td>
                   <td className="px-5 py-2.5 text-slate-700">{t.name}</td>
                   {/* ⚠ THE HOST IS NOW READING A TABLE OF DIFFERENT GAMES, not
                       of seats at one. Two teams' numbers are not comparable
@@ -366,7 +368,7 @@ export default function HostRoomScreen({ code }: Props) {
                 {/* ⚠ BY NAME, NOT BY COUNT — the names are who gets chased. */}
                 {awaitingResults.length === 0
                   ? <>Year {reportingYear} results are in from every team.</>
-                  : <>Year {reportingYear} results outstanding from <span data-testid="awaiting-results" className="font-medium text-slate-700">{awaitingResults.map(t => t.name).join(', ')}</span></>}
+                  : <>Year {reportingYear} results outstanding from <span data-testid="awaiting-results" className="font-medium text-slate-700">{awaitingResults.map(teamLabel).join(', ')}</span></>}
               </p>
             )}
             {complete ? (
@@ -383,7 +385,7 @@ export default function HostRoomScreen({ code }: Props) {
                     ? joined.length === 0
                       ? 'No teams have joined yet.'
                       : 'Every team that has joined is locked in.'
-                    : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(t => t.name).join(', ')}</span></>}
+                    : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(teamLabel).join(', ')}</span></>}
                 </p>
                 <button
                   type="button"

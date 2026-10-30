@@ -31,15 +31,21 @@
 // in `flagsFor` and each flag says what it means on hover.
 // ============================================================================
 
-import { AGGREGATE_STOP_OPTIONS } from '../../data/pricingParameters';
+import { AGGREGATE_COVER_OPTIONS, AGGREGATE_STOP_OPTIONS } from '../../data/pricingParameters';
 import { Fragment, useState } from 'react';
 import { HardHat, Scale, Building2, AlertTriangle } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { formatPct } from '../../utils/formatters';
+import { formatCurrency, formatPct } from '../../utils/formatters';
 import { clfFor } from '../../utils/fundingConsequence';
 import type { CoverageLine } from '../../types/simulation';
 import type { RoomView, TeamLineDecisions, TeamView, TeamYearSummary } from '../index';
+
+// The dividend and the assessment, in dollars. A record posted before they were
+// dollars carries dividendPct/assessmentPct instead, and reads as none.
+const divOf = (d: TeamLineDecisions): number => d.dividendAmount ?? 0;
+const assOf = (d: TeamLineDecisions): number => d.assessmentAmount ?? 0;
+const money = (v: number) => formatCurrency(v, true);
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -109,17 +115,17 @@ function flagsFor(line: CoverageLine, d: TeamLineDecisions): Flag[] {
     });
   }
 
-  if (d.dividendPct > 0) {
+  if (divOf(d) > 0) {
     out.push({
       key: 'dividend',
-      label: `Dividend ${formatPct(d.dividendPct, 1)}`,
+      label: `Dividend ${money(divOf(d))}`,
       title: 'A dividend returns surplus to members; flagged so the host sees it against the year\'s result.',
     });
   }
-  if (d.assessmentPct > 0) {
+  if (assOf(d) > 0) {
     out.push({
       key: 'assessment',
-      label: `Assessment ${formatPct(d.assessmentPct, 1)}`,
+      label: `Assessment ${money(assOf(d))}`,
       title: 'An assessment calls surplus from members; flagged for the same reason as a dividend.',
     });
   }
@@ -139,8 +145,13 @@ function fundingLabel(d: TeamLineDecisions): string {
 // name, as the team saw it.
 function reinsuranceLabel(d: TeamLineDecisions): string {
   if (typeof d.reinsuranceOption !== 'string') return '—';
-  if (d.reinsuranceOption === 'none') return 'None';
-  return AGGREGATE_STOP_OPTIONS.find(o => o.id === d.reinsuranceOption)?.name ?? d.reinsuranceOption;
+  const layer = d.reinsuranceOption === 'none' ? 'None'
+    : AGGREGATE_STOP_OPTIONS.find(o => o.id === d.reinsuranceOption)?.name ?? d.reinsuranceOption;
+  // The aggregate cover on attritional losses, when bought (absent is None).
+  const cover = d.aggregateCover && d.aggregateCover !== 'none'
+    ? AGGREGATE_COVER_OPTIONS.find(o => o.id === d.aggregateCover)?.name ?? d.aggregateCover
+    : null;
+  return cover ? `${layer} + aggregate stop-loss ${cover}` : layer;
 }
 
 const SPAN_NOTE: Record<Exclude<CellState['kind'], 'reported'>, string> = {
@@ -217,6 +228,7 @@ export default function HostDecisionsTab({ room }: Props) {
           <table data-testid="decisions-table" className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                <th className="px-5 py-2 font-medium">Team number</th>
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-3 py-2 font-medium">Funding</th>
                 <th className="px-3 py-2 font-medium">Reinsurance</th>
@@ -238,6 +250,7 @@ export default function HostDecisionsTab({ room }: Props) {
                       className="cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50"
                       onClick={() => setOpenTeam(open ? null : team.name)}
                     >
+                      <td data-testid={`decisions-number-${team.name}`} className="whitespace-nowrap px-5 py-2 text-slate-600">Team {team.teamNumber}</td>
                       <td className="px-5 py-2 font-medium text-slate-700">{team.name}</td>
                       {state.kind !== 'reported' ? (
                         <td colSpan={7} className="px-3 py-2 text-xs italic text-slate-600">
@@ -249,7 +262,7 @@ export default function HostDecisionsTab({ room }: Props) {
                     </tr>
                     {open && (
                       <tr data-testid={`decisions-drill-${team.name}`}>
-                        <td colSpan={8} className="bg-slate-50 px-5 py-3">
+                        <td colSpan={9} className="bg-slate-50 px-5 py-3">
                           <TeamDrilldown team={team} line={effectiveLine} years={years} />
                         </td>
                       </tr>
@@ -291,16 +304,16 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
       <td className="px-3 py-2 text-slate-600">{formatPct(d.newMembers ?? 0, 0)}</td>
       <td className="px-3 py-2 text-slate-600">{formatPct(d.riskControlPct, 1)}</td>
       <td className="px-3 py-2">
-        {d.dividendPct === 0 && d.assessmentPct === 0 ? (
+        {divOf(d) === 0 && assOf(d) === 0 ? (
           <span className="text-slate-600">—</span>
         ) : (
           <span
             className={`px-1 ${flagged('dividend') || flagged('assessment') ? 'rounded bg-amber-50 font-medium text-amber-700' : ''}`}
             title={titleOf('dividend') ?? titleOf('assessment')}
           >
-            {d.dividendPct > 0 ? `Div ${formatPct(d.dividendPct, 1)}` : ''}
-            {d.dividendPct > 0 && d.assessmentPct > 0 ? ' / ' : ''}
-            {d.assessmentPct > 0 ? `Assmt ${formatPct(d.assessmentPct, 1)}` : ''}
+            {divOf(d) > 0 ? `Div ${money(divOf(d))}` : ''}
+            {divOf(d) > 0 && assOf(d) > 0 ? ' / ' : ''}
+            {assOf(d) > 0 ? `Assmt ${money(assOf(d))}` : ''}
             <AlertTriangle size={12} className="ml-1 inline align-[-1px]" />
           </span>
         )}
@@ -352,8 +365,8 @@ function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLi
               <td className="py-1 text-slate-600">{d ? fundingLabel(d) : '—'}</td>
               <td className="py-1 text-slate-600">{d ? reinsuranceLabel(d) : '—'}</td>
               <td className="py-1 text-slate-600">
-                {d ? (d.dividendPct > 0 || d.assessmentPct > 0
-                  ? `${d.dividendPct > 0 ? formatPct(d.dividendPct, 1) : '—'} / ${d.assessmentPct > 0 ? formatPct(d.assessmentPct, 1) : '—'}`
+                {d ? (divOf(d) > 0 || assOf(d) > 0
+                  ? `${divOf(d) > 0 ? money(divOf(d)) : '—'} / ${assOf(d) > 0 ? money(assOf(d)) : '—'}`
                   : '—') : '—'}
               </td>
               <td className="py-1 text-slate-600">

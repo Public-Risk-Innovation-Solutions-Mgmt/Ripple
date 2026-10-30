@@ -5,7 +5,7 @@
 //
 //   1. OPTIONS: every line offers None and the eight layers — 9, 19, 29 and
 //      39 xs 1; 8, 18, 28 and 38 xs 2 ($M), per occurrence — None the default;
-//      with the game's shocks off, None alone.
+//      with the game's shocks off, the same nine (restated below).
 //   2. RECOVERY: each option cedes exactly min(max(claim - attachment, 0),
 //      limit) on a claim, at every size from below the attachment to above
 //      the tower; the layers are fixed in dollars.
@@ -27,9 +27,20 @@
 // parameter fails rather than moving the expectation with it. Each section
 // has a CONTROL that breaks the thing it guards at runtime, requires the
 // section to FAIL, and restores it.
+//
+// RESTATED FOR wip/large-claims-from-events: the covers are in every game
+// (COVERS_IN_EVERY_GAME, shipped on) — shocks on or off, all eight and None
+// are offered, priced the same, None the default. Section 1 no longer wants
+// None alone with the shocks off: it wants the same nine, in the same order,
+// None the default both ways, and every offered option priced (optionPrice /
+// tCoverPrice) exactly as with shocks on — the method at growth 1 and 1.37.
+// New control: COVERS_IN_EVERY_GAME.enabled = false at runtime (shocks off ->
+// None alone) must fail 1, then is restored. Sections 2-4 are unchanged: the
+// T claims in section 4 come from the scheduled events (#2, #7, #9), as
+// large claims now do.
 // ============================================================================
 
-import { REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
+import { COVERS_IN_EVERY_GAME, REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
@@ -98,8 +109,18 @@ function sectionOptions(): string[] {
   for (const l of LINES) {
     const want = ['none', ...BRIEF_COVERS.map(c => c[0])].join('|');
     if (reinsuranceOptionIds(l, true).join('|') !== want) out.push(`${l} offers ${reinsuranceOptionIds(l, true).join(', ')}`);
-    if (reinsuranceOptionIds(l, false).join('|') !== 'none') out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
+    // COVERS_IN_EVERY_GAME: the same nine with the game's shocks off, None the default.
+    if (reinsuranceOptionIds(l, false).join('|') !== want) out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
     if (defaultReinsuranceOption(l, true) !== 'none') out.push(`${l}'s default is ${defaultReinsuranceOption(l, true)}`);
+    if (defaultReinsuranceOption(l, false) !== 'none') out.push(`${l}'s default with shocks off is ${defaultReinsuranceOption(l, false)}`);
+    // ...priced the same: each option offered with shocks off costs the method, as with them on.
+    for (const id of reinsuranceOptionIds(l, false)) {
+      const c = BRIEF_COVERS.find(x => x[0] === id);
+      for (const g of [1, 1.37]) {
+        const want$ = c ? briefPrice(l, c[1], c[2], g) : 0;
+        if (!near(optionPrice(l, id, g), want$)) out.push(`${l} ${id} with shocks off at growth ${g}: $${optionPrice(l, id, g).toFixed(2)}, the method's $${want$.toFixed(2)}`);
+      }
+    }
     if (optionPrice(l, 'none', 1.7) !== 0) out.push(`${l} None costs ${optionPrice(l, 'none', 1.7)}`);
   }
   return out;
@@ -207,10 +228,13 @@ function sectionInGame(lag = 0): string[] {
 
 // ---- run -------------------------------------------------------------------------
 console.log('t-cover-layers-check\n');
-check(sectionOptions(), '1. every line offers None and the eight layers, None the default; with shocks off None alone');
+check(sectionOptions(), '1. every line offers None and the eight layers, None the default — with shocks off too, at the same prices');
 control('a layer dropped from the options', () => {
   const opts = REINSURANCE_OPTIONS.GL as ReinsuranceOption[]; const o = [...opts];
   opts.splice(opts.findIndex(x => x.id === '$29M xs $1M'), 1); return () => { opts.splice(0, opts.length, ...o); };
+}, sectionOptions);
+control('COVERS_IN_EVERY_GAME switched off (None alone with shocks off)', () => {
+  COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; };
 }, sectionOptions);
 check(sectionRecovery(), '2. each option cedes exactly min(max(claim − attachment, 0), limit), every line, claims $0.5M to $120M');
 control('the $20M–$30M layer moved to attach at $25M', () => {

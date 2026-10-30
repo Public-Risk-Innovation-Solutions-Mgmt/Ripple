@@ -16,13 +16,14 @@
 //      what processYear writes, for the non-renewal and rejection settings
 //      tried. The rate the dollars are priced at equals strikeBookRate's, the
 //      engine's own pre-movement quote.
-//   2. RISK CONTROL. With RISK_CONTROL off, as it ships, the page's cost is $0
-//      at every stored value — the game charges nothing, so the box shows
-//      nothing charged — and the stored slider moves nothing the engine
-//      returns (the two processYear results are identical). With the flag
-//      forced on, the page's cost equals the engine's: strikeBookRate's quote
-//      at the slider's value gives (final rate - reinsurance) x the incentive
-//      x exposure.
+//   2. RISK CONTROL (restated at wip/risk-control, where the slider went live,
+//      and at wip/risk-control-divisor, where it moved into the divisor). The
+//      page's cost equals the engine's: strikeBookRate's quote at the slider's
+//      value gives the rate before reinsurance (final rate - reinsurance), and
+//      the charge is exactly the slider's share of it, x exposure — $0 at 0%.
+//      And the slider reaches the engine: the year played at 5% books a cost,
+//      the year at 0% none. (It used to assert the box showed $0 and the slider
+//      moved nothing, with RISK_CONTROL off.)
 //   3. THE RATE PANEL, BOTH COLUMNS, EACH PIECE ITS OWN ROW. At Expected and
 //      at 50%, 70%, 80% and 90% funding: Your rate's pure premium is the
 //      retained pure premium x selectedClfFor's CLF; its admin, Risk Control
@@ -33,25 +34,23 @@
 //      cents to the printed rate exactly. Indicated is the ground-up pure
 //      premium, its own admin and risk control, adding to the
 //      indicated rate the same two ways. The Risk Control row is the Risk
-//      Control box's cost per $100 at the current exposure — $0.00 with
-//      RISK_CONTROL off, and with it forced on the box's dollars / (exposure x
-//      10,000).
+//      Control box's cost per $100 at the current exposure — $0.00 at 0%, and
+//      at 1-5% the box's dollars / (exposure x 10,000). The expense block's
+//      permissible loss ratio, 1 - admin - the line's slider, is the pure
+//      premium's share of the rate before reinsurance.
 //
 // ⚠ IT CAN FAIL: section 4 feeds section 3's predicates the page's OLD rows —
 // the retained pure premium without the CLF; an extra cent in Risk Control;
 // WC's old 2% profit and contingency taken out of admin; a Risk Control row
-// priced on the Indicated rate rather than the box's — and requires each to
-// be caught.
-//
-// ⚠ IT FLIPS RISK_CONTROL AT RUNTIME and restores it in a `finally`, safe only
-// because every gate runs in its own process.
+// priced on the Indicated rate rather than the box's; the charge priced as
+// wip/risk-control's multiplier, (1 + slider) on the rate — and requires each
+// to be caught.
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear, selectedClfFor, strikeBookRate } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { RISK_CONTROL } from '../../src/data/pricingParameters';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
 import { fundingConsequenceInput, pieceCents, pricingBookFor, ratePieces, riskControlCost, underwritingFigures, type RatePieceColumn } from '../../src/game/derivations';
@@ -107,6 +106,8 @@ function panel(gs: GameState, line: CoverageLine, ds: DecisionSet) {
 }
 
 const stateOf = (gs: GameState, ds: DecisionSet) => ({ ...gs, currentDecisions: ds });
+/** The risk control charge per $100: the slider's share of the rate before reinsurance (it is in the divisor). */
+const engineCharge = (rateBeforeReins: number, rc: number) => rateBeforeReins * rc;
 
 const games = Array.from({ length: GAMES }, (_, g) => openGame(g));
 
@@ -156,22 +157,10 @@ for (const gs of games) {
     for (const rc of [0, 0.01, 0.03, 0.05]) {
       const ds = withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: rc, fundingAtExpected: false, fundingConfidenceLevel: 0.8 });
       const d = ds.byLine[line];
-      // Off (as it ships): the engine charges nothing, so the box shows $0
-      // whatever is stored — never a cost the game does not charge.
-      check(!RISK_CONTROL.enabled, 'RISK_CONTROL is expected off for the page\'s call');
-      const off = riskControlCost(stateOf(gs, ds), line, ds);
-      check(off === 0, `${line} rc ${rc}: the box shows $${off} with RISK_CONTROL off`);
-      // On: the box is the engine's own charge for the incentive.
-      let page: number | null, engine: number;
-      const was = RISK_CONTROL.enabled;
-      try {
-        RISK_CONTROL.enabled = true;
-        page = riskControlCost(stateOf(gs, ds), line, ds);
-        const s = struck(gs, line, d);
-        engine = (s.quote.finalRatePer100 - s.quote.reinsRatePer100) * rc * s.exposure * 10_000;
-      } finally {
-        RISK_CONTROL.enabled = was;
-      }
+      // The box is the engine's own charge: the slider's share of the rate before reinsurance.
+      const page = riskControlCost(stateOf(gs, ds), line, ds);
+      const s = struck(gs, line, d);
+      const engine = engineCharge(s.quote.finalRatePer100 - s.quote.reinsRatePer100, rc) * s.exposure * 10_000;
       rcChecked++;
       const gap = Math.abs((page ?? NaN) - engine);
       worstRc = Math.max(worstRc, gap);
@@ -179,12 +168,11 @@ for (const gs of games) {
       if (rc === 0) check(page === 0, `${line}: 0% shows $${page}`);
       if (rc > 0) check((page ?? 0) > 0, `${line} rc ${rc}: no cost shown`);
     }
-    // With the flag off the stored slider must move nothing the engine returns.
+    // The slider reaches the engine: a cost at 5%, none at 0%.
     const a = processYear(stateOf(gs, withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: 0 })), withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: 0 })).result;
     const b = processYear(stateOf(gs, withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: 0.05 })), withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: 0.05 })).result;
-    // The decisions are echoed on the result; everything else must be equal.
-    const strip = (r: typeof a) => JSON.stringify(r, (k, v) => (k === 'decisions' || k === 'riskControlIncentivePct' ? undefined : v));
-    check(strip(a) === strip(b), `${line}: a stored risk control slider moved the engine's result with the flag off`);
+    check(a.byLine[line]!.riskControlInvestment === 0 && b.byLine[line]!.riskControlInvestment > 0,
+      `${line}: the slider does not reach the engine (cost ${a.byLine[line]!.riskControlInvestment} at 0%, ${b.byLine[line]!.riskControlInvestment} at 5%)`);
   }
 }
 console.log(`  ${rcChecked} line x level cases; worst departure from the engine's loading ${worstRc.toExponential(2)} dollars`);
@@ -203,6 +191,8 @@ const centsAddUp = (c: RatePieceColumn) => {
 };
 // The line's admin share, written out rather than read from the parameter.
 const BRIEFED_ADMIN: Record<CoverageLine, number> = { WC: 0.2, GL: 0.2, Property: 0.2 };
+// Admin is its share of the whole rate before reinsurance, risk control
+// included — both are in the divisor (wip/risk-control-divisor).
 const adminIsTheLines = (c: RatePieceColumn, line: CoverageLine) =>
   ADMIN_SHARE_OF_PREMIUM[line] === BRIEFED_ADMIN[line] && Math.abs(c.admin - (c.rate - c.reins) * BRIEFED_ADMIN[line]) <= 1e-12;
 let rateChecked = 0, worstSum = 0;
@@ -230,8 +220,8 @@ for (const gs of games) {
       check(addsUp(p.yours, engine.finalRatePer100), `${line} ${lvl}: Your-rate rows sum ${sumOf(p.yours)} vs charged ${engine.finalRatePer100}`);
       check(centsAddUp(p.yours), `${line} ${lvl}: Your-rate rows in cents do not add to the printed rate`);
       check(adminIsTheLines(p.yours, line), `${line} ${lvl}: Your-rate admin is not the line's share of the rate before reinsurance`);
-      // Risk control is off: the row is $0.00, as the box is.
-      check(p.yours.riskControl === 0 && pieceCents(p.yours).riskControl === 0, `${line} ${lvl}: Risk Control is not $0.00 with risk control off`);
+      // These decisions hold the slider at 0%: the row is $0.00, as the box is.
+      check(p.yours.riskControl === 0 && pieceCents(p.yours).riskControl === 0, `${line} ${lvl}: Risk Control is not $0.00 at 0%`);
       // Indicated: at Expected, self-funded, adding to the indicated rate.
       check(p.indicated.purePremium === engine.groundUpPurePremiumPer100,
         `${line} ${lvl}: Indicated pure premium is not the ground-up figure at Expected`);
@@ -248,19 +238,18 @@ for (const gs of games) {
 }
 console.log(`  ${rateChecked} line x level cases; worst departure of a column's rows from its rate ${worstSum.toExponential(2)}`);
 
-// With risk control forced on: the Risk Control row is the box's cost per $100.
+// The panel's expense block (wip/risk-control-divisor): Admin, Risk control (the
+// line's choice), Total expense ratio, Permissible loss ratio = 1 - the total —
+// as DecisionsPage's NewRatePanel computes it.
+const plrShown = (n: ReturnType<typeof panel>) => 1 - (n.adminShare + n.riskControlPct);
+const plrIsThePurePremiumsShare = (c: RatePieceColumn, plr: number) => Math.abs(c.purePremium / (c.rate - c.reins) - plr) <= 1e-12;
+// At 1-5%: the Risk Control row is the box's cost per $100.
 let boxChecked = 0, worstBox = 0;
 const boxRow = (gs: GameState, line: CoverageLine, ds: DecisionSet, pick: (n: ReturnType<typeof panel>) => number) => {
-  const was = RISK_CONTROL.enabled;
-  try {
-    RISK_CONTROL.enabled = true;
-    const n = panel(gs, line, ds);
-    const box = riskControlCost(stateOf(gs, ds), line, ds) ?? NaN;
-    const exposure = (fundingConsequenceInput(gs, line, ds).book as { exposure: number }).exposure;
-    return { row: pick(n), box: box / (exposure * 10_000), n };
-  } finally {
-    RISK_CONTROL.enabled = was;
-  }
+  const n = panel(gs, line, ds);
+  const box = riskControlCost(stateOf(gs, ds), line, ds) ?? NaN;
+  const exposure = (fundingConsequenceInput(gs, line, ds).book as { exposure: number }).exposure;
+  return { row: pick(n), box: box / (exposure * 10_000), n };
 };
 for (const gs of games) for (const line of LINES) for (const rc of [0.01, 0.03, 0.05]) {
   const ds = withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: rc, fundingAtExpected: false, fundingConfidenceLevel: 0.8 });
@@ -269,8 +258,14 @@ for (const gs of games) for (const line of LINES) for (const rc of [0.01, 0.03, 
   worstBox = Math.max(worstBox, Math.abs(row - box));
   check(row > 0 && Math.abs(row - box) <= 1e-12 * Math.max(1, box), `${line} rc ${rc}: Risk Control row ${row} vs the box per $100 ${box}`);
   check(addsUp(ratePieces(n).yours, n.finalRatePer100), `${line} rc ${rc}: with risk control on, Your-rate rows do not add to the rate`);
+  check(adminIsTheLines(ratePieces(n).yours, line), `${line} rc ${rc}: admin is not 20% of the rate before reinsurance with risk control in it`);
+  // The panel's expense block: admin + the line's slider, and the permissible
+  // loss ratio 1 - that, which is exactly the pure premium's share of the rate
+  // before reinsurance.
+  check(plrIsThePurePremiumsShare(ratePieces(n).yours, plrShown(n)), `${line} rc ${rc}: the panel's permissible loss ratio ${plrShown(n)} is not the pure premium's share of the rate`);
+  check(n.riskControlPct === rc, `${line} rc ${rc}: the panel's Risk control row is not the line's choice (${n.riskControlPct})`);
 }
-console.log(`  risk control forced on: ${boxChecked} cases, the Risk Control row against the box per $100, worst ${worstBox.toExponential(2)}`);
+console.log(`  risk control at 1-5%: ${boxChecked} cases, the Risk Control row against the box per $100, worst ${worstBox.toExponential(2)}`);
 
 // --------------------------------------------------------------------------
 console.log('\n--- 4. CONTROLS: THE BROKEN PANELS MUST BE CAUGHT ---');
@@ -292,7 +287,23 @@ console.log('\n--- 4. CONTROLS: THE BROKEN PANELS MUST BE CAUGHT ---');
   // A Risk Control row priced on the Indicated rate, not the box's.
   const on = boxRow(gs, line, withLine(ds, line, { riskControlIncentivePct: 0.05 }), x => ratePieces(x).indicated.riskControl);
   check(Math.abs(on.row - on.box) > 1e-6, 'control: a Risk Control row priced on the Indicated rate was not caught');
-  console.log('  four broken panels: the old pure premium, an extra cent in Risk Control, admin less the old contingency, Risk Control off the box');
+  // The charge priced as wip/risk-control's multiplier: (1 + slider) on the
+  // rate, so the slider's part of the rate before reinsurance was slider / (1 + slider).
+  {
+    const rds = withLine(ds, line, { riskControlIncentivePct: 0.05 });
+    const s = struck(gs, line, rds.byLine[line]);
+    const old = (s.quote.finalRatePer100 - s.quote.reinsRatePer100) * 0.05 / 1.05 * s.exposure * 10_000;
+    const box = riskControlCost(stateOf(gs, rds), line, rds) ?? NaN;
+    check(Math.abs(old - box) > 1e-6 * box, 'control: the charge priced as the multiplier, (1 + slider), was not caught');
+  }
+  // The multiplier's permissible loss ratio, (1 - admin) / (1 + slider), against a panel at 5%.
+  {
+    const rds = withLine(ds, line, { riskControlIncentivePct: 0.05 });
+    const n5 = panel(gs, line, rds);
+    check(!plrIsThePurePremiumsShare(ratePieces(n5).yours, (1 - n5.adminShare) / (1 + n5.riskControlPct)),
+      'control: the multiplier\'s permissible loss ratio, (1 - admin) / (1 + slider), was not caught');
+  }
+  console.log('  six broken panels: the old pure premium, an extra cent in Risk Control, admin less the old contingency, Risk Control off the box, the multiplier charge, the multiplier\'s permissible loss ratio');
 }
 
 console.log(`\n${checks} checks.`);

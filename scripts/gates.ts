@@ -264,6 +264,15 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
+  'risk-control-check',              // ~32s   wip/risk-control: the charge in the rate (admin not on it)
+                                     //         and booked as the cost; the cut shared by every world and
+                                     //         player, never on shocks or older years, neutral on average
+                                     //         (sizing, 48,000 draws, 144 line-years); 0% untouched —
+                                     //         each with a control.
+  'dividend-dollars-check',          // ~12s   the dividend and assessment in dollars: $X moves surplus
+                                     //         by exactly $X; a dividend limited to the surplus; a
+                                     //         pool at or below zero can assess, not pay; the 31
+                                     //         $1M notches — each with a control.
   'year-walkthrough-check',          // ~21s   the Year Walkthrough: every stage tied to the engine,
                                      //         identical games give identical codes, a changed
                                      //         decision moves only the stages after it, the seed
@@ -274,9 +283,24 @@ const FAST: string[] = [
   'event-likelihoods-check',         //  ~5s   wip/reinsurance-layers: the Rate Indication's Event
                                      //        Likelihoods recomputed exactly from the catalogue, at the
                                      //        claims' growth; none with shocks off
+  'aggregate-cover-check',           // ~37s   wip/aggregate-cover: the aggregate cover on attritional
+                                     //        losses — options, each price recomputed by integration
+                                     //        (2027 table to the dollar, both surge bases), and in 4,500
+                                     //        world-line-years the terms, attritional losses and recovery;
+                                     //        against None: no large claim, no development, the statement's
+                                     //        ceded block — each with a control.
+  'newest-combined-ratio-check',     //  ~4s   the top bar's and the host Teams table's combined ratio
+                                     //        are the Annual Statement's newest year's, labelled with
+                                     //        that year — rendered, pool and lines, before year 1 and
+                                     //        after; control: the cumulative figure fails.
+  'rate-indication-years-check',     //  ~6s   the Rate Indication's years back to 2021: each past
+                                     //        year's build chains to the rate the engine charged, three
+                                     //        scenarios, every line; control: admin moved after play.
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
+  'carry-decisions-check',           //  ~13s  wip/carry-decisions: single player and Test player carry every decision into the next year (carryDecisions; App.tsx's commitYear), the first year on the defaults — each with a control
+  'large-claims-from-events-check',  //  ~14s  wip/large-claims-from-events: large claims only from T-shock events (their map level, range x growth, one per line per firing), none with no schedule; the brief's ranges, odds and 2027 cover table; covers and likelihoods in every game — each with a control
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces

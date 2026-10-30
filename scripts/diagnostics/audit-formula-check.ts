@@ -180,8 +180,9 @@ const ARMS: Arm[] = [
       riskControlPct: 0.05,
       byLine: Object.fromEntries(lines.map(l => [l, {
         ...d.byLine[l],
-        dividendPct: 0.10,
-        assessmentPct: 0.10,
+        // In dollars since wip/dividends-in-dollars: $5M each.
+        dividendAmount: 5_000_000,
+        assessmentAmount: 5_000_000,
         riskControlPct: 0.05,
         // The aggregate stop-loss is no longer offered (loss engine commit 4a)
         // and cannot be turned on from a decision; this arm keeps the rest.

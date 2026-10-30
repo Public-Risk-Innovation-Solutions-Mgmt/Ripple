@@ -11,6 +11,107 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## Decisions carry into the next year in single player — wip/carry-decisions
+
+Single player and Test player now start each year from the decisions the year
+before was played on, as a hosted team always has: funding, the underwriting
+sliders, the reinsurance cover, the aggregate cover, the asset mix, risk
+control, dividends and assessments, and loan repayment. Only the first year
+opens on the defaults. `commitYear` (App.tsx) carries
+`settled.played.decisions` through `carryDecisions` (a copy, re-stamped with
+the next year's number); risk-control programs still come off the pool row's
+echo. A new game and a save without an editing buffer are the only other
+places the defaults are written. No save key change: a save replays the sets
+it played and restores its editing buffer as written.
+
+Nothing a game plays moves when its decisions are set every year: value
+identity, the export guard (48 of 48) and the render harness (236 of 236, which
+plays two years on the defaults) are unchanged against multiplayer 1a02966.
+What moves is what a player sees when a year opens — their own choices, not the
+defaults. `carry-decisions-check` (FAST) and the rate-indication driver hold it.
+
+---
+
+## Risk control in the divisor (save key v40) — wip/risk-control-divisor
+
+Risk control is an expense in the divisor, beside admin:
+
+    rate = pure premium × CLF ÷ (1 − admin share − risk control %) + reinsurance
+
+so the charge collected is exactly the risk-control % of the rate before
+reinsurance, and admin is its 20% of that same rate. This replaces the
+multiplier `× (1 + risk control %)` that landed first. The average cut m is
+re-sized so expected losses + LAE saved still equal the charge. At 0% the
+divisor is 1 − admin, and every figure is byte-identical to before.
+
+The Rate Indication, the Decisions panel, the Model tab and the Year
+Walkthrough each show the expense ratio, risk control taken from the line's
+current choice:
+
+    Admin                      20.0%
+    Risk control                2.0%
+    Total expense ratio        22.0%
+    Permissible loss ratio     78.0%
+
+Measured (20 scenarios, 5 years, shocks off, the slider on every line every
+year): the year-1 rate rises 0.80 ÷ 0.78 = +2.56% at 2% (the multiplier gave
++2.00%) and 0.80 ÷ 0.75 = +6.67% at 5%; losses + LAE saved over the five years
+are 0.99–1.04 of the charge on each line, in both modes. Admin collected is
+2.6% higher at 2% than under the multiplier, because admin is now taken on the
+risk-control share as well.
+
+A single player's decisions did not carry into the next year when this
+landed (`commitYear` reset them to defaults); they do since
+wip/carry-decisions, below — risk control included.
+
+---
+
+## The aggregate cover on attritional losses (save key v38) — wip/aggregate-cover
+
+Each line can buy, beside its per-claim layer, an aggregate cover on the year's
+attritional losses — normal losses plus the shocks' surges (A); never a large
+(T) claim, Economic Inflation's uplift or the development of an older year.
+None (the default; an absent choice reads as None), 110/50, 125/50, 150/50:
+attachment and limit as shares of expected attritional losses (expected normal
+losses x (1 + the average surge)). Priced by the pricing workbook's "Agg
+Attritional" tab (`AGGREGATE_COVER_OPTIONS` and `utils/aggregateCover.ts`):
+four surge cases at the shock assumptions' odds, each at the top of its A range
+(`AGGREGATE_COVER_SURGE_BASIS`; midpoint moves cases and terms together),
+normal luck at the line's ordinary-year CV, x load 1.2 / 1.0 / 1.0. Charged as
+reinsurance (no admin); the recovery is booked once, at the year's booking.
+Offered and priced the same in every game — single player, Test player and
+hosted, shocks on or off, events scheduled or not — as the per-claim covers are
+(COVERS_IN_EVERY_GAME); with no shocks it pays only on a bad ordinary year, and
+the menu does not say so (restated on multiplayer ed62748: aggregate-cover-check
+sections 1 and 6, the rate-indication driver's hosted room buying 110/50).
+
+2027 prices at default decisions: WC $667,967 / $292,675 / $94,629; GL $675,955
+/ $263,022 / $74,451; Property $879,680 / $434,590 / $188,692. ⚠ GL is $41 /
+$16 / $5 below the figures agreed before the build: the rate is struck on the
+book averaged over the worlds (GL 614.92), and the agreed figures were read off
+world 1's own book (614.95).
+
+**Landed with:** FAST 88/88 (the sweep alone) and SLOW 4/4, the manifest held;
+typecheck clean; lint identical to multiplayer 20f85ba (its 15 errors and 7
+warnings, none new); `aggregate-cover-check` (new), each section failing on a
+planted defect; VALUE_IDENTITY unchanged, SOLO_EXPORT_GUARD_v110 and
+RENDER_IDENTITY_v107 attributed against 20f85ba's own capture; all 24 session
+drivers with the admin-token hook (rate-indication extended to the cover,
+532/532); the contract harness on every pass (local, http, DynamoDB, built
+handler, admin, race probes). Screenshots are in
+`docs/screenshots/aggregate-cover/`.
+
+**Owed — the prices and the game's surges disagree.** The prices assume one
+surge level a year at T_COVER_FREQUENCY's odds (15% of years). The game's
+surges come from its catalogue, rarer: under today's surges the expected
+recovery in 2027 (aggregateCover.expectedRecoveryToday) is WC $212K / $126K /
+$30K, GL $346K / $159K / $40K, Property $446K / $334K / $153K, against expected
+recoveries at the priced odds of WC $557K / $293K / $95K, GL $563K / $263K /
+$74K, Property $733K / $435K / $189K. Until the game's surges follow those
+odds, recoveries will run below the prices.
+
+---
+
 ## The shocks landing (save key v30) — owed checks CLEARED
 
 Landed on multiplayer for play-testing without the full checks; those were run
@@ -618,6 +719,10 @@ before it (VALUE_IDENTITY v63, SOLO_EXPORT_GUARD v66, RENDER_IDENTITY v43).
   (`SHOCK_EVENT_LABELS`).
 
 ### Risk control — pending design
+
+⚠ **Superseded:** risk control is live and charged in the divisor — see "Risk
+control in the divisor (save key v40)" at the top. The text below is kept as
+the record of the earlier plan.
 
 **Hidden like satisfaction**, behind `RISK_CONTROL` (off): no charge and no
 effect until risk control is redesigned **at pool level** — its effect on the

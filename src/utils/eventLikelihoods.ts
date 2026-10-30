@@ -3,36 +3,32 @@
 // 100 and 200 years on a line, for the year being priced (wip/reinsurance-
 // layers; the Rate Indication shows it beside the cover prices).
 //
-// Built from the game's own shock catalogue (shockLosses.SHOCK_EVENTS): each
-// event with a T level on the line contributes its scaled yearly chance
-// (`probability`, the catalogue's x SHOCK_CATALOGUE_SCALE), with its claim
-// spread evenly across the level's range (SHOCK_T_CLAIM_RANGE) x the priced
-// year's growth factor — the factor the claims and the cover prices use
-// (reinsuranceTower.pricedGrowthFactor). Then
+// Built from the T-shock assumptions' odds — the same chances the covers are
+// priced on (T_COVER_FREQUENCY: Low 7.5%, Mid 5.25%, High 2.25% a year), NOT
+// from the catalogue events the game fires (wip/large-claims-from-events:
+// large claims come only from T-shock events; these odds price the covers and
+// build this table). Each level's claim is spread evenly across its range
+// (SHOCK_T_CLAIM_RANGE) x the priced year's growth factor — the factor the
+// claims and the cover prices use (reinsuranceTower.pricedGrowthFactor). Then
 //
-//   P(a claim >= x in a year) = Σ over the line's T events of
+//   P(a claim >= x in a year) = Σ over the levels of
 //                               yearly chance x the share of its range above x
 //
-// and the size at 1 in N is the x where that equals 1/N. Where every T event
-// together is rarer than 1 in N, there is no such size: null.
+// and the size at 1 in N is the x where that equals 1/N (the levels exclude
+// one another, so the chances add). The three total 15% a year, more than
+// 1 in 10, so every return period has a size.
 // ============================================================================
 
-import { SHOCK_T_CLAIM_RANGE } from '../data/pricingParameters';
-import { SHOCK_EVENTS, eventLines, type ShockLevel } from './shockLosses';
+import { SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY } from '../data/pricingParameters';
 import type { CoverageLine } from '../types/simulation';
 
 export const RETURN_PERIODS = [10, 20, 50, 100, 200] as const;
 
-/** Each T event on the line: its yearly chance and its claim range, grown by `g`. */
+/** Each level on the line at the cover-pricing odds: its yearly chance and its claim range, grown by `g`. */
 export function tEventsOn(line: CoverageLine, g: number): { chance: number; lo: number; hi: number }[] {
-  const out: { chance: number; lo: number; hi: number }[] = [];
-  for (const e of SHOCK_EVENTS) {
-    const row = eventLines(e.name).find(r => r.line === line && r.t !== 'None');
-    if (!row) continue;
-    const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>];
-    out.push({ chance: e.probability, lo: lo * g, hi: hi * g });
-  }
-  return out;
+  return (['Low', 'Mid', 'High'] as const).map(lv => ({
+    chance: T_COVER_FREQUENCY[lv], lo: SHOCK_T_CLAIM_RANGE[line][lv][0] * g, hi: SHOCK_T_CLAIM_RANGE[line][lv][1] * g,
+  }));
 }
 
 /** The chance in a year of a single T claim at least `x`. */

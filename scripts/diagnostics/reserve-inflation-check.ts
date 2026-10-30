@@ -185,6 +185,10 @@ function gradePriced(games: Game[], toCome: ToCome, tag: string) {
 // ---------------------------------------------------------------- 4
 // Admin's share, written out from the brief rather than read from the parameter.
 const BRIEFED_ADMIN: Record<CoverageLine, number> = { WC: 0.2, GL: 0.2, Property: 0.2 };
+// ⚠ RESTATED TWICE: at wip/risk-control risk control left the divisor for a
+// multiplier on the rate, and at wip/risk-control-divisor it came back
+// (RISK_CONTROL_CHARGE; risk-control-check holds the charge). The divisor is 1 -
+// risk control - admin's share, nothing else.
 function gradeContingency(divisor: (rc: number, line: CoverageLine) => number, tag: string) {
   let worst = 0;
   for (const l of LINES) for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc, l) - (1 - rc - BRIEFED_ADMIN[l])));

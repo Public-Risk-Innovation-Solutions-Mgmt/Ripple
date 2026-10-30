@@ -236,6 +236,24 @@ try {
     check(doubled === 0, `B∥: pairs not ending with exactly one team: ${doubled}`);
   }
 
+  // N∥. TEAM NUMBERS UNDER A CLASS JOINING AT ONCE: twelve teams with twelve
+  // names join one room together, five rooms over. Every join must land, and the
+  // room's numbers must be exactly 1 to 12, each once — the join's claim on the
+  // room's counter (rooms.ts, MAX_NUMBER_RACES) is what holds this.
+  {
+    let refused = 0, wrong = 0;
+    for (let i = 0; i < 5; i++) {
+      const { code } = await mkRoom(fresh());
+      const out = await Promise.all(Array.from({ length: 12 }, (_, k) =>
+        settle(fresh().join({ code, teamName: `N${k}`, role: 'player' }))));
+      refused += out.filter(o => !o.ok).length;
+      const numbers = (await fresh().read({ code })).room.teams.map(x => x.teamNumber).sort((a, b) => a - b);
+      if (JSON.stringify(numbers) !== JSON.stringify(Array.from({ length: 12 }, (_, k) => k + 1))) wrong++;
+    }
+    check(refused === 0, `N∥: 5 rooms x 12 teams joining at once — joins refused: ${refused}`);
+    check(wrong === 0, `N∥: rooms whose numbers are not exactly 1 to 12, each once: ${wrong}`);
+  }
+
   // F. THE BURST keys.ts HARD 1 is about: twenty teams post at once, every
   // transaction touching the one header item. All must land, rev must count
   // them exactly, and the host must see all twenty.

@@ -1562,7 +1562,176 @@ const BASELINE = process.env.RENDER_BASELINE
 // walkthrough screens, which are the reworked page (every stage, its working,
 // the download). The 50 unmoved are the screens without the bar. Scenario 7's
 // fixed seed is in no screen's text. No key added or removed beyond the rename.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
+// v106: RISK CONTROL (wip/risk-control), on multiplayer f5149f8. The control,
+// built in its own worktree, did NOT reproduce v105 whole in this container:
+// 29 of 236 moved on f5149f8 itself (Financial Statements 14, Result
+// Spreadsheet 8, Results 7) — the container split earlier landings recorded,
+// not code. So this change was measured against the CONTROL'S OWN CAPTURE here,
+// and v106 is v105 with only the screens this change moved replaced: 57 of 236,
+// each word-diffed against the control (RENDER_TEXT_DIR both sides):
+//   Year Walkthrough 26   the risk control rows and working (the decision as a
+//                         share of the rate, the divisor 1 - admin, the rate
+//                         before reinsurance and risk control, the charge, the
+//                         draw z, the cut, the risk control stage, "Depends on
+//                         your decisions" where it read "Same for everyone"),
+//                         the codes, and the version v36 -> v37
+//   Decisions 16          the slider live: "0% of the rate" where it read "~0%
+//                         of pure premium", its end "5% of the rate"
+//   Result Spreadsheet 10 the new "Risk Control Cost" and "Risk Control: Losses +
+//                         LAE Saved" rows, $0 at the harness's 0%
+//   Decision History 5    the pool view's retired "Risk Control %" column gone
+// The other 179 keep v105's fingerprints. ⚠ Eight of the 57 (Result
+// Spreadsheet, every configuration, y0 and y2) are also among the 29 the
+// container moved, so their v106 fingerprints are this container's rendering;
+// in a container that reproduces v105 they may read as moved. The harness plays
+// at 0%, so no figure on any screen changed. No key added or removed.
+// v107: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba. The
+// control, built in its own worktree and served on 4174, moved 8 of 236 against
+// v106 here (Result Spreadsheet, every configuration, y0 and y2 — the container
+// split v106 recorded, not code). So this change was measured against the
+// CONTROL'S OWN CAPTURE, and v107 is v106 with only the screens this change
+// moved replaced: 52 of 236, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides), every difference an insertion or the save key:
+//   Decisions 16          the new "Aggregate cover" choice under the per-claim
+//                         cover: None and 110/50, 125/50, 150/50 with each price
+//                         (2027: WC $667,967 / $292,675 / $94,629, GL $675,955 /
+//                         $263,022 / $74,451, Property $879,680 / $434,590 /
+//                         $188,692)
+//   Rate Indication 10    the "Aggregate cover" rows under Reinsurance, each
+//                         option's price per $100
+//   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
+// The other 184 keep v106's fingerprints. The harness holds None, so no figure
+// on any screen changed. No key added or removed.
+// v108: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1. ⚠ THE CONTROL DOES
+// NOT REPRODUCE v107 HERE: built in its own worktree, ba409c1 moves 8 of 236
+// against its committed v107, all Result Spreadsheets, so head is compared
+// against the control's own capture in this container. Against it,
+// word-diffed (RENDER_TEXT_DIR both sides), 59 move:
+//   every Rate Indication (10): Event Likelihoods is now a table ("Return
+//   period", "Claim size") with a small chart under it, its sizes at the new
+//   frequencies (GL 2027 "—, $1.4M, $5.5M, $21.0M, …" -> $2.3M, $4.9M, $10.7M,
+//   $25.3M, …; Property $4.0M, $8.3M, $15.1M, $27.6M, $33.8M), rising with
+//   the year. No rate, pure premium, expense, cover or aggregate-cover price
+//   on the page moves;
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v38 ->
+//   v39), and at 2028 the year codes where the expected losses and capital
+//   below moved the state;
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin ($13,085,188 -> $9,627,713, the large-claim
+//   capital at the new frequencies), Excess Available Surplus and Excess
+//   Capital Ratio (Property 51.3% -> 105.6%);
+//   Result Spreadsheet (7): the expected losses (GL 2028 $23,179,724 ->
+//   $24,091,274, with Nuclear Verdict's claim at its odds), the Property margin
+//   rows, and the Property capital status "Adequate" -> "Strong" in four years.
+// No large claim and no Nuclear Verdict lands in these render games, and their
+// shocks are on, so no event, loss or surplus figure moves. 177 match.
+// v109: RISK CONTROL IN THE DIVISOR AND THE EXPENSE RATIO BLOCK
+// (wip/risk-control-divisor), on multiplayer 2ec5d58. The control, built in its
+// own worktree here, moved 29 of 236 against v108 — the container split
+// (Financial Statements 14, Result Spreadsheet 8, Results 7), none of them a
+// screen this change moves. Against the control's own capture 42 move, each
+// word-diffed (RENDER_TEXT_DIR both sides):
+//   Decisions 16          the panel's expense block inserted — "Admin 20.0%
+//                         20.0% Risk control 0.0% 0.0% Total expense ratio 20.0%
+//                         20.0%" — and the permissible loss ratio to one
+//                         decimal, "80.0%" where it read "80%"
+//   Year Walkthrough 26   the pricing stage's expense block (Admin, Risk
+//                         control, Total expense ratio, Permissible loss ratio,
+//                         one decimal), the divisor "1 − admin − risk control"
+//                         (0.80 at 0%, where the feed read "× 1.0000"), the rate
+//                         before reinsurance (same figure, relabelled), admin's
+//                         charge per $100 (0.2 × that rate: $0.0569, $0.7349,
+//                         $1.1042), the working, the stage and year codes, and
+//                         the version riskpool_gamestate_v39 -> _v40
+// The Rate Indication does not move (its block already read 20.0% / 0.0% /
+// 20.0% / 80.0% at 0%). v109 is v108 with those 42 replaced; the other 194
+// keep v108's fingerprints. The harness plays at 0%: no figure moved.
+// v110: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events), on multiplayer e93c7ea, which reproduces v109 here 236 of 236.
+// Against it, word-diffed (RENDER_TEXT_DIR both sides), 49 move — each the
+// exact reverse of the separate draw's moves at v105/v108:
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v40 ->
+//   v41), and at 2028 the year codes the state below moves;
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin back on the catalogue's regional events ($9,627,713
+//   -> $13,085,188), Excess Available Surplus and Excess Capital Ratio
+//   (Property 105.6% -> 51.3%);
+//   Result Spreadsheet (7): the expected losses back on the catalogue's T
+//   events (GL 2028 $24,091,274 -> $23,179,724), the Property margin rows, and
+//   the Property capital status "Strong" -> "Adequate" in four years.
+// The Rate Indication does not move: its Event Likelihoods were already built
+// from the pricing odds (T_COVER_FREQUENCY, the same 7.5% / 5.25% / 2.25%),
+// and every cover is already offered here. These games' shocks are on, so
+// COVERS_IN_EVERY_GAME moves nothing. 187 match.
+// v111: THE TOP BAR'S COMBINED RATIO IS THE NEWEST YEAR'S
+// (wip/newest-year-combined-ratio), on multiplayer 1a02966, which reproduced
+// v110 236 of 236 here first. 196 of 236 move — every screen that carries the
+// top bar (Annual Statement, Decision History, Decisions, Financial Statements,
+// Results, Year Walkthrough 26 each; Introduction, Rate Indication, Result
+// Spreadsheet and _header 10 each) — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly one place: the chip "Combined
+// Ratio <cumulative>" now reads "Combined ratio 2026 <2026's>" at y0 and
+// "Combined ratio 2028 <2028's>" at y2, the Annual Statement's newest column.
+// No other text moved. The 40 unmoved are the screens without the top bar.
+// No key added or removed.
+// v112: TWO DISPLAY REMOVALS (wip/display-removals), on multiplayer 12852f3,
+// which reproduces v111 here. 10 move, every Rate Indication, each by exactly the
+// Event Likelihoods chart's axis labels ("$0M $10M $20M $30M $40M 1/10 1/20
+// 1/50 1/100 1/200", once per line shown): the chart is removed and its table
+// stays. The Decisions page's "Average saving equals the cost." line is
+// removed too, but these games hold Risk Control at 0%, where it never showed,
+// so no Decisions screen moves. 226 match.
+// v113: THE RATE INDICATION'S YEARS BACK TO 2021, AND THE ANNUAL TREND AS A
+// PERCENTAGE (wip/rate-indication-years), on multiplayer 91462f2, which
+// reproduced v112 236 of 236 here first. 10 of 236 move — the Rate Indication,
+// every configuration, y0 and y2 — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly two ways: the year dropdown
+// gains "Program Year 2021" to "Program Year 2026" (the history years), and each
+// line's Annual Trend reads as a percentage (WC 1.04 -> 4%, GL 1.08 -> 8%,
+// Property 1.05 -> 5%). The page opens on the coming year, so no past year's
+// build is on these screens. No key added or removed.
+// v114: THE AGGREGATE COVER'S WORDING (wip/aggregate-cover), on multiplayer
+// 4197c88, which reproduced v113 236 of 236 here first. 26 of 236 move — the
+// Decisions screens (16) and the Rate Indications (10) — and each word-diffed
+// against the control (RENDER_TEXT_DIR both sides) moves in its wording only:
+// "Aggregate Stop-Loss Coverage", its note, the "Label | Annual Premium" columns,
+// "None — No Coverage" and "110% / 50% — Covers losses from 110% to 160% of
+// expected" (and 125, 150), each premium as $N where it read $N/yr, and the
+// footnote, on the Decisions page; the heading and the same labels on the Rate
+// Indication. Every premium is the control's figure. No key added or removed.
+// v115: THE RETIRED STOP'S ROW OFF THE YEAR WALKTHROUGH (wip/aggregate-cover),
+// on multiplayer 9ff6e4d, which reproduced v114 236 of 236 here first. 13 of
+// 236 move — the Year Walkthrough at y2 on every configuration and view (y0
+// has no played year) — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly two ways: the "Aggregate cover
+// recovery $0" rows deleted (the dormant stop's, per line and per line on the
+// pool), and the two codes that fingerprint them — the reinsurance stage's and
+// the year code. No figure moved. No key added or removed.
+// v116: THE DIVIDEND AND THE ASSESSMENT IN DOLLARS (wip/dividends-in-dollars).
+// The control ran first: multiplayer 15dc74b, built in its own worktree,
+// reproduced v115 236 of 236 here. Against its capture, word-diffed
+// (RENDER_TEXT_DIR both sides), 66 move and every change is the control's
+// units or the save key: Decisions (16) — the slider reads "$0" where it read
+// "0%", and the note beside it "Surplus available: … No dividend or
+// assessment" where it read "Surplus: … 0%"; Decision History (8) — the two
+// columns "Dividend" and "Assessment" in dollars ($0 where 0.0%); Results (16)
+// — the two decision rows $0 where 0.0%; Year Walkthrough (26) — the version
+// (v41 -> v42) on all, and on the 13 with a played year the dividend stage's
+// labels and working in dollars, the decisions stage's two rows, and the codes
+// those move. The harness chooses no dividend or assessment: no figure moved.
+// v117: THE TAB CLEANUP — Results, Result Spreadsheet, Financial Statements and
+// Model hidden in single player, Test player and multiplayer (src/game/tabs.tsx
+// HIDDEN_TABS), their pages kept. The control ran first: multiplayer 861b8c7,
+// built in its own worktree, reproduced v116 236 of 236 here. Against its
+// capture, text-diffed (RENDER_TEXT_DIR both sides): 62 keys removed — the three
+// hidden tabs this file walked (Financial Statements 26, Results 26, Result
+// Spreadsheet 10; Model was never on TABS) — and 124 of the remaining 174 move,
+// each in exactly one way: the top bar's tab names, without "Model",
+// "Financial Statements", "Results" and "Result Spreadsheet". With those
+// names taken out of the control's text, all 124 match the new text exactly.
+// No figure moved. 236 -> 174 keys.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v117.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1601,9 +1770,13 @@ const LINE_LABEL: Record<string, string> = {
 // multiplayer alike (src/game/tabs.tsx), their pages intact — and Rate
 // Indication joined, in the top bar's own order. Investments joined and then
 // came off too: its memorandum is one of the Introduction tab's documents.
+//
+// ⚠ FINANCIAL STATEMENTS, RESULTS AND RESULT SPREADSHEET CAME OFF THE SAME WAY
+// at the tab cleanup — hidden in single player, Test player and multiplayer
+// (src/game/tabs.tsx HIDDEN_TABS), their pages intact — and the baseline lost
+// their keys with them (v117). The Model tab was never on this list.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-  'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Year Walkthrough'];
+  'Decision History', 'Year Walkthrough'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which
@@ -1847,6 +2020,10 @@ async function run(): Promise<Record<string, string>> {
     await capture(page, cfg, 'y0', out);
     for (let i = 0; i < 2; i++) {
       await page.getByRole('button', { name: /^Lock Program Year \d+$/ }).click();
+      // THE LOCK CONFIRMATION: the button opens a box and only "Lock decisions"
+      // locks. Clicked when present, so a build from before the box still runs.
+      const lockBox = page.locator('[data-testid="lock-confirm"]');
+      if (await lockBox.count() > 0) await lockBox.getByRole('button', { name: 'Lock decisions', exact: true }).click();
       await settle(page);
       // ⚠ TEN WORLDS (loss engine commit 4b): a line short in ANY world raises
       // the loan prompt, so a year can stop at it. Confirmed at the prompt's own

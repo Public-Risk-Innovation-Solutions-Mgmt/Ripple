@@ -20,6 +20,10 @@
 // separately), so nothing enforces this ordering for you. Deploy the handler
 // FIRST, then the front end — that order is safe in both directions.
 //
+// TEAM NUMBERS (TeamView.teamNumber) ARE THE SAME: a new front end against an
+// old handler reads no number and shows "Team undefined" on every host screen.
+// Handler first, as above.
+//
 // NOTHING ON `multiplayer` IS DEPLOYED TODAY, so there is no live break to fix;
 // this is recorded for whoever first takes this branch to an environment.
 // See docs/handoff/AWS_HANDLER_HANDOFF.md, which carries the same warning.
@@ -312,6 +316,14 @@ export interface TeamYearFigures {
    *                      statement's "% of Premium" row under the admin rows
    */
   combinedRatio?: number;
+  /**
+   * THE YEAR'S OWN COMBINED RATIO — the statement's Combined Ratio for this year
+   * (its newest column; before year 1, the last history year's), the team's
+   * top-bar figure and the host's Teams table's. A row posted before it existed
+   * has none and the host renders a dash; `combinedRatio` above stays the
+   * cumulative and is no longer shown.
+   */
+  yearCombinedRatio?: number;
   premiumToSurplus?: number;
   ratePer100?: number;
   rateChange?: number;
@@ -372,7 +384,7 @@ export type DevelopedUltimates = Record<string, number>;
 // renders has to have an agreed shape, or the agreement lives in two places and
 // drifts. LineDecisionSet in types/simulation.ts stays exactly as it is — it is
 // the engine's input type, it carries fields no host screen shows
-// (loanRepaymentAggressiveness, riskControlProgramIds, riskControlIncentivePct)
+// (loanRepaymentAggressiveness, riskControlProgramIds)
 // and it will go on changing for engine reasons. This is a projection OF it,
 // chosen field by field, so an engine-side change cannot silently alter what
 // crosses the wire or what a stored row means.
@@ -405,6 +417,13 @@ export interface TeamLineDecisions {
    */
   reinsuranceOption: string;
   /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES the team bought beside the layer
+   * (wip/aggregate-cover), one id from AGGREGATE_COVER_OPTIONS. Written only
+   * when bought; absent is None. One more string the server stores without
+   * reading, so the handler, both transports and keys.ts need no change.
+   */
+  aggregateCover?: string;
+  /**
    * "Non-renewal": the share of the book at the start of the year not renewed,
    * a FRACTION 0–0.05. Absent on the engine side reads as 0.
    *
@@ -417,9 +436,17 @@ export interface TeamLineDecisions {
   nonRenewal: number;
   /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.05. */
   newMembers: number;
+  /**
+   * The line's Risk Control slider, a FRACTION 0–0.05 (LineDecisionSet
+   * .riskControlIncentivePct; wip/risk-control). It carried the retired
+   * pool-wide spend before, always 0; the shape is unchanged, so the handler,
+   * both transports and keys.ts need no change — only the value a client writes.
+   */
   riskControlPct: number;
-  dividendPct: number;
-  assessmentPct: number;
+  /** Dollars (LineDecisionSet.dividendAmount). A record posted before the change carries dividendPct instead and reads as none. */
+  dividendAmount: number;
+  /** Dollars (LineDecisionSet.assessmentAmount). */
+  assessmentAmount: number;
   /**
    * ⚠ PERCENTAGE POINTS, 0-100 — NOT a fraction, unlike every other field on
    * this interface. That is AssetAllocation's own convention and it is carried
@@ -604,6 +631,31 @@ export function eventStatusOf(currentYear: number, yearCount: number): EventStat
  * own token at any status, or a refreshed browser would lose its seat the moment
  * the host advanced. Nor does it govern a viewer, who may always watch.
  */
+/**
+ * THE ROOM'S TEAM NUMBERS, for both transports — one rule, so the localStorage
+ * room and the DynamoDB room number the same teams the same way.
+ *
+ * `inJoinOrder` is the room's teams oldest first, each with the number it was
+ * given (absent on a team that joined before numbers existed); `next` is the
+ * number the room will give its next team (absent on such a room). A team that
+ * has a number keeps it. A team without one is given the next free number in
+ * join order — so an OLDER ROOM is numbered 1, 2, 3… by join order the first
+ * time it is read, and the same way on every read until that is saved. Returns
+ * each team's number and the room's next number.
+ *
+ * ⚠ `next` IS NEVER BELOW ONE PAST THE HIGHEST NUMBER GIVEN, and it is the room's
+ * own counter rather than the team count — so no number is ever given twice,
+ * even if a team were ever taken out of the room.
+ */
+export function teamNumbers(inJoinOrder: Array<{ teamNumber?: number }>, next?: number): { numbers: number[]; next: number } {
+  let n = Math.max(1, next ?? 1, ...inJoinOrder.map(t => (t.teamNumber ?? 0) + 1));
+  const numbers = inJoinOrder.map(t => t.teamNumber ?? n++);
+  return { numbers, next: n };
+}
+
+/** "Team 1 | Bob's Pool" — how every host screen pairs a team's number with its name. */
+export const teamLabel = (t: { teamNumber: number; name: string }): string => `Team ${t.teamNumber} | ${t.name}`;
+
 export function mayCreateTeam(status: EventStatus): boolean {
   return status === 'OPEN';
 }
@@ -674,6 +726,14 @@ export interface SetEventHiddenResponse {
 // trusting the caller to look away.
 export interface TeamView {
   name: string;
+  /**
+   * THE TEAM'S NUMBER IN THE ROOM — the first team to join is 1, the next 2, and
+   * so on (teamNumbers below). Stored with the room, given once at join and
+   * never changed; never reused, because the room keeps the next number rather
+   * than counting its teams. Every host screen shows it beside the name
+   * ("Team 1 | Bob's Pool") and the team's own screens beside its own.
+   */
+  teamNumber: number;
   // ⚠ THE LINES THIS TEAM PLAYS, WHICH ARE NOW THE ROOM'S. It used to be the
   // team's own choice at join, and the note here used to say teams in one room
   // play different books. They do not any more: the host sets the room's lines

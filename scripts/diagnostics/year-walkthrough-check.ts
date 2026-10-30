@@ -12,12 +12,18 @@
 //    year, every view — the draws, the year code and the decisions code too.
 // 2. A CHANGED DECISION MOVES ONLY THE STAGES AFTER IT. The same game with one
 //    decision changed in its last year — the asset mix, the cover, the
-//    funding level, non-renewal, the dividend — moves the decisions code, the
-//    year code and the first stage that decision feeds (FIRST_STAGE_FED), and
-//    no stage before it, no draw and no earlier year.
+//    funding level, non-renewal, the dividend, the risk control slider —
+//    moves the decisions code, the year code and the first stage that
+//    decision feeds (FIRST_STAGE_FED), and no stage before it, no draw and no
+//    earlier year.
 // 3. EVERY STAGE TIES TO THE ENGINE, every played year and line, in a game
-//    that moves the book, buys cover, squeezes funding, pays a dividend and
-//    has shocks in force (so the shock-free pricing ledger is in play): the
+//    that moves the book, buys cover, squeezes funding, pays a dividend, buys
+//    risk control on GL at 5% and has shocks in force (so the shock-free
+//    pricing ledger is in play): the risk control cut re-read is the cut
+//    booked, its cost is the charge booked and the premium's pieces add to the
+//    member charge; the expense block's risk control is the year's choice, its
+//    total admin + risk control, and its permissible loss ratio x the rate
+//    before reinsurance the retained pure premium x CLF; the
 //    re-struck pure premium and rate are the row's; the book's movement gives
 //    the exposure billed; premium is rate x exposure; the re-read losses'
 //    gross is the row's; the year's own booking is the ledger's; development
@@ -38,6 +44,11 @@
 //    share at the end, marked "Not part of the model — depends on the room",
 //    with no code; the same game read with two different shares (or none)
 //    gives the same year code and the same code at every other stage.
+// 7. THE AGGREGATE STOP-LOSS ROWS ONLY. The retired dormant stop's
+//    "Aggregate cover recovery" row is on no screen and in no download; a year
+//    that bought the Aggregate Stop-Loss Coverage shows its rows, and only
+//    those, for the cover. Controls: the old row put back, and a game that
+//    bought none read as one that did.
 // ============================================================================
 
 import * as XLSX from 'xlsx';
@@ -110,7 +121,9 @@ const CHANGES: { name: string; decision: string; line: CoverageLine; decide: Dec
   { name: 'the Property cover', decision: 'reinsurance', line: 'Property', decide: lastYear(d => onLine(d, 'Property', { reinsuranceOption: '$38M xs $2M' })) },
   { name: 'the WC funding level', decision: 'funding', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { fundingAtExpected: false, fundingConfidenceLevel: 0.75 })) },
   { name: 'GL non-renewal', decision: 'nonRenewal', line: 'GL', decide: lastYear(d => onLine(d, 'GL', { nonRenewal: 0.05 })) },
-  { name: 'the WC dividend', decision: 'dividend', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { dividendPct: 0.05 })) },
+  { name: 'the WC dividend', decision: 'dividend', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { dividendAmount: 2_000_000 })) },
+  // wip/risk-control: the slider is charged in the rate, so it feeds pricing first.
+  { name: 'the GL risk control slider', decision: 'riskControl', line: 'GL', decide: lastYear(d => onLine(d, 'GL', { riskControlIncentivePct: 0.03 })) },
 ];
 // The tie game: the book moves, cover is bought, funding is squeezed, a dividend is paid, shocks are in force.
 const TIE: Decide = y => {
@@ -120,7 +133,9 @@ const TIE: Decide = y => {
     byLine: {
       ...d.byLine,
       WC: { ...d.byLine.WC, nonRenewal: 0.05, newMembers: 0.1, fundingAtExpected: false, fundingConfidenceLevel: 0.75 },
-      Property: { ...d.byLine.Property, reinsuranceOption: '$38M xs $2M', dividendPct: y === YEARS ? 0.05 : 0 },
+      Property: { ...d.byLine.Property, reinsuranceOption: '$38M xs $2M', dividendAmount: y === YEARS ? 1_000_000 : 0 },
+      // Risk control on GL every year (wip/risk-control): the charge, the cut and the saving tie too.
+      GL: { ...d.byLine.GL, riskControlIncentivePct: 0.05 },
     },
   };
 };
@@ -130,6 +145,13 @@ const B = soloGame(DEFAULT);
 const T = soloGame(TIE, true);
 const team = teamGame(DEFAULT);
 const changed = CHANGES.map(c => ({ ...c, game: soloGame(c.decide) }));
+// Section 7: every line buys the 110% / 50% Aggregate Stop-Loss Coverage every year.
+const COVER: Decide = y => {
+  const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l].aggregateCover = 'agg-110-50';
+  return d;
+};
+const C = soloGame(COVER);
 
 const all = (gs: GameState): YearWalkthrough[] => walkthroughYears(gs).flatMap(y => buildYearWalkthroughs(gs, y));
 const key = (w: YearWalkthrough) => `${w.calendarYear} ${w.view}`;
@@ -188,6 +210,7 @@ function sectionOneDecision(): string[] {
 }
 
 // ---- 3. EVERY STAGE TIES TO THE ENGINE ---------------------------------------
+let multiplierPlr = false;
 const tGame = T;
 const fig = (w: YearWalkthrough, k: StageKey, label: string): number => {
   const v = w.stages.find(s => s.key === k)?.rows.find(r => r.label === label)?.value;
@@ -210,6 +233,22 @@ function sectionEngine(): string[] {
       tie('exposure after the book moves', fig(w, 'book', "This year's exposure ($M)"), a.billedExposure!, 1e-6);
       tie('premium = rate x exposure', fig(w, 'pricing', 'Rate per $100 (member charge rate)') * fig(w, 'premium', 'Exposure billed ($M)') * 10_000, a.totalMemberCharge, 1);
       tie('gross losses', fig(w, 'losses', 'Gross losses'), a.grossUltimateLoss);
+      // Risk control (wip/risk-control): the cut re-read is the cut booked, the
+      // charge is the cost booked, and the premium's pieces add to the charge.
+      tie('risk control cut', fig(w, 'losses', 'Risk control cut'), a.riskControlCut ?? 0, 1e-12);
+      // The expense ratio block (wip/risk-control-divisor): admin + the year's
+      // risk control choice is the total, and the permissible loss ratio is what
+      // the pure premium x CLF is of the rate before reinsurance.
+      const adminShare = fig(w, 'pricing', 'Admin'), rcShare = fig(w, 'pricing', 'Risk control');
+      tie('risk control share is the year\'s choice', rcShare, a.decisions.riskControlIncentivePct ?? 0, 1e-15);
+      tie('total expense ratio = admin + risk control', fig(w, 'pricing', 'Total expense ratio'), adminShare + rcShare, 1e-15);
+      const plr = multiplierPlr ? (1 - adminShare) / (1 + rcShare) : fig(w, 'pricing', 'Permissible loss ratio');
+      tie('permissible loss ratio x the rate before reinsurance = retained x CLF',
+        plr * fig(w, 'pricing', 'Rate before reinsurance per $100'),
+        fig(w, 'pricing', 'Retained pure premium per $100') * fig(w, 'pricing', 'Funding CLF'), 1e-9);
+      tie('risk control cost', fig(w, 'riskControl', 'Cost — the charge, booked as Other Admin Expense'), a.riskControlInvestment);
+      tie('premium pieces add to the member charge', fig(w, 'premium', 'Pool premium') + fig(w, 'premium', 'Admin charged')
+        + fig(w, 'premium', 'Risk control charged') + fig(w, 'premium', 'Reinsurance price'), a.totalMemberCharge, 1);
       tie('net retained', fig(w, 'reinsurance', 'Net retained'), a.netUltimateLoss);
       tie("the year's own booking", fig(w, 'booking', 'Booked ultimate'), a.netUltimateLoss * (1 - fig(w, 'booking', 'Booking bias at the funding CLF')), 1);
       tie('development by accident year', sumOf(w, 'development', /development booked$/), -a.priorYearDevelopment);
@@ -219,7 +258,10 @@ function sectionEngine(): string[] {
       tie('LAE reserve by accident year, start', sumOf(w, 'reserves', /^\d{4}: LAE reserve, start$/), a.beginningLaeReserve);
       tie('admin booked = charged x (1 + overrun)', fig(w, 'admin', 'Admin charged') * (1 + fig(w, 'admin', 'Overrun drawn')), a.operatingExpense);
       tie('investment income', fig(w, 'investment', 'Investment income'), a.investmentIncome);
-      tie('dividends = % x basis', fig(w, 'dividends', 'Dividend %') * fig(w, 'dividends', 'Basis (opening surplus, not below zero)'), a.dividends, 1);
+      // In dollars: the dividend paid is never more than chosen, the assessment charged in full.
+      if (!(fig(w, 'dividends', 'Dividends paid') <= fig(w, 'dividends', 'Dividend chosen') + 0.01)) out.push(`${y} ${l} dividends: paid ${fig(w, 'dividends', 'Dividends paid')} above the ${fig(w, 'dividends', 'Dividend chosen')} chosen`);
+      tie('dividends paid', fig(w, 'dividends', 'Dividends paid'), a.dividends);
+      tie('assessments charged = chosen', fig(w, 'dividends', 'Assessments charged'), fig(w, 'dividends', 'Assessment chosen'));
       tie('surplus rolls forward', fig(w, 'surplus', 'Opening surplus') + fig(w, 'surplus', 'Net income') + fig(w, 'surplus', 'Transfer between lines (loans)'), a.endingSurplus);
       const marginRow = w.stages.find(s => s.key === 'capital')!.rows.find(r => r.label.startsWith('Reserve margin factor'))!;
       tie('required capital', fig(w, 'capital', 'Loss reserve (net), end') * ((marginRow.value as number) - 1) + fig(w, 'capital', 'Retained catastrophe capital'), a.reserveRiskMarginNeeded);
@@ -314,6 +356,30 @@ function sectionInfo(): string[] {
   return out;
 }
 
+// ---- 7. THE AGGREGATE STOP-LOSS ROWS ONLY ---------------------------------------
+const OLD_ROW = 'Aggregate cover recovery';
+let coverGame: GameState = C;
+let oldRowBack = false;
+function sectionStopLoss(): string[] {
+  const out: string[] = [];
+  const walks = all(coverGame).filter(w => w.view !== 'pool');
+  for (const w of walks) {
+    const rows = w.stages.find(st => st.key === 'reinsurance')?.rows.map(r => r.label) ?? [];
+    if (oldRowBack) rows.push(OLD_ROW);
+    const tag = `${w.calendarYear} ${w.view}`;
+    if (rows.includes(OLD_ROW)) out.push(`${tag}: the screen shows "${OLD_ROW}"`);
+    const stop = rows.filter(r => /^Aggregate stop-loss: /.test(r));
+    if (!rows.includes('Aggregate Stop-Loss Coverage') || stop.length !== 5) out.push(`${tag}: ${stop.length} stop-loss rows`);
+    if (rows.some(r => /^Aggregate/i.test(r) && r !== 'Aggregate Stop-Loss Coverage' && !/^Aggregate stop-loss: /.test(r))) out.push(`${tag}: another aggregate row`);
+  }
+  const sheet = walkthroughSheetRows(coverGame, walkthroughHeader(coverGame.instance, false));
+  const cells = sheet.flat().map(String);
+  if (oldRowBack) cells.push(OLD_ROW);
+  if (cells.includes(OLD_ROW)) out.push(`the download holds "${OLD_ROW}"`);
+  if (!cells.some(c => /^Aggregate stop-loss: recovery/.test(c))) out.push('the download holds no stop-loss row');
+  return out;
+}
+
 // ---- run -------------------------------------------------------------------
 console.log('year-walkthrough-check\n');
 check(sectionSame(), '1. two games, same setup and decisions: identical figures and codes at every stage, year and view');
@@ -343,6 +409,13 @@ await control('a world\'s booked year factor tampered', () => {
   const r = T.worlds![7].lockedResults.find(x => x.yearNumber === YEARS)!.byLine.GL; const o = r.commonLossFactor;
   r.commonLossFactor = o + 1e-9; return () => { r.commonLossFactor = o; };
 }, sectionEngine);
+await control('the permissible loss ratio read as the multiplier\'s, (1 - admin) / (1 + risk control)', () => {
+  multiplierPlr = true; return () => { multiplierPlr = false; };
+}, sectionEngine);
+await control('the risk control cut booked tampered (wip/risk-control)', () => {
+  const a = T.lockedResults.find(x => x.yearNumber === YEARS)!.byLine.GL; const o = a.riskControlCut!;
+  a.riskControlCut = o * 1.01; return () => { a.riskControlCut = o; };
+}, sectionEngine);
 
 check(await sectionSeed(), '4. no seed on a single-player or team header or in any of their downloads; Test player\'s header and download carry it');
 await control('single player shown the seed', () => { soloShows = true; return () => { soloShows = false; }; }, sectionSeed);
@@ -352,6 +425,10 @@ await control('the host\'s room another scenario', () => { hostRoomSeed = '7'; r
 
 check(sectionInfo(), '6. market share: at the end, marked not part of the model, no code; the year code and every other stage ignore it');
 await control('market share counted as part of the model', () => { const o = [...INFO_STAGES]; INFO_STAGES.length = 0; return () => { INFO_STAGES.push(...o); }; }, sectionInfo);
+
+check(sectionStopLoss(), '7. the Aggregate Stop-Loss Coverage rows only: no "Aggregate cover recovery" on any screen or in the download');
+await control('the old row put back', () => { oldRowBack = true; return () => { oldRowBack = false; }; }, sectionStopLoss);
+await control('a game that bought no cover read as one that did', () => { coverGame = A; return () => { coverGame = C; }; }, sectionStopLoss);
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);

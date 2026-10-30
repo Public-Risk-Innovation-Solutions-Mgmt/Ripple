@@ -61,7 +61,7 @@ import type {
 } from './contract';
 import {
   SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
-  normalizeRecoveryCode, eventStatusOf, mayCreateTeam,
+  normalizeRecoveryCode, eventStatusOf, mayCreateTeam, teamNumbers,
 } from './contract';
 import { Faults } from './faults';
 import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
@@ -278,6 +278,12 @@ interface TeamRecord {
    * round trip separates the comparison from an attacker).
    */
   recoveryHash?: string;
+  /**
+   * The team's number in the room (contract teamNumbers): given at join, never
+   * changed. ⚠ OPTIONAL ON THE RECORD: a team written before numbers existed has
+   * none, and loadRoom numbers it by join order.
+   */
+  teamNumber?: number;
   joined: boolean;
   lockedYear: number | null;
   // Year number (as a string key, per JSON) -> that year's submitted decisions.
@@ -314,6 +320,8 @@ interface RoomRecord {
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamRecord[];
+  /** The number the room gives its next team. ⚠ Absent on a room written before numbers existed. */
+  nextTeamNumber?: number;
   viewers: ViewerRecord[];
   /** Every year's room market shares, as each year completed — see RoomMarketShares. */
   marketSharesByYear?: RoomSharesByYear;
@@ -376,16 +384,31 @@ function storage(): Storage {
   }
 }
 
+// Rooms loaded with team numbers given in memory but not yet saved — an older
+// room, numbered by join order on load; `read` saves them (see read).
+const numberedOnLoad = new WeakSet<RoomRecord>();
+
 function loadRoom(code: string): RoomRecord {
   const raw = storage().getItem(KEY_PREFIX + code);
   if (raw === null) {
     throw new SessionError('ROOM_NOT_FOUND', `No room with code ${code}.`);
   }
+  let room: RoomRecord;
   try {
-    return JSON.parse(raw) as RoomRecord;
+    room = JSON.parse(raw) as RoomRecord;
   } catch {
     throw new SessionError('TRANSPORT_FAILURE', `The stored room ${code} is unreadable.`);
   }
+  // ⚠ TEAM NUMBERS, GIVEN TO AN OLDER ROOM BY JOIN ORDER (contract teamNumbers).
+  // room.teams is already in join order. Every path that saves the room keeps
+  // them; a read saves them itself.
+  const { numbers, next } = teamNumbers(room.teams, room.nextTeamNumber);
+  if (room.nextTeamNumber !== next || room.teams.some((t, i) => t.teamNumber !== numbers[i])) {
+    room.teams.forEach((t, i) => { t.teamNumber = numbers[i]; });
+    room.nextTeamNumber = next;
+    numberedOnLoad.add(room);
+  }
+  return room;
 }
 
 function saveRoom(room: RoomRecord): void {
@@ -462,6 +485,8 @@ function teamView(t: TeamRecord, currentYear: number, role: CallerRole, ownTeam?
   const results = sees ? Object.entries(t.resultsByYear) : [];
   return {
     name: t.name,
+    // Given on load to any team without one, so always present here.
+    teamNumber: t.teamNumber ?? 0,
     lines: [...t.lines],
     joined: t.joined,
     lockedYear: t.lockedYear,
@@ -728,6 +753,7 @@ export class LocalSessionTransport implements SessionTransport {
         // advance, because a team's name and its coverage lines are one act of
         // setup performed by the team itself.
         teams: [],
+        nextTeamNumber: 1,
         viewers: [],
         createdAt: now,
         updatedAt: now,
@@ -894,11 +920,14 @@ export class LocalSessionTransport implements SessionTransport {
         token,
         pin,
         recoveryHash,
+        // The room's next number, which loadRoom has made one past every number given.
+        teamNumber: room.nextTeamNumber ?? teamNumbers(room.teams).next,
         joined: true,
         lockedYear: null,
         decisionsByYear: {},
         resultsByYear: {},
       };
+      room.nextTeamNumber = created.teamNumber! + 1;
       room.teams.push(created);
       saveRoom(room);
       store.setItem(PIN_PREFIX + pin, JSON.stringify({ code: room.code, teamName: created.name } satisfies PinIndexEntry));
@@ -1184,6 +1213,9 @@ export class LocalSessionTransport implements SessionTransport {
   read(req: ReadRequest): Promise<ReadResponse> {
     return this.call(() => {
       const room = loadRoom(req.code);
+      // An older room numbered on this load is saved with its numbers, so they
+      // never change after. ⚠ NO rev BUMP: the view is the same either way.
+      if (numberedOnLoad.has(room)) storage().setItem(KEY_PREFIX + room.code, JSON.stringify(room));
       const { role, team } = callerOf(room, req.token);
       return { room: roomView(room, role, team?.name), you: callerView(role, team, room) };
     });

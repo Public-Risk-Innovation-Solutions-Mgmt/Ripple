@@ -17,6 +17,7 @@
 // market return net of fees (expectedMarketReturns), and the year's booked
 // figures; the combined ratio is the Annual Statement's own.
 // ============================================================================
+import { aggregateCoverOption } from './aggregateCover';
 import { pricingLineState } from './worlds';
 import { PRICING_DATA_LAG_YEARS, RESERVE_INFLATION_PRICED_YEARS } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
@@ -93,7 +94,9 @@ export interface ModelRate {
   /** The rate before reinsurance per $100: retained x CLF / divisor. */
   rateBeforeReinsurancePer100: number;
   funding: { label: string; clf: number };
+  /** The Risk Control slider: its share of the rate before reinsurance, in the divisor. */
   riskControl: number;
+  /** 1 - admin share - risk control (expenseDivisor). */
   divisor: number;
   /** The expenses as shares of the rate at Expected, self-funded, and the permissible loss ratio (the Rate Indication's). */
   expenses: { admin: number; riskControl: number; total: number; permissibleLossRatio: number };
@@ -102,6 +105,16 @@ export interface ModelRate {
   /** The rate's rows, as the Decisions panel's Your rate: each its own, adding to ratePer100. */
   pieces: { purePremium: number; admin: number; riskControl: number; reins: number };
   reinsurancePer100: number;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES, when the year buys one: its
+   * terms and price as the quote struck them (aggregateCover.ts). Its price per
+   * $100 is part of reinsurancePer100. Null with None.
+   */
+  aggregateCover: {
+    name: string; expectedNormal: number; averageSurge: number; expectedAttritional: number;
+    attachmentShare: number; limitShare: number; attachment: number; limit: number;
+    expectedRecovery: number; load: number; price: number; pricePer100: number;
+  } | null;
   ratePer100: number;
   /** $M — the exposure charged (the year's book; a played year's mean over worlds). */
   chargedExposure: number;
@@ -185,6 +198,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: d.reinsuranceOption,
     shocks,
+    aggregateCover: d.aggregateCover,
   });
   if (coming) panelRatePer100 = quote.finalRatePer100;
   // At Expected, self-funded: the expense shares and the indicated rate.
@@ -211,14 +225,18 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const reinsuranceDollars = oneWorld ? row!.reinsuranceCost : quote.reinsRatePer100 * chargedExposure * 10_000;
   const premium = oneWorld
     ? chargedExposure * quote.poolPremiumRatePer100 * 10_000
-      + chargedExposure * quote.adminRatePer100 * 10_000 + reinsuranceDollars
+      + chargedExposure * quote.adminRatePer100 * 10_000
+      + chargedExposure * quote.riskControlPer100 * 10_000 + reinsuranceDollars
     : quote.finalRatePer100 * chargedExposure * 10_000;
   const ratePer100 = oneWorld ? premium / Math.max(chargedExposure * 10_000, 1) : quote.finalRatePer100;
 
-  // The expense shares at Expected: admin's share is the parameter itself
-  // (ADMIN_SHARE_OF_PREMIUM), the same every year, as the quote carries it.
-  const adminShareE = atExpected.adminShare;
+  // The expense shares of the rate at Expected (before reinsurance): admin's
+  // share of premium — the parameter itself, the same every year, as the quote
+  // carries it — and the year's Risk Control slider; both are in the divisor
+  // (expenseDivisor), so they add to the expense ratio and the permissible loss
+  // ratio is what is left.
   const rc = effectiveRiskControlIncentivePct(d);
+  const adminShareE = atExpected.adminShare;
   const total = adminShareE + rc;
   const reinsurancePer100 = oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100;
 
@@ -241,7 +259,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     currentLevelPurePremiumPer100: pp.purePremiumPer100 / annualTrend,
     adminShare: quote.adminShare,
     quotedExposure, adminPer100: quote.adminRatePer100,
-    rateBeforeReinsurancePer100: quote.poolPremiumRatePer100 + quote.adminRatePer100,
+    rateBeforeReinsurancePer100: quote.poolPremiumRatePer100 + quote.adminRatePer100 + quote.riskControlPer100,
     funding: { label: fundingLabel(d), clf: quote.clf },
     riskControl: rc, divisor: expenseDivisor(rc, line),
     expenses: {
@@ -253,6 +271,15 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
       riskControl: quote.riskControlPer100, reins: reinsurancePer100,
     },
     reinsurancePer100,
+    aggregateCover: quote.aggregateCover ? (c => {
+      const o = aggregateCoverOption(c.optionId);
+      return {
+        name: o.name, expectedNormal: c.expectedNormal, averageSurge: c.averageSurge, expectedAttritional: c.expectedAttritional,
+        attachmentShare: o.attachment, limitShare: o.limit, attachment: c.attachment, limit: c.limit,
+        expectedRecovery: c.expectedRecovery, load: o.load, price: c.price,
+        pricePer100: c.price / Math.max(quotedExposure * 10_000, 1),
+      };
+    })(quote.aggregateCover) : null,
     ratePer100,
     chargedExposure,
     premium,
@@ -300,7 +327,9 @@ export function buildModelVariance(gs: GameState, line: CoverageLine): ModelVari
     const pricedAlae = r.pricingAlaeRatio ?? lae.alae;
     const expAlae = r.expectedLoss * pricedAlae, expUlae = r.expectedLoss * lae.ulae;
     const expInvest = blendInvestmentReturn(r.investedAssets, r.assetAllocation, expectedMarketReturns()).income;
-    const expRecovery = r.expectedReinsuranceRecovery ?? 0;
+    // The per-claim cover's expected recovery, and the aggregate cover's at the
+    // odds it was priced on (its recovery is in reinsuranceRecovery).
+    const expRecovery = (r.expectedReinsuranceRecovery ?? 0) + (r.attritionalCover?.expectedRecovery ?? 0);
     const recovery = r.reinsuranceRecovery + (r.aggregateRecovery ?? 0);
     // On the Annual Statement's basis: losses net of the cover's recovery, LAE,
     // admin, risk control and the cover's price, over the member charge.

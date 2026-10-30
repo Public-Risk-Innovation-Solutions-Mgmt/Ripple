@@ -1,12 +1,15 @@
 // THE SOLO ORACLE. Walks every tab of the solo game and fingerprints what each
 // one renders. Run before and after the extraction: the derivation moving files
 // is not the derivation changing, so every fingerprint must match exactly.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
 // The top bar as src/game/tabs.tsx lists it (Dashboard, Departments and
-// Investments are hidden), plus Membership, which records TAB-ABSENT.
+// Investments are hidden), plus Membership, which records TAB-ABSENT. ⚠ SINCE
+// THE TAB CLEANUP Financial Statements, Results and Result Spreadsheet are
+// hidden too and record TAB-ABSENT the same way; they stay listed so a walk
+// before the cleanup and one after compare tab for tab.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                'Year Walkthrough', 'Membership'];
@@ -64,7 +67,7 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   // Advance two years through the real solo path and walk again — this exercises
   // lockedResults, the results pages and the audit cards with real data.
   for (let i = 0; i < 2; i++) {
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     // A loan prompt would block; resolve it by declining if it appears.
     const decline = page.getByRole('button', { name: /Decline/i }).first();

@@ -5,7 +5,7 @@ import type { LineResultSet, ResultSet, LineView , CoverageLine} from '../types/
 import { isPoolRow } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { newMembersShare, nonRenewalShare } from '../utils/bookUnderwriting';
-import { RISK_CONTROL } from '../data/pricingParameters';
+import { formatCurrency } from '../utils/formatters';
 
 interface DecisionHistoryPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
@@ -32,18 +32,20 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
     r => r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0
   );
 
-  // Pool view: the two pool-wide decisions per year. Every line's locked
-  // snapshot carries the identical projected values, so the pool aggregate's
-  // decisions slice is the pool decision record.
+  // Pool view: the pool-wide decision per year, the asset mix. Every line's
+  // locked snapshot carries the identical projected values, so the pool
+  // aggregate's decisions slice is the pool decision record. ⚠ NO RISK CONTROL
+  // COLUMN: the pool-wide spend is retired (pinned at 0); risk control is the
+  // per-line slider, shown on each line's tab (wip/risk-control).
   // 'Rate Change' column REMOVED — CLF-only pricing; the decision it showed no
   // longer exists.
   const headers = isPool
-    ? ['Yr', 'Program Year', 'Cash %', 'Bonds %', 'Equities %', 'Risk Control %']
+    ? ['Yr', 'Program Year', 'Cash %', 'Bonds %', 'Equities %']
     : [
-        'Yr', 'Program Year', 'Funding Confidence', 'Dividend %', 'Assessment %',
+        'Yr', 'Program Year', 'Funding Confidence', 'Dividend', 'Assessment',
         'Reinsurance Program',
         // Underwriting and risk control, as percentages: the two sliders by their
-        // names, and risk control — 0% while it is disabled.
+        // names, and the line's Risk Control slider (wip/risk-control).
         'Non-renewal', 'New members', 'Risk Control',
         ...(showLoanColumn ? ['Loan Repayment Aggressiveness'] : []),
       ];
@@ -103,21 +105,20 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                         <td className="px-4 py-3">{r.pool.assetAllocation.cashPct.toFixed(0)}%</td>
                         <td className="px-4 py-3">{r.pool.assetAllocation.bondsPct.toFixed(0)}%</td>
                         <td className="px-4 py-3">{r.pool.assetAllocation.equitiesPct.toFixed(0)}%</td>
-                        <td className="px-4 py-3">{pctDisplay(r.pool.riskControlPct)}</td>
                       </>
                     ) : (
                       <>
                         <td className="px-4 py-3">{pctDisplay(r.decisions.fundingConfidenceLevel, 0)}</td>
                         <td className="px-4 py-3">
-                          {pctDisplay(r.decisions.dividendPct)}
+                          {formatCurrency(r.decisions.dividendAmount)}
                           {r.dividendBlocked && <span className="text-red-600 text-xs ml-1">(blocked)</span>}
                         </td>
-                        <td className="px-4 py-3">{pctDisplay(r.decisions.assessmentPct)}</td>
+                        <td className="px-4 py-3">{formatCurrency(r.decisions.assessmentAmount)}</td>
                         <td className="px-4 py-3">{placementSummary(lineView as CoverageLine, r.decisions)}</td>
                         {/* Read through the engine's own readings of the recorded decisions. */}
                         <td className="px-4 py-3">{pctDisplay(nonRenewalShare(r.decisions.nonRenewal), 0)}</td>
                         <td className="px-4 py-3">{pctDisplay(newMembersShare(r.decisions.newMembers), 0)}</td>
-                        <td className="px-4 py-3">{pctDisplay(RISK_CONTROL.enabled ? r.decisions.riskControlPct : 0)}</td>
+                        <td className="px-4 py-3">{pctDisplay(r.decisions.riskControlIncentivePct ?? 0)}</td>
                         {showLoanColumn && (
                           <td className="px-4 py-3">
                             {(r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0)

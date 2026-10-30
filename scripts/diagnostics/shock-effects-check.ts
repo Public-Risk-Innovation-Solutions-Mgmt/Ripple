@@ -11,10 +11,19 @@
 // problems; each has a CONTROL that breaks the thing it guards at runtime,
 // asserts the section now FAILS, and restores it — a check that has never
 // failed proves nothing (SESSION_PRACTICES.md §2).
+//
+// RESTATED FOR wip/large-claims-from-events: the covers are in every game
+// (COVERS_IN_EVERY_GAME, shipped on). Section 4a no longer wants None alone
+// with the game's shocks off: it wants the same None and eight layers, in the
+// same order, None the default both ways, and each option priced exactly as
+// with the shocks on (the method's 2027 figure). New control:
+// COVERS_IN_EVERY_GAME.enabled = false at runtime must fail 4a, then is
+// restored. Everything else is as reverted: large claims come only from the
+// events' T (sections 2, 3 and 4b).
 // ============================================================================
 
 import {
-  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, SHOCK_COST_TREND, SHOCK_FREE_PRICING, T_COVER_FREQUENCY,
+  COVERS_IN_EVERY_GAME, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, SHOCK_COST_TREND, SHOCK_FREE_PRICING, T_COVER_FREQUENCY,
   SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -22,7 +31,7 @@ import {
   SHOCK_EVENTS, eventLines, firingsStartingIn, resolveShockYear, tClaimSize, aShare, applyMarketShock,
 } from '../../src/utils/shockLosses';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
-import { optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
+import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import { blendInvestmentReturn } from '../../src/utils/investmentEngine';
 import { quoteNewRateStack } from '../../src/utils/linePricing';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -205,9 +214,16 @@ function sectionCoverTerms(): string[] {
     const offered = reinsuranceOptionIds(l, true);
     const ids = ['none', ...BRIEF_COVERS.map(c => c[0])];
     if (offered.join('|') !== ids.join('|')) out.push(`${l} offers ${offered.join(', ')}`);
-    if (reinsuranceOptionIds(l, false).join('|') !== 'none') out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
+    // COVERS_IN_EVERY_GAME: the same nine with the shocks off, None the default both ways.
+    if (reinsuranceOptionIds(l, false).join('|') !== ids.join('|')) out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
+    if (defaultReinsuranceOption(l, true) !== 'none' || defaultReinsuranceOption(l, false) !== 'none') {
+      out.push(`${l} default ${defaultReinsuranceOption(l, true)} (shocks on), ${defaultReinsuranceOption(l, false)} (off) — None both ways`);
+    }
+    const offeredOff = reinsuranceOptionIds(l, false);
     BRIEF_COVERS.forEach(([id, att, lim], k) => {
       if (!near(optionPrice(l, id), BRIEF_PRICE[l][k], 1e-12)) out.push(`${l} ${id}: price ${optionPrice(l, id)}, the method's ${BRIEF_PRICE[l][k]}`);
+      // ...and offered with the shocks off at that same price.
+      if (!offeredOff.includes(id)) out.push(`${l} ${id} not offered with shocks off`);
       const placed = placementFor(l, id);
       for (const x of [0.5, 1, 1.5, 2, 3, 9.99, 10, 12, 20, 25, 39, 40, 41, 60].map(v => v * M)) {
         const want = Math.min(Math.max(x - att * M, 0), lim * M);
@@ -504,7 +520,8 @@ control('a map row changed', () => {
   const map = R_MODEL.shockMap as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
-check(sectionCoverTerms(), '4a. T covers: the eight offered, priced by the method, ceding min(max(x - att, 0), limit)');
+check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off, None the default), priced by the method, ceding min(max(x - att, 0), limit)');
+control('COVERS_IN_EVERY_GAME switched off (None alone with shocks off)', () => { COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; }; }, sectionCoverTerms);
 control('a frequency changed', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06; return () => { f.Mid = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
 check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');

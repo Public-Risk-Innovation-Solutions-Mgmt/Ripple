@@ -229,13 +229,13 @@ function totals(st: AnnualStatement): string[] {
   return out;
 }
 
-// ⚠ THE COMBINED RATIO — the statement's first row, and the header's figure,
-// which reads it. Each year: every cost (net losses, LAE, admin, risk control,
+// ⚠ THE COMBINED RATIO — the statement's first row. The header shows its
+// newest year's cell (newest-combined-ratio-check holds that). Each year: every cost (net losses, LAE, admin, risk control,
 // the reinsurance cost) over the member charge, off the engine's result — and
 // the engine's own actualCombinedRatio. Total: the same summed over every
 // PLAYED year since game start to the year the statement stands at — not the
 // five shown — or over the pre-game years before year 1. And topCombinedRatio,
-// what the header shows, is that Total.
+// the statement's cumulative reader, is that Total.
 const costsOf = (r: ResultSet, scope: LineView) => {
   const x = at(r, scope);
   return { costs: x.netIncurredLoss + x.laeIncurred + x.operatingExpense + x.riskControlInvestment + x.reinsuranceCost, charge: x.totalMemberCharge };
@@ -260,7 +260,7 @@ function topCombined(st: AnnualStatement, gs: GameState, scope: LineView): strin
   if (num(total) === undefined || !near(num(total)!, sum.costs / sum.charge)) {
     out.push(played.length > 0 ? 'Total is not cumulative over every played year since game start' : 'Total is not cumulative over the pre-game years');
   }
-  if (topCombinedRatio(st) !== num(total)) out.push('the header\'s figure is not the row\'s Total');
+  if (topCombinedRatio(st) !== num(total)) out.push('topCombinedRatio is not the row\'s Total');
   return out;
 }
 
