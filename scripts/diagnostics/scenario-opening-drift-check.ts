@@ -38,6 +38,12 @@
 //      premium WC -1.2% to +2.0%, GL -3.3% to +2.3%, Property -0.8% to +0.5%.
 //      ACCEPTED AS THEY FALL by ruling; no seed changed. The seeds will be
 //      re-picked on this build (SCENARIO_OPENING_BARS).
+//   v3 (pr/seed-switch): fifteen scenarios' seeds re-picked on the fixed ALAE
+//      load (SCENARIO_SEEDS says how and why); 7, 18, 2, 13 and 16 kept. The
+//      control, aws 0b4f5a5, opened exactly on v2. The five kept scenarios'
+//      45 figures are unchanged; the fifteen switched scenarios' 135 move —
+//      their openings are their new seeds' (SCENARIO_SEEDS' table), 16 of 20
+//      within 5% of target on every line, worst miss 10.35%.
 // ============================================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -49,7 +55,7 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v2.json');
+const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v3.json');
 type Opening = { surplus: number; premium: number; ps: number };
 type Openings = Record<string, Record<CoverageLine, Opening>>;
 const failures: string[] = [];

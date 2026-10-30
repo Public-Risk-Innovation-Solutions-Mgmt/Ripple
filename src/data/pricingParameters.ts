@@ -799,56 +799,78 @@ export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 
  * targets (SCENARIO_PREMIUM_TO_SURPLUS), keeping today's thin-to-rich order;
  * no seed is used twice.
  *
+ * ⚠ RE-PICKED, FIFTEEN OF THE TWENTY (pr/seed-switch, on aws 0b4f5a5, after
+ * the fixed PRICING_ALAE_LOAD moved every opening: 4 of 20 within 5%, worst
+ * miss 18.5%). The same search on this build — seeds 21 to 20,000, setup as
+ * above, year-1 premium at Expected with shocks off — then every seed within
+ * 5% of a slot's targets on all three lines, and today's twenty, played ten
+ * years, single player and a hosted room at adverse development Low, shocks
+ * on, the default decisions. Each scored on steadiness: the spread of its
+ * yearly combined ratios, single-player loss runs (combined ratio over 100%)
+ * longer than three years, the largest one-year surplus drop against the
+ * opening, and every line that ever falls below zero. A slot switched only
+ * where its new seed is within 5% on every line, draws at least two shocks in
+ * ten years, and is clearly steadier (score at least 30% lower, no more years
+ * below zero; 19, 9 and 17 by ruling: as steady, on target, and drawing the
+ * shocks today's seeds did not). Every switched seed stays above zero on every
+ * line in both modes over ten years, where eleven of today's did not (scenario
+ * 14's Property fell to -$77M of surplus across the three lines); no 2027 rate
+ * falls. Kept: 7, 18, 2, 13 and 16 — no steadier seed, or none within 5%. The
+ * measurement: the Growth chat, scripts in its scratchpad, aa91a0a and aws
+ * 0b4f5a5 identical on all twenty.
+ *
  *   The openings, measured on this build (premium to surplus, shocks off;
  *   target, actual, miss):
  *
  *   scen  seed    WC                    GL                    Property
- *    12   8095   3.00 3.00  +0.2%   2.30 2.30  +0.0%   1.70 1.67  -1.8%
- *    19   9401   2.92 2.92  -0.1%   2.25 2.27  +0.8%   1.67 1.68  +0.4%
- *    10  11168   2.84 2.82  -0.8%   2.19 2.21  +0.8%   1.65 1.65  +0.3%
- *    14   1428   2.76 2.70  -2.1%   2.14 2.19  +2.3%   1.62 1.65  +1.7%
- *     3   8310   2.68 2.64  -1.6%   2.09 2.07  -0.9%   1.59 1.63  +2.1%
- *     8  12312   2.61 2.62  +0.4%   2.04 2.05  +0.8%   1.57 1.54  -1.7%
- *    15   1105   2.53 2.45  -3.0%   1.98 2.01  +1.1%   1.54 1.59  +2.9%
- *    11  16179   2.45 2.40  -1.9%   1.93 1.95  +0.9%   1.52 1.51  -0.7%
- *    20   7068   2.37 2.40  +1.5%   1.88 1.90  +1.3%   1.49 1.51  +1.2%
- *     6   4886   2.29 2.32  +1.1%   1.83 1.81  -1.0%   1.46 1.45  -0.8%
- *     9   1018   2.21 2.25  +1.9%   1.77 1.77  -0.2%   1.44 1.47  +2.2%
- *     5  11220   2.13 2.17  +1.9%   1.72 1.70  -1.3%   1.41 1.43  +1.7%
- *     4  13073   2.05 2.06  +0.3%   1.67 1.69  +1.3%   1.38 1.39  +0.5%
- *     1   4109   1.97 2.00  +1.2%   1.62 1.60  -0.9%   1.36 1.40  +3.1%
- *    18  13548   1.89 1.89  -0.0%   1.56 1.53  -1.9%   1.33 1.36  +1.9%
- *     7   9719   1.82 1.76  -2.8%   1.51 1.54  +2.2%   1.31 1.35  +3.2%
- *    17   3895   1.74 1.68  -3.1%   1.46 1.46  +0.2%   1.28 1.34  +4.4%
- *     2   1681   1.66 1.68  +1.5%   1.41 1.43  +1.8%   1.25 1.22  -2.7%
- *    13  14577   1.58 1.72  +8.8%   1.35 1.44  +6.2%   1.23 1.21  -1.1%
- *    16   2812   1.50 1.61  +7.2%   1.30 1.16 -11.0%   1.20 1.18  -1.5%
+ *    12  14953   3.00 3.15  +5.0%   2.30 2.34  +1.8%   1.70 1.62  -4.5%
+ *    19  17909   2.92 2.78  -5.0%   2.25 2.14  -4.9%   1.67 1.75  +4.8%
+ *    10    567   2.84 2.81  -1.2%   2.19 2.15  -1.8%   1.65 1.66  +0.7%
+ *    14   7499   2.76 2.75  -0.4%   2.14 2.05  -4.4%   1.62 1.68  +3.9%
+ *     3   9739   2.68 2.72  +1.4%   2.09 2.02  -3.2%   1.59 1.54  -3.7%
+ *     8  12860   2.61 2.55  -2.0%   2.04 2.10  +3.0%   1.57 1.50  -4.7%
+ *    15   7693   2.53 2.52  -0.4%   1.98 2.00  +0.9%   1.54 1.47  -4.9%
+ *    11  14977   2.45 2.46  +0.7%   1.93 1.88  -2.8%   1.52 1.50  -1.2%
+ *    20   4129   2.37 2.31  -2.3%   1.88 1.87  -0.5%   1.49 1.56  +4.9%
+ *     6   3545   2.29 2.20  -4.0%   1.83 1.76  -3.5%   1.46 1.52  +4.1%
+ *     9   2019   2.21 2.17  -1.8%   1.77 1.80  +1.7%   1.44 1.39  -3.2%
+ *     5   6751   2.13 2.15  +1.1%   1.72 1.65  -4.3%   1.41 1.48  +4.7%
+ *     4  18728   2.05 2.15  +4.8%   1.67 1.62  -3.1%   1.38 1.32  -4.8%
+ *     1  11548   1.97 2.07  +4.7%   1.62 1.61  -0.4%   1.36 1.31  -3.7%
+ *    18  13548   1.89 1.87  -1.5%   1.56 1.44  -7.8%   1.33 1.35  +1.5%
+ *     7   9719   1.82 1.73  -4.6%   1.51 1.49  -1.1%   1.31 1.32  +1.5%
+ *    17  10942   1.74 1.82  +4.7%   1.46 1.48  +1.2%   1.28 1.30  +2.0%
+ *     2   1681   1.66 1.80  +8.4%   1.41 1.42  +0.7%   1.25 1.23  -1.8%
+ *    13  14577   1.58 1.74 +10.4%   1.35 1.45  +7.3%   1.23 1.23  +0.6%
+ *    16   2812   1.50 1.58  +5.4%   1.30 1.19  -8.3%   1.20 1.20  +0.2%
  *
- * ⚠ THE TWO RICHEST MISS, ACCEPTED. Eighteen scenarios land within 5% on every
- * line. Scenarios 13 and 16 miss their WC targets by about 9% and 7% (and GL by
- * +6% and -11%): at $3.0M WC's opening premium to surplus has its 1st
- * percentile at 1.89 across the 20,000 seeds, so a 1.5-1.6 WC opening that
- * also matches GL and Property was not drawn — no seed came within 5% on all
- * three lines for either. Raising WC's capital to about $8-9M would make every
- * slot reachable (estimated: opening surplus rises about $1.13-1.25M per $1M
- * paid in); not taken — the capital is the brief's.
+ * ⚠ FOUR KEPT SLOTS MISS, ACCEPTED. Sixteen scenarios land within 5% on every
+ * line; 18, 2, 13 and 16 do not (worst: 13's WC, +10.4%). 13 and 16 had no seed
+ * within 5% in the search, as before: at $3.0M a 1.5-1.6 WC opening that also
+ * matches GL and Property is not drawn. Raising WC's capital to about $8-9M
+ * would make every slot reachable (estimated: opening surplus rises about
+ * $1.13-1.25M per $1M paid in); not taken — the capital is the brief's. 18's
+ * and 2's candidates were less steady than the seeds they have.
+ *
+ * Before pr/seed-switch: 12 8095, 19 9401, 10 11168, 14 1428, 3 8310,
+ * 8 12312, 15 1105, 11 16179, 20 7068, 6 4886, 9 1018, 5 11220, 4 13073,
+ * 1 4109, 17 3895 (chosen on multiplayer 985f365 against the drawn-ALAE
+ * openings, 18 of 20 within 5%).
  */
 export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
-  12: 8095, 19: 9401, 10: 11168, 14: 1428, 3: 8310, 8: 12312, 15: 1105, 11: 16179, 20: 7068, 6: 4886,
-  9: 1018, 5: 11220, 4: 13073, 1: 4109, 18: 13548, 7: 9719, 17: 3895, 2: 1681, 13: 14577, 16: 2812,
+  12: 14953, 19: 17909, 10: 567, 14: 7499, 3: 9739, 8: 12860, 15: 7693, 11: 14977, 20: 4129, 6: 3545,
+  9: 2019, 5: 6751, 4: 18728, 1: 11548, 18: 13548, 7: 9719, 17: 10942, 2: 1681, 13: 14577, 16: 2812,
 };
 
 /**
- * ⚠ TEMPORARY: THE OPENINGS' BARS, AS THIS BUILD PRODUCES THEM — read by
- * scenarios-check section 5 and by nothing in the game. The seeds above were
- * chosen against openings priced with the window's mean drawn ALAE ratio; with
- * the fixed PRICING_ALAE_LOAD (wip/pricing-alae-load) the openings moved, and
- * by ruling they are ACCEPTED AS THEY NOW FALL: the worst line misses its design
- * target by 18.48% (scenario 19) and 4 of the 20 scenarios are within 5% on
- * every line, where the seeds were picked to give 11.0% and 18 of 20. THE SEEDS
- * WILL BE RE-PICKED ON THIS BUILD, and these bars go back to 12% and 18 then.
+ * THE OPENINGS' BARS — read by scenarios-check section 5 and by nothing in the
+ * game: every line within this of its design target, and this many scenarios
+ * within 5% on all three lines. What the seeds above achieve on this build:
+ * worst miss 10.35% (scenario 13's WC) and 16 of 20 (pr/seed-switch). Were
+ * 18.5% and 4, temporarily, while the openings stood as the fixed ALAE load
+ * left them (pr/alae-load); 12% and 18 before that.
  */
-export const SCENARIO_OPENING_BARS = { worstMiss: 0.185, within5: 4, temporary: true } as const;
+export const SCENARIO_OPENING_BARS = { worstMiss: 0.105, within5: 16, temporary: false } as const;
 
 /**
  * EACH LINE'S THINNEST AND RICHEST DESIGN TARGET, PREMIUM TO SURPLUS — the
@@ -2793,7 +2815,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       + 'that seed produces is the opening. Nothing is solved, scaled, floored or guarded at run time. The design '
       + 'targets the seeds were chosen against, evenly spaced per line from thinnest to richest: '
       + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_RATIO_RANGE[l].thinnest} to ${SCENARIO_RATIO_RANGE[l].richest}`).join(', ')
-      + '. Scenarios 13 and 16 miss their WC targets by about 9% and 7% (GL +6% and -11%), accepted.',
+      + '. Sixteen open within 5% of their targets on every line; 18, 2, 13 and 16 miss (worst: 13\'s WC, +10.4%), '
+      + 'accepted. Fifteen seeds (all but 7, 18, 2, 13 and 16) were re-picked after the fixed ALAE load moved every '
+      + 'opening (pr/seed-switch): among the seeds within 5% of each slot\'s targets, each is steadier over ten years '
+      + 'than the one it replaced — a smaller spread of yearly combined ratios, smaller surplus drops, no line below '
+      + 'zero — and draws at least two shocks.',
     entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
       value: `seed ${SCENARIO_SEEDS[n]}`,
       unit: 'fixed seed',

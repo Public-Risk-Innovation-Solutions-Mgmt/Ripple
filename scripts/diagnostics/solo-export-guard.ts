@@ -1123,7 +1123,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // key v42 -> v44), and the Year Walkthrough's Year code (a hash of its
 // figures). No loss, LAE incurred, reserve, IBNR, case, paid, ceded, claim or
 // exposure line moves, and no line was added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v118.json');
+// v119: FIFTEEN SCENARIOS' SEEDS RE-PICKED (pr/seed-switch, from aws 0b4f5a5;
+// numbered past every export baseline on multiplayer and pr/clf-stretch). The
+// control ran first: aws 0b4f5a5 reproduced v118 on all 48 keys. 24 of 48 move,
+// and only in one line: the Version row (save key v44 -> v45). Text-diffed
+// against 0b4f5a5's own text (GUARD_TEXT_DIR): no other line moves — the
+// guard's games are built on their own ids, not on a scenario number, so no
+// figure, label or row could.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v119.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
