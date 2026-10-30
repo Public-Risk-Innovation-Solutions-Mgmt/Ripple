@@ -68,16 +68,27 @@ const STATUS: Record<SessionErrorCode, number> = {
   // LINES_LOCKED is gone from the contract — a join carries no lines, so no
   // server can emit it. Nothing maps to 409 for it any more.
   TRANSPORT_FAILURE: 500,
+  // ⚠ 403, SAME BUCKET AS BAD_TOKEN/NOT_HOST — the wrong credential was
+  // presented, nothing a retry fixes on its own.
+  BAD_RECOVERY_CODE: 403,
+  // ⚠ 429, NOT 409 — this is a rate limit, not a state the room is in.
+  // httpTransport.ts's retryableFor(429) already treats a 429 as retryable by
+  // default, but the body's own retryable: false (set on the thrown
+  // SessionError) wins once the code is in its ERROR_CODES allow-list — see
+  // that file.
+  TOO_MANY_ATTEMPTS: 429,
 };
 
-// ⚠ TWO NEW ROUTES, AND THE DISPATCH BELOW NEEDED NOTHING ELSE. It calls
+// ⚠ THREE NEW ROUTES AND THE DISPATCH BELOW NEEDED NOTHING ELSE. It calls
 // transport[endpoint] generically, so a route is this list plus a method on the
 // transport — which is the property that made adding the lobby a contract
 // change rather than a handler change. Mike adds the routes in API Gateway; see
 // docs/AWS_HANDOFF.md.
-type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read' | 'listEvents' | 'setEventHidden';
+type Endpoint =
+  | 'createRoom' | 'join' | 'reclaimTeam' | 'submit' | 'advance' | 'read'
+  | 'listEvents' | 'setEventHidden';
 const ENDPOINTS: readonly Endpoint[] = [
-  'createRoom', 'join', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
+  'createRoom', 'join', 'reclaimTeam', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
 ];
 
 function json(status: number, body: unknown): APIGatewayProxyStructuredResultV2 {

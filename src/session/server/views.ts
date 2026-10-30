@@ -49,6 +49,19 @@ export interface RosterEntry {
    * it; JoinResponse.pin is the only place this ever leaves the header.
    */
   pin?: string;
+  /**
+   * ⚠ HASHED, NOT PLAIN — unlike `pin` above. A recovery code is the one
+   * secret a device hands to a PERSON rather than to a wire: writing it in
+   * the clear here would mean anyone who ever reads this header (the host
+   * screen, a DynamoDB console, a support engineer) could reclaim the team
+   * themselves. Checked with server/dynamo.ts's hashesMatch — the caller's
+   * candidate is hashed and compared, never the other way round — and never
+   * returned anywhere except JoinResponse.recoveryCode, once, at creation.
+   * Absent on a team created before this feature existed; reclaimTeam treats
+   * that the same as any other wrong guess (server/rooms.ts's
+   * PLACEHOLDER_RECOVERY_HASH) rather than branching on it.
+   */
+  recoveryHash?: string;
   /** Year (as a string) -> true, for every year this team has a result posted. */
   posted: Record<string, boolean>;
   /**

@@ -51,6 +51,7 @@ import type {
   JsonValue,
   PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
+  ReclaimTeamRequest, ReclaimTeamResponse,
   RoomStatus, RoomView,
   ScheduledShockSpec,
   SessionTransport,
@@ -58,7 +59,10 @@ import type {
   SubmitRequest, SubmitResponse,
   TeamView,
 } from './contract';
-import { SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
+import {
+  SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
+  normalizeRecoveryCode, eventStatusOf, mayCreateTeam,
+} from './contract';
 import { Faults } from './faults';
 import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
 import type { CoverageLine } from '../types/simulation';
@@ -180,6 +184,69 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PIN_ALPHABET = '0123456789';
 const PIN_LENGTH = 6;
 
+// ⚠ DUPLICATED IN server/dynamo.ts, NOT IMPORTED — same reasoning as
+// PIN_ALPHABET above: that file must stay importable with nothing
+// browser-reaching it. Reuses the same digit alphabet as the viewer PIN — a
+// recovery code is also read off a screen and typed on a different device.
+//
+// ⚠ 4 DIGITS, NOT THE 12-CHARACTER/60-BIT CODE RECOVERY-CODE GUIDES OFTEN
+// SPEC — confirmed with the user as a deliberate reduction for this project.
+// This secret rotates a team's bearer token (full control, not just
+// viewing), so the 5-attempts/15-minute limiter below is this code's PRIMARY
+// defense, not a backstop on top of real entropy.
+const RECOVERY_CODE_LENGTH = 4;
+
+function newRecoveryCode(): string {
+  return randomFrom(PIN_ALPHABET, RECOVERY_CODE_LENGTH);
+}
+
+// ⚠ reclaimTeam's ATTEMPT LIMITER — a localStorage equivalent of keys.ts's
+// attemptSk/server/rooms.ts's ATTEMPT# item. No native TTL here, so the fixed
+// window is checked by hand: a record's windowStartMs is set once, on its
+// first failure, and never moved by a later one — the same if_not_exists
+// semantic the DynamoDB write uses, worked out explicitly because
+// localStorage has neither an ADD nor an if_not_exists.
+const ATTEMPT_PREFIX = 'ripple.session.v1.attempt.';
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_RECLAIM_ATTEMPTS = 5;
+
+interface AttemptRecord {
+  count: number;
+  windowStartMs: number;
+}
+
+// Keyed by team NAME, not a teamId — this file has no teamId, and a team's
+// name IS its local identity (see keys.ts's note on the hosted side's teamId
+// existing only because names are not safe DynamoDB keys).
+function attemptKeyFor(code: string, teamName: string): string {
+  return `${ATTEMPT_PREFIX}${code}.${teamName}`;
+}
+
+function loadAttempt(key: string): AttemptRecord | null {
+  const raw = storage().getItem(key);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as AttemptRecord;
+  } catch {
+    return null;
+  }
+}
+
+function recordAttemptFailure(key: string): void {
+  const now = Date.now();
+  const existing = loadAttempt(key);
+  const fresh = !existing || now - existing.windowStartMs > ATTEMPT_WINDOW_MS;
+  const next: AttemptRecord = fresh
+    ? { count: 1, windowStartMs: now }
+    : { count: existing.count + 1, windowStartMs: existing.windowStartMs };
+  storage().setItem(key, JSON.stringify(next));
+}
+
+function isReclaimBlocked(key: string): boolean {
+  const a = loadAttempt(key);
+  return !!a && a.count >= MAX_RECLAIM_ATTEMPTS && Date.now() - a.windowStartMs <= ATTEMPT_WINDOW_MS;
+}
+
 // ---------------------------------------------------------------- records
 
 // What is actually stored. Holds the SECRETS (host token, team tokens) and every
@@ -198,6 +265,19 @@ interface TeamRecord {
    * the way `token` is.
    */
   pin?: string;
+  /**
+   * ⚠ NOT ACTUALLY HASHED HERE, AND THE FIELD NAME SAYS SO ONLY FOR NAMING
+   * PARITY WITH server/views.ts's RosterEntry — same distinction keys.ts
+   * already draws for the player token: the local implementation keys on the
+   * secret itself, no worse than the room record beside it already holding
+   * other secrets in the clear in the same localStorage. Holds
+   * normalizeRecoveryCode(code) directly. A true hash would need
+   * crypto.subtle.digest, which is ASYNC — incompatible with this file's
+   * `work MUST STAY SYNCHRONOUS` invariant for exclusive calls — and buys
+   * nothing against a timing attack that does not exist locally (no network
+   * round trip separates the comparison from an attacker).
+   */
+  recoveryHash?: string;
   joined: boolean;
   lockedYear: number | null;
   // Year number (as a string key, per JSON) -> that year's submitted decisions.
@@ -800,6 +880,12 @@ export class LocalSessionTransport implements SessionTransport {
       for (let i = 0; store.getItem(PIN_PREFIX + pin) !== null && i < 50; i++) {
         pin = randomFrom(PIN_ALPHABET, PIN_LENGTH);
       }
+      // A recovery code for getting this team back from a new device if this
+      // one is lost — see contract.ts's JoinResponse.recoveryCode. Only its
+      // normalized form is ever stored (see TeamRecord.recoveryHash); the
+      // plaintext is returned once, below, and nowhere else.
+      const recoveryCode = newRecoveryCode();
+      const recoveryHash = normalizeRecoveryCode(recoveryCode);
       const created: TeamRecord = {
         name,
         // Canonical WC/GL/Property order regardless of click sequence, so two
@@ -807,6 +893,7 @@ export class LocalSessionTransport implements SessionTransport {
         lines: LINE_ORDER.filter(l => lines.includes(l)),
         token,
         pin,
+        recoveryHash,
         joined: true,
         lockedYear: null,
         decisionsByYear: {},
@@ -819,8 +906,54 @@ export class LocalSessionTransport implements SessionTransport {
       // lobby shows it — a listing that said "0 teams so far" under a room six
       // people had joined would be worse than no count at all.
       updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
-      return { teamToken: token, teamName: created.name, lines: [...created.lines], pin, role: 'player' as const, rejoined: false, room: roomView(room, 'player', created.name) };
+      return {
+        teamToken: token, teamName: created.name, lines: [...created.lines], pin, recoveryCode,
+        role: 'player' as const, rejoined: false, room: roomView(room, 'player', created.name),
+      };
     }, true);
+  }
+
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
+    return this.call(() => {
+      if (typeof req.code !== 'string') throw new SessionError('INVALID_REQUEST', 'code must be a string.');
+      if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+      if (typeof req.recoveryCode !== 'string') throw new SessionError('INVALID_REQUEST', 'recoveryCode must be a string.');
+      if (!SESSION_TOKEN_PATTERN.test(req.token)) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs a valid new device token.');
+      }
+
+      const room = loadRoom(req.code);
+      const name = req.teamName.trim();
+      const team = room.teams.find(t => t.name === name);
+      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+
+      // ⚠ THE SAME SHORT-CIRCUIT AS server/rooms.ts's reclaimTeam, FIRST —
+      // before the limiter, before the hash compare. If this device's token
+      // is ALREADY this team's current token, treat it as success: either
+      // this exact call already committed and the response was lost, or it's
+      // a legitimate re-presentation. See that file's comment for why this is
+      // what makes a retried reclaim idempotent.
+      if (team.token === req.token) {
+        return { teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name) };
+      }
+
+      const key = attemptKeyFor(room.code, name);
+      if (isReclaimBlocked(key)) {
+        throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
+      }
+
+      const presented = normalizeRecoveryCode(req.recoveryCode);
+      if (team.recoveryHash === undefined || team.recoveryHash !== presented) {
+        recordAttemptFailure(key);
+        throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+      }
+
+      assertTokenFree(room, req.token);
+      team.token = req.token;
+      saveRoom(room);
+      storage().removeItem(key);
+      return { teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name) };
+    }, true); // exclusive — it mutates the room, same as join/submit/advance
   }
 
   submit(req: SubmitRequest): Promise<SubmitResponse> {

@@ -65,6 +65,20 @@ class MemoryStorage {
 const store = new MemoryStorage();
 (globalThis as unknown as { localStorage: unknown }).localStorage = store;
 
+// ⚠ NODE'S OWN navigator.locks IS SHUT OFF HERE, DELIBERATELY — same fix as
+// session-contract-check.ts, needed here too now that this file is run as a
+// genuinely long-lived standalone process rather than only imported by that
+// harness (which already blanks it for the whole process). withRoomLock's
+// lockManager() falls back to running synchronously when navigator.locks is
+// absent — true until Node started shipping its own (confirmed present as of
+// Node v24.21.0+). That implementation does not release a lock when its
+// callback throws, so the FIRST exclusive call that fails here (a bad join,
+// a wrong reclaim attempt, anything) wedges the lock forever: every later
+// exclusive call hangs with no error and no response, for the rest of this
+// process's life. One process serves every request here, so blanking it
+// once at the top is enough.
+Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true });
+
 // No fake latency: the wire supplies the real thing now.
 const transport = new LocalSessionTransport({ latencyMs: 0 });
 
@@ -87,13 +101,18 @@ const STATUS: Record<SessionErrorCode, number> = {
   EVENT_IN_PROGRESS: 409,
   // LINES_LOCKED is gone from the contract — no server can emit it.
   TRANSPORT_FAILURE: 500,
+  // Same two codes, same mapping, as handler.ts's own STATUS table.
+  BAD_RECOVERY_CODE: 403,
+  TOO_MANY_ATTEMPTS: 429,
 };
 
 // ---------------------------------------------------------------- routing
 
-type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read' | 'listEvents' | 'setEventHidden';
+type Endpoint =
+  | 'createRoom' | 'join' | 'reclaimTeam' | 'submit' | 'advance' | 'read'
+  | 'listEvents' | 'setEventHidden';
 const ENDPOINTS: Endpoint[] = [
-  'createRoom', 'join', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
+  'createRoom', 'join', 'reclaimTeam', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
 ];
 
 function send(res: ServerResponse, status: number, body: unknown): void {

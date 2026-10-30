@@ -129,22 +129,27 @@ import type {
   ListEventsResponse, LobbyEvent,
   PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
+  ReclaimTeamRequest, ReclaimTeamResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
 } from '../contract';
-import { SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
+import {
+  SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
+  normalizeRecoveryCode, eventStatusOf, mayCreateTeam,
+} from '../contract';
 import { Faults } from '../faults';
 import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
-  createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, pinPk, resultPrefix, resultSk, roomPk,
+  attemptSk, createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, pinPk, resultPrefix, resultSk, roomPk,
   tokenSk, viewerSk,
 } from './keys';
 import {
-  dynamoFromEnv, hashToken, newRoomCode, newTeamId, newViewerPin, type Dynamo, type DynamoConfig,
+  dynamoFromEnv, hashesMatch, hashToken, newRecoveryCode, newRoomCode, newTeamId, newViewerPin,
+  type Dynamo, type DynamoConfig,
 } from './dynamo';
 import {
   buildCallerView, buildRoomView, orderedRoster, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
@@ -162,6 +167,19 @@ const MAX_YEAR_COUNT = 998;
 
 /** How many times a mutation re-reads and re-decides after losing a race. */
 const MAX_ATTEMPTS = 5;
+
+/** reclaimTeam's attempt limiter — keys.ts's attemptSk, a fixed window from
+ *  the first failure, not a sliding one. */
+const ATTEMPT_WINDOW_SEC = 15 * 60;
+const MAX_RECLAIM_ATTEMPTS = 5;
+
+// A fixed, never-matching stand-in for a team with no recoveryHash (one made
+// before this feature existed) — sha256 is 64 hex chars. Reclaiming such a
+// team still runs the SAME compare-and-count path as any other wrong guess,
+// rather than a branch that would both leak, by timing, whether a team has a
+// recovery code at all, and dodge the rate limiter on exactly the path that
+// invites probing for teams without one.
+const PLACEHOLDER_RECOVERY_HASH = '0'.repeat(64);
 
 // sameLines is gone with LINES_LOCKED: a join carries no lines, so there are
 // never two sets to compare.
@@ -749,6 +767,12 @@ export class DynamoSessionTransport implements SessionTransport {
         // attempt; a collision below (vanishingly unlikely at 10^6 PINs) just
         // retries with a new one, the room-code collision's own shape.
         const pin = newViewerPin();
+        // A recovery code for getting this team back from a new device if this
+        // one is lost — see contract.ts's JoinResponse.recoveryCode. Only its
+        // hash is ever stored; the plaintext is returned once, below, and
+        // nowhere else.
+        const recoveryCode = newRecoveryCode();
+        const recoveryHash = hashToken(normalizeRecoveryCode(recoveryCode));
         const entry: RosterEntry = {
           name: teamName,
           // The room's set, already canonical — copied onto the roster entry so
@@ -758,6 +782,7 @@ export class DynamoSessionTransport implements SessionTransport {
           lockedYear: null,
           tokenHash: h,
           pin,
+          recoveryHash,
           posted: {},
           lockedYears: {},
           joinedAt: Date.now(),
@@ -816,11 +841,141 @@ export class DynamoSessionTransport implements SessionTransport {
           continue;
         }
         const view = await this.freshView(code, 'player', newId);
-        return { teamToken: token, teamName: entry.name, lines: [...entry.lines], pin, role: 'player' as const, rejoined: false, room: view.room };
+        return {
+          teamToken: token, teamName: entry.name, lines: [...entry.lines], pin, recoveryCode,
+          role: 'player' as const, rejoined: false, room: view.room,
+        };
       }
       // Lost the race MAX_ATTEMPTS times in a row and the re-read never settled
       // it. Only reachable under sustained contention on one name or token.
       throw lastFailure ?? new SessionError('TRANSPORT_FAILURE', 'The room kept changing under this join.', true);
+    });
+  }
+
+  // ---- reclaimTeam -------------------------------------------------------
+
+  /**
+   * Record one wrong recovery-code guess against a team. Unconditional: it
+   * creates the item on the first failure and every later failure within the
+   * window just adds to the count. `if_not_exists` on expiresAtSec is the
+   * whole of "fixed window, never extended by a later failure" — the first
+   * failure sets the deadline, and every subsequent write's own `:exp` is
+   * computed but discarded because the attribute already exists.
+   */
+  private async recordAttemptFailure(code: string, teamId: string): Promise<void> {
+    await this.db.doc.send(new UpdateCommand({
+      TableName: this.db.table,
+      Key: { pk: roomPk(code), sk: attemptSk(teamId) },
+      // #cnt, not `count`: COUNT is a DynamoDB reserved word.
+      UpdateExpression: 'ADD #cnt :one SET expiresAtSec = if_not_exists(expiresAtSec, :exp)',
+      ExpressionAttributeNames: { '#cnt': 'count' },
+      ExpressionAttributeValues: { ':one': 1, ':exp': nowSec(Date.now()) + ATTEMPT_WINDOW_SEC },
+    }));
+  }
+
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const rawName = requireString(req.teamName, 'teamName');
+      const recoveryCode = requireString(req.recoveryCode, 'recoveryCode');
+      const token = requireString(req.token, 'token');
+      if (!SESSION_TOKEN_PATTERN.test(token)) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs a valid new device token.');
+      }
+
+      const header = await this.getHeader(code);
+      const name = rawName.trim();
+      // Exact, case-sensitive match — the same lookup join() uses for a
+      // name-based join. A looser rule here only for reclaim would let two
+      // names distinct under join collide under reclaim.
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+      if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      const [teamId, team] = found;
+      const pk = roomPk(code);
+
+      // ⚠ THE REJOIN-BY-ALREADY-ROTATED-TOKEN CHECK, FIRST — before the
+      // limiter, before the hash compare. If this device's token is ALREADY
+      // this team's current token, either this exact call already committed
+      // and the response was lost (the client retried with the SAME minted
+      // token), or it's a legitimate re-presentation. Treating this as success
+      // with no limiter touch is what makes a retried reclaim idempotent, and
+      // is why the new device's token is client-minted — the same role
+      // JoinRequest.token already plays for join().
+      if (team.tokenHash === hashToken(token)) {
+        const view = await this.viewFor(header, 'player', teamId);
+        return { teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
+      }
+
+      const attempt = await this.db.doc.send(new GetCommand({
+        TableName: this.db.table,
+        Key: { pk, sk: attemptSk(teamId) },
+        ConsistentRead: true,
+      }));
+      const attemptItem = attempt.Item as { count?: number; expiresAtSec?: number } | undefined;
+      const blocked = !!attemptItem
+        && (attemptItem.count ?? 0) >= MAX_RECLAIM_ATTEMPTS
+        && (attemptItem.expiresAtSec ?? 0) > nowSec(Date.now());
+      if (blocked) {
+        throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
+      }
+
+      const presented = hashToken(normalizeRecoveryCode(recoveryCode));
+      if (!hashesMatch(presented, team.recoveryHash ?? PLACEHOLDER_RECOVERY_HASH)) {
+        await this.recordAttemptFailure(code, teamId);
+        throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+      }
+
+      await this.assertTokenFree(header, token);
+      const newHash = hashToken(token);
+      const oldHash = team.tokenHash;
+      const tx = await this.transact([
+        // 0 — the rotation itself, conditioned on the hash just read: this is
+        // the lock that makes two simultaneous reclaims resolve to exactly
+        // one winner.
+        { Update: {
+          TableName: this.db.table,
+          Key: { pk, sk: ROOM_HEADER_SK },
+          UpdateExpression: 'SET roster.#tid.tokenHash = :new, updatedAt = :now ADD rev :one',
+          ConditionExpression: 'roster.#tid.tokenHash = :old',
+          ExpressionAttributeNames: { '#tid': teamId },
+          ExpressionAttributeValues: { ':new': newHash, ':old': oldHash, ':now': Date.now(), ':one': 1 },
+        } },
+        // 1 — the new token's claim, same TOKEN CLAIM reasoning as join()'s.
+        { Put: {
+          TableName: this.db.table,
+          Item: { pk, sk: tokenSk(newHash), teamId, expiresAtSec: header.expiresAtSec },
+          ConditionExpression: 'attribute_not_exists(sk)',
+        } },
+        // 2 — the old token stops working the instant this commits.
+        { Delete: { TableName: this.db.table, Key: { pk, sk: tokenSk(oldHash) } } },
+      ]);
+      if (!tx.ok) {
+        // Index 0 failing means another reclaim already rotated this team's
+        // token between our read and our write — a genuine race between two
+        // different devices, not a self-race to absorb silently (unlike
+        // join()'s MAX_ATTEMPTS loop — see the note below). The right code
+        // was presented, so this is not a limiter hit; the loser can simply
+        // retry with the same code, which the client's existing wrong-code UI
+        // already supports.
+        if (tx.failed.includes(0)) {
+          throw new SessionError(
+            'BAD_RECOVERY_CODE',
+            'This team was just reclaimed from another device. Try again with your recovery code.',
+          );
+        }
+        // Index 1 alone: the brand-new device token collided with something
+        // else in the room — assertTokenFree's transactional backstop.
+        throw new SessionError('BAD_TOKEN', 'That token is already in use in this room.');
+      }
+      // Single success path, no retry: unlike join()'s new-team branch, a
+      // rotation-condition failure here is contention between two DIFFERENT
+      // devices rather than a caller's own idempotent retry — there is no
+      // "re-read and it turns out fine" case, since exactly one device can
+      // hold the token afterward by construction. Silently retrying would
+      // mask a real event that should surface instead.
+      await this.db.doc.send(new DeleteCommand({ TableName: this.db.table, Key: { pk, sk: attemptSk(teamId) } }));
+      const view = await this.freshView(code, 'player', teamId);
+      return { teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
     });
   }
 

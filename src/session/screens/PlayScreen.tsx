@@ -45,7 +45,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, Copy, Eye, Loader2, Lock, Users } from 'lucide-react';
+import { CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { newSessionToken, eventStatusOf, mayCreateTeam, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
@@ -144,6 +144,50 @@ function RoleChoice({ code, role, status, currentYear }: {
   );
 }
 
+// ⚠ SHOWN EXACTLY ONCE, AND NOTHING HERE PERSISTS IT. This renders off plain
+// component state (enter()'s success branch sets it, directly from the join
+// response) — never written to identity.ts, never re-derived from anything
+// stored. A reload loses it, same as the server never handing it back a
+// second time; the only way back into this team from a new device after that
+// is a reclaim with this code, which is the whole point of saving it now.
+function RecoveryCodeModal({ code, onClose }: { code: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><KeyRound size={18} /></span>
+          <h2 className="text-lg font-bold text-slate-900">Save your recovery code</h2>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          If you lose this device, this code is the only way back into your team from another
+          one. We won&rsquo;t show it again.
+        </p>
+        <div className="mt-4 flex items-center justify-center gap-3 rounded-lg border border-slate-300 bg-slate-50 py-4">
+          <span data-testid="recovery-code" className="font-mono text-3xl tracking-widest text-slate-900">{code}</span>
+          <button
+            type="button"
+            onClick={() => { void navigator.clipboard?.writeText(code).then(() => setCopied(true)); }}
+            className="text-slate-600 hover:text-slate-700"
+            aria-label="Copy recovery code"
+          >
+            <Copy size={16} />
+          </button>
+        </div>
+        {copied && <p className="mt-1.5 text-center text-xs text-emerald-600">Copied.</p>}
+        <button
+          type="button"
+          data-testid="recovery-code-saved"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          I&rsquo;ve saved it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PlayScreen({ code, role }: Props) {
   const isViewer = role === 'viewer';
 
@@ -156,6 +200,15 @@ export default function PlayScreen({ code, role }: Props) {
   const [claiming, setClaiming] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [actionError, setActionError] = useState<SessionError | null>(null);
+  // Set only on a creating join's response — see enter() and RecoveryCodeModal.
+  const [showRecoveryCode, setShowRecoveryCode] = useState<string | null>(null);
+
+  // ---- reclaiming a team on this device, by recovery code -----------------
+  const [showReclaim, setShowReclaim] = useState(false);
+  const [reclaimName, setReclaimName] = useState('');
+  const [reclaimCode, setReclaimCode] = useState('');
+  const [reclaiming, setReclaiming] = useState(false);
+  const [reclaimError, setReclaimError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decisions, setDecisions] = useState<DecisionSet | null>(null);
 
@@ -216,11 +269,39 @@ export default function PlayScreen({ code, role }: Props) {
       rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
       setToken(res.teamToken);
       seededYear.current = null;
+      // ⚠ ONLY ON A CREATION. res.recoveryCode is present only on the response
+      // that CREATES the team (contract.ts's JoinResponse.recoveryCode) — this
+      // can never fire a second time for the same team, since the server never
+      // hands the code back again on a rejoin.
+      if (!res.rejoined && res.recoveryCode) setShowRecoveryCode(res.recoveryCode);
       refresh();
     } catch (e) {
       setActionError(isSessionError(e) ? e : null);
     } finally {
       setClaiming(null);
+    }
+  }
+
+  // ⚠ NO RecoveryCodeModal HERE — a reclaim never reissues or re-returns a
+  // recovery code (contract.ts's ReclaimTeamResponse), so there is nothing to
+  // show once reclaimed.
+  async function reclaim() {
+    setReclaiming(true);
+    setReclaimError(null);
+    try {
+      const res = await sessionTransport().reclaimTeam({
+        code, teamName: reclaimName.trim(), recoveryCode: reclaimCode.trim(), token: newSessionToken(),
+      });
+      saveActive(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
+      rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
+      setToken(res.teamToken);
+      seededYear.current = null;
+      setShowReclaim(false);
+      refresh();
+    } catch (e) {
+      setReclaimError(isSessionError(e) ? e.message : 'Could not reclaim that team.');
+    } finally {
+      setReclaiming(false);
     }
   }
 
@@ -239,6 +320,16 @@ export default function PlayScreen({ code, role }: Props) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // ⚠ PREEMPTS EVERY OTHER BRANCH BELOW, DELIBERATELY. By the time this state
+  // is set, the join already succeeded — the next poll may already be moving
+  // this screen toward the pre-game-building or GameShell branches below, and
+  // this must still be read and dismissed before any of them show. Dismissing
+  // just clears the state; the normal branch for whatever has loaded by then
+  // renders right after.
+  if (showRecoveryCode) {
+    return <RecoveryCodeModal code={showRecoveryCode} onClose={() => setShowRecoveryCode(null)} />;
   }
 
   if (loading && !room) {
@@ -311,6 +402,67 @@ export default function PlayScreen({ code, role }: Props) {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ⚠ PLAYER ONLY — a viewer never holds a recovery code (it is
+              minted only for the player that creates a team). The room code
+              is already implicit in this URL, so only team name + recovery
+              code are asked for here — contrast the Lobby's reclaim modal,
+              which needs all three because it has no room in hand yet. */}
+          {!isViewer && (
+            <div className="mt-3">
+              {!showReclaim ? (
+                <button
+                  type="button"
+                  data-testid="show-reclaim"
+                  onClick={() => { setShowReclaim(true); setReclaimError(null); }}
+                  className="text-xs font-medium text-slate-500 underline hover:text-slate-700"
+                >
+                  Lost access to your team?
+                </button>
+              ) : (
+                <div data-testid="reclaim-team" className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-medium text-slate-700">Reclaim a team with its recovery code</p>
+                  <div className="mt-2 space-y-2">
+                    <input
+                      data-testid="reclaim-team-name"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Team name"
+                      value={reclaimName}
+                      onChange={e => setReclaimName(e.target.value)}
+                    />
+                    <input
+                      data-testid="reclaim-code"
+                      inputMode="numeric"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest"
+                      placeholder="4-digit code"
+                      value={reclaimCode}
+                      onChange={e => setReclaimCode(e.target.value)}
+                    />
+                  </div>
+                  {reclaimError && <p className="mt-2 text-xs text-red-600">{reclaimError}</p>}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={reclaiming}
+                      onClick={() => setShowReclaim(false)}
+                      className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="submit-reclaim"
+                      disabled={reclaiming || !reclaimName.trim() || !reclaimCode.trim()}
+                      onClick={() => { void reclaim(); }}
+                      className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"
+                    >
+                      {reclaiming ? 'Reclaiming…' : 'Reclaim'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

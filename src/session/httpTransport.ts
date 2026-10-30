@@ -165,6 +165,7 @@ import type {
   JoinRequest, JoinResponse,
   ListEventsRequest, ListEventsResponse,
   ReadRequest, ReadResponse,
+  ReclaimTeamRequest, ReclaimTeamResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   SessionErrorCode,
   SessionTransport,
@@ -223,7 +224,7 @@ interface ErrorBody {
 const ERROR_CODES: readonly string[] = [
   'ROOM_NOT_FOUND', 'TEAM_NOT_FOUND', 'TEAM_TAKEN', 'BAD_TOKEN', 'NOT_HOST',
   'WRONG_YEAR', 'GAME_COMPLETE', 'INVALID_REQUEST', 'EVENT_IN_PROGRESS',
-  'LINES_LOCKED', 'TRANSPORT_FAILURE',
+  'LINES_LOCKED', 'TRANSPORT_FAILURE', 'BAD_RECOVERY_CODE', 'TOO_MANY_ATTEMPTS',
 ];
 
 export class HttpSessionTransport implements SessionTransport {
@@ -244,6 +245,10 @@ export class HttpSessionTransport implements SessionTransport {
 
   join(req: JoinRequest): Promise<JoinResponse> {
     return this.call('join', req);
+  }
+
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
+    return this.call('reclaimTeam', req);
   }
 
   submit(req: SubmitRequest): Promise<SubmitResponse> {

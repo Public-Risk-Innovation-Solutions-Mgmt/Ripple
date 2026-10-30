@@ -13,7 +13,7 @@
 // writing to the prod table.
 // ============================================================================
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { DynamoDBClient, type DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
@@ -75,6 +75,27 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
+/**
+ * Constant-time equality for two hashToken() outputs (64 lowercase hex
+ * characters) — the recovery-code compare, the one place in this codebase an
+ * attacker-controlled value crosses a network boundary into a comparison.
+ * `===` short-circuits at the first differing character, which lets a network
+ * attacker learn how many leading characters matched by timing the response;
+ * timingSafeEqual exists precisely so this comparison does not.
+ *
+ * ⚠ timingSafeEqual THROWS ON UNEQUAL-LENGTH BUFFERS rather than returning
+ * false — which would itself be a branch a timing attack could key off if
+ * reached unconditionally. Every value this compares is a hashToken() output,
+ * fixed at 64 hex characters, so the length check below exists only so a
+ * malformed STORED value fails closed with a plain `false` rather than
+ * throwing out of this function.
+ */
+export function hashesMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
 // Lower-case letters and digits: no '#', so it can never break a key (keys.ts
 // checkTeamId), and long enough that two teams in one room will not collide.
 const TEAM_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -115,4 +136,22 @@ export const VIEWER_PIN_LENGTH = 6;
 
 export function newViewerPin(): string {
   return randomFrom(PIN_ALPHABET, VIEWER_PIN_LENGTH);
+}
+
+// ⚠ DUPLICATED IN localTransport.ts, NOT IMPORTED — same reasoning as the
+// other two mints above. Reuses PIN_ALPHABET: a recovery code is also read
+// off a screen and typed on a different device, the same case the viewer PIN
+// is read aloud/typed for, so the same no-letters digit set applies — no new
+// alphabet to define.
+//
+// ⚠ 4 DIGITS, NOT MIKE'S SPECCED 12-CHARACTER/60-BIT CODE — confirmed with the
+// user as a deliberate reduction. This secret rotates a team's bearer token
+// (full control, not just viewing), so treat the gap honestly rather than
+// quietly: at 10,000 possibilities the 5-attempts/15-minute limiter
+// (keys.ts's attemptSk, rooms.ts's reclaimTeam) is this code's PRIMARY
+// defense rather than a backstop on top of real entropy.
+export const RECOVERY_CODE_LENGTH = 4;
+
+export function newRecoveryCode(): string {
+  return randomFrom(PIN_ALPHABET, RECOVERY_CODE_LENGTH);
 }

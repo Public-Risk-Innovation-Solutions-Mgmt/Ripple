@@ -21,7 +21,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Eye, KeyRound, LogOut, Play, Plus, Shield, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, KeyRound, LogOut, Play, Plus, RotateCcw, Shield, Trash2 } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
 import { newSessionToken } from '../contract';
 import { navigate } from '../client/navigation';
@@ -95,6 +95,96 @@ function WatchByPinModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ⚠ THREE FIELDS, NOT ONE — UNLIKE WatchByPinModal. A viewer PIN resolves
+// globally (keys.ts's PIN# index) with no room in hand; a recovery code has
+// no such index in this phase (contract.ts's ReclaimTeamRequest), so the room
+// code has to come from the caller the same way it always has everywhere
+// else in this app.
+function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
+  const [roomCode, setRoomCode] = useState('');
+  const [teamName, setTeamName] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [reclaiming, setReclaiming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setReclaiming(true);
+    setError(null);
+    try {
+      const token = newSessionToken();
+      const res = await sessionTransport().reclaimTeam({
+        code: roomCode.trim().toUpperCase(), teamName: teamName.trim(), recoveryCode: recoveryCode.trim(), token,
+      });
+      saveActive(res.room.code, { teamToken: res.teamToken, teamName: res.teamName, role: 'player', pin: res.pin });
+      rememberTeamCredential(res.room.code, { teamToken: res.teamToken, teamName: res.teamName, role: 'player', pin: res.pin });
+      navigate(`/join/${res.room.code}`);
+    } catch (e) {
+      setError(isSessionError(e) ? e.message : 'Could not reclaim that team.');
+    } finally {
+      setReclaiming(false);
+    }
+  }
+
+  const canSubmit = roomCode.trim() && teamName.trim() && recoveryCode.trim();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-slate-900">Reclaim a team</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          Lost your device? Enter the room code, your team&rsquo;s name, and its recovery code
+          to pick up where you left off on this one.
+        </p>
+        <div className="mt-4 space-y-2">
+          <input
+            type="text"
+            autoFocus
+            value={roomCode}
+            onChange={e => setRoomCode(e.target.value)}
+            placeholder="Room code"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-sm uppercase tracking-widest text-slate-900"
+          />
+          <input
+            type="text"
+            value={teamName}
+            onChange={e => setTeamName(e.target.value)}
+            placeholder="Team name"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            value={recoveryCode}
+            onChange={e => setRecoveryCode(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && canSubmit && !reclaiming) void submit(); }}
+            placeholder="4-digit recovery code"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest text-slate-900"
+          />
+        </div>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={reclaiming}
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={reclaiming || !canSubmit}
+            onClick={() => { void submit(); }}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {reclaiming ? 'Reclaiming…' : 'Reclaim'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ⚠ SCOPED DOWN, DELIBERATELY. An admin can delete (hide) an event only when
 // THIS BROWSER holds that room's host token — the same token HostRoomScreen's
 // own hide toggle already requires. There is no way yet for an admin to act
@@ -138,6 +228,7 @@ export default function LobbyScreen() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showWatchByPin, setShowWatchByPin] = useState(false);
+  const [showReclaim, setShowReclaim] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -227,6 +318,7 @@ export default function LobbyScreen() {
       )}
 
       {showWatchByPin && <WatchByPinModal onClose={() => setShowWatchByPin(false)} />}
+      {showReclaim && <ReclaimTeamModal onClose={() => setShowReclaim(false)} />}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -263,14 +355,24 @@ export default function LobbyScreen() {
         <h1 className="text-2xl font-bold text-slate-900">Welcome</h1>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-500">Join an event your organisation is running.</p>
-          <button
-            type="button"
-            data-testid="watch-by-pin"
-            onClick={() => setShowWatchByPin(true)}
-            className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
-          >
-            <KeyRound size={14} /> Have a PIN? Watch a team
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              data-testid="watch-by-pin"
+              onClick={() => setShowWatchByPin(true)}
+              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+            >
+              <KeyRound size={14} /> Have a PIN? Watch a team
+            </button>
+            <button
+              type="button"
+              data-testid="reclaim-team"
+              onClick={() => setShowReclaim(true)}
+              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+            >
+              <RotateCcw size={14} /> Lost your device? Reclaim a team
+            </button>
+          </div>
         </div>
 
         {isAdmin && (SHOW_PLAY_SOLO || SHOW_HOST_AN_EVENT) && (

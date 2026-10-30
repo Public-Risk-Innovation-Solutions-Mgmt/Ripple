@@ -90,7 +90,10 @@
 //                               expiresAtSec (the room's, set once),
 //                               hostTokenHash, and the ROSTER:
 //                                 { [teamId]: { name, lines, joined, lockedYear,
-//                                               tokenHash, posted: { [year]: true } } }
+//                                               tokenHash, recoveryHash,
+//                                               posted: { [year]: true } } }
+//                               recoveryHash is HASHED, like tokenHash — unlike
+//                               pin, which is plain — see views.ts's RosterEntry.
 //
 // ⚠ WHAT THE LINES AND PRIOR DEVELOPMENT COST THE HEADER ITEM: NOTHING THAT
 // MATTERS. `lines` is at most three short strings and `priorDevelopment` at most
@@ -211,6 +214,13 @@
 // ROOM#<code>. See pinPk below for the key, item shape and why a PIN is not
 // treated as a secret the way a bearer token is.
 //
+// ⚠ AND ONE MORE ITEM THAT IS IN A ROOM'S PARTITION, UNLIKE THE THREE ABOVE —
+// THE RECLAIM ATTEMPT COUNTER. A reclaimTeam call is already scoped to one
+// team of one room (the header read resolves teamName first), so there is no
+// "before a code is known" problem to solve — see attemptSk below for the key
+// and its one deliberate exception to "every item carries the room's own
+// expiresAtSec."
+//
 // WHY THIS SHAPE, point by point:
 //
 //   * THE ROSTER IS IN THE HEADER because every `read` fetches the header
@@ -317,6 +327,19 @@
 //   join, viewer        Transact: Put VIEW#, ConditionCheck     VIEW# not exists; TOKEN#
 //                       TOKEN#. No rev bump — viewers are not   not exists (the token
 //                       in RoomView                             claim, above)
+//   reclaimTeam, rejoin none (the caller's token already         team.tokenHash already
+//                       matches the roster — short-circuits      equals hash(token): a read,
+//                       before the limiter or the hash compare)  not a write
+//   reclaimTeam, wrong  Update ATTEMPT#<teamId>: ADD #cnt :one,  none — unconditional; creates
+//                       SET expiresAtSec =                      the item if absent, and the
+//                       if_not_exists(expiresAtSec, :exp)        if_not_exists is what makes
+//                                                                the window FIXED rather than
+//                                                                extended by each failure
+//   reclaimTeam, right  Transact: Update ROOM                   roster.#tid.tokenHash = :old
+//                       (roster.#tid.tokenHash = :new, ADD      (the hash just read); TOKEN#
+//                       rev), Put TOKEN#<newHash>, Delete       <newHash> not exists
+//                       TOKEN#<oldHash> — then (outside the
+//                       transaction) Delete ATTEMPT#<teamId>
 //   submit, decisions   Transact: Update ROOM (lockedYear,      currentYear = :y
 //                       ADD rev), Put D#
 //   submit, result      Transact: Update ROOM (posted.<y>,      currentYear >= :y AND
@@ -693,3 +716,26 @@ export function pinPk(pin: string): string {
 
 /** The PIN index item's sort-key VALUE. */
 export const PIN_SK = 'PIN';
+
+/**
+ * ⚠ SAME-PARTITION, NOT A GLOBAL INDEX — unlike pinPk/createPk. A reclaim
+ * attempt is already scoped to one team of one room by the time it is
+ * checked (the header read resolves teamName -> teamId first), so there is
+ * no "resolve before a code is in hand" problem the way CREATE#/PIN# have.
+ * Keyed by teamId, not by anything derived from the guessed code, so every
+ * wrong guess against this team — whatever string was typed — increments the
+ * SAME counter: the limiter rate-limits GUESSES AT THIS TEAM, not any one
+ * guessed string.
+ *
+ * ⚠ ITS expiresAtSec IS NOT THE ROOM'S, UNLIKE EVERY OTHER ITEM HERE. The
+ * item's whole purpose is a FIXED 15-minute window from the first failure,
+ * set with `SET expiresAtSec = if_not_exists(expiresAtSec, :exp)` on every
+ * failed attempt (rooms.ts's reclaimTeam) — tying it to the room's
+ * (potentially days-long) expiresAtSec would defeat that window. Nothing
+ * reads this item relying on TTL having fired: a reader always checks count
+ * AND expiresAtSec > now itself, the same "past its stamp is gone, whether or
+ * not TTL removed it yet" rule the header read already uses.
+ */
+export function attemptSk(teamId: string): string {
+  return checkSortKey(`ATTEMPT#${checkTeamId(teamId)}`);
+}

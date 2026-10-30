@@ -122,6 +122,24 @@ export type SessionErrorCode =
   // guarded against is unreachable. Removing it rather than leaving it reserved
   // is the honest record: a code no server can emit is one a client will be
   // written to handle for no reason.
+  //
+  // ⚠ RECLAIM'S OWN WRONG-CREDENTIAL ANSWER, DISTINCT FROM BAD_TOKEN. A reclaim
+  // presents a recovery code, not a bearer token — a different secret with a
+  // different lifecycle (one lives in a player's notes, the other in a
+  // browser), and a client that cannot tell which one failed cannot show the
+  // right fix ("re-type the code" vs "this isn't your device"). Also returned
+  // when the token-rotation transaction's old-hash condition loses a genuine
+  // race against a simultaneous reclaim from another device — see
+  // server/rooms.ts's reclaimTeam — so the existing "wrong code, try again" UI
+  // is the right retry surface for that case too, with no third branch.
+  | 'BAD_RECOVERY_CODE'
+  // ⚠ retryable IS false, DELIBERATELY — the one place that matters. Five
+  // wrong codes against one team inside its 15-minute window trips this
+  // instead of a sixth BAD_RECOVERY_CODE. Unlike TRANSPORT_FAILURE's
+  // retryable: true (the pipe was at fault, try again), an immediate retry
+  // here fails identically until the window closes — the fix is to wait, not
+  // to resend.
+  | 'TOO_MANY_ATTEMPTS'
   | 'TRANSPORT_FAILURE';
 
 // ⚠ ONE ERROR TYPE FOR EVERY IMPLEMENTATION, and `code` is what callers branch
@@ -176,6 +194,20 @@ export function newSessionToken(): string {
 
 /** What a token must look like for the transport to accept it from a caller. */
 export const SESSION_TOKEN_PATTERN = /^[a-z0-9]{32}$/;
+
+/**
+ * Canonical form of a team recovery code: digits only, trimmed. Both server
+ * implementations (server/dynamo.ts's hashed compare, localTransport.ts's
+ * plain one) and any client that reads one back from a user must run a
+ * candidate through this before comparing or storing it, so a code typed with
+ * incidental whitespace still matches what was shown once at creation. Lives
+ * here, not beside the mints in dynamo.ts/localTransport.ts, because it has no
+ * platform-specific crypto dependency and both transports need the identical
+ * function.
+ */
+export function normalizeRecoveryCode(input: string): string {
+  return input.trim();
+}
 
 /**
  * THE SEEDS A ROOM MAY BE CREATED WITH — the scenario numbers "1" to "20", as
@@ -992,9 +1024,53 @@ export interface JoinResponse {
    * team's bearer token. A viewer's `JoinResponse` never carries one.
    */
   pin?: string;
+  /**
+   * ⚠ PRESENT EXACTLY ONCE — the response to the join() call that CREATED this
+   * team — and NEVER again: not on a rejoin (contrast `pin` above, which
+   * repeats on every rejoin), never in `RoomView`, never in any caller's
+   * `CallerView`, never logged. The 4-digit code this team's player uses with
+   * reclaimTeam from a new device if it loses this one. The server stores
+   * only a hash of it (RosterEntry.recoveryHash), in the SAME write that
+   * creates the roster entry, so if this response is lost the code is lost
+   * with it — there is deliberately no second way to read it back. A
+   * recovery code re-fetchable over the wire would be a second, weaker
+   * bearer token sitting next to the first.
+   */
+  recoveryCode?: string;
   rejoined: boolean;
   room: RoomView;
 }
+
+/**
+ * ⚠ A DIFFERENT SECRET FROM `token` ABOVE, NOT A VARIANT OF IT. `token` is
+ * what the CURRENT device already holds and presents to prove it;
+ * `recoveryCode` is what a NEW device presents instead, because it holds no
+ * token at all. Presenting the right one ROTATES the team's bearer token onto
+ * this device — the old device's token stops working the instant this
+ * commits (server/rooms.ts's reclaimTeam).
+ */
+export interface ReclaimTeamRequest {
+  code: string;
+  teamName: string;
+  recoveryCode: string;
+  /**
+   * ⚠ THE NEW DEVICE'S FRESHLY MINTED BEARER TOKEN, same mint as
+   * JoinRequest.token (newSessionToken()) and the same reason: the client
+   * holds the only copy of this secret, so presenting it is what makes a
+   * lost response's retry idempotent instead of a second rotation attempt —
+   * see reclaimTeam's "rejoin by already-rotated token" check.
+   */
+  token: string;
+}
+
+/**
+ * ⚠ SHAPED EXACTLY LIKE JoinResponse, DELIBERATELY. A successful reclaim IS a
+ * rejoin — the same device-to-team binding, just re-established by a
+ * different device presenting a different secret. `rejoined` is always true
+ * (there is no "created" branch for a reclaim) and `recoveryCode` is always
+ * absent: a reclaim never reissues or re-returns the code.
+ */
+export type ReclaimTeamResponse = JoinResponse;
 
 // Decisions for a year, a result for a year, or both.
 //
@@ -1076,13 +1152,17 @@ export interface ReadResponse {
 
 // ---------------------------------------------------------------- interface
 
-// ⚠ THE WHOLE SURFACE. Five methods. Anything a client needs that is not here is
-// a gap in this interface to be closed here, not a reach around it into an
+// ⚠ THE WHOLE SURFACE. Anything a client needs that is not here is a gap in
+// this interface to be closed here, not a reach around it into an
 // implementation — the moment a screen imports from a concrete transport, the
 // swap stops being a swap.
 export interface SessionTransport {
   createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse>;
   join(req: JoinRequest): Promise<JoinResponse>;
+  // ⚠ A JOIN VARIANT, NEXT TO join FOR THAT REASON. A successful reclaim is a
+  // rejoin reached by a different secret — see ReclaimTeamRequest/Response —
+  // not a new kind of authority over a team.
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse>;
   submit(req: SubmitRequest): Promise<SubmitResponse>;
   advance(req: AdvanceRequest): Promise<AdvanceResponse>;
   read(req: ReadRequest): Promise<ReadResponse>;

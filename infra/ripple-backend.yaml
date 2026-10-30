@@ -269,6 +269,19 @@ Resources:
       AuthorizationType: NONE
       ApiKeyRequired: false
 
+  # Device switching, phase 1: a team reclaims its seat on a new device by
+  # recovery code, rotating its bearer token. See src/session/server/rooms.ts.
+  ReclaimTeamRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /reclaimTeam"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
   SubmitRoute:
     Type: AWS::ApiGatewayV2::Route
     DeletionPolicy: Retain

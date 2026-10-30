@@ -1309,6 +1309,70 @@ async function main(): Promise<void> {
       'INVALID_REQUEST', 'a PIN combined with role: player is refused — a PIN never claims a team');
   }
 
+  // ---- TEAM RECOVERY CODES -----------------------------------------------
+  //
+  // ⚠ PHASE 1 OF DEVICE SWITCHING. A recovery code is shown ONCE — on the
+  // response that CREATES the team, never on a rejoin (contrast the PIN
+  // block above, where the SAME pin repeats every rejoin). reclaimTeam
+  // rotates the team's bearer token onto a new device; the old token stops
+  // working the instant that commits.
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const created = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+
+    ok(typeof created.recoveryCode === 'string' && /^\d{4}$/.test(created.recoveryCode),
+      'a player creating a team gets back a 4-digit recovery code');
+
+    const rejoin = await t.join({ code, teamName: TEAMS[0], role: 'player', token: created.teamToken });
+    ok(rejoin.recoveryCode === undefined, 'a rejoin never carries a recovery code');
+
+    ok(!JSON.stringify(await t.read({ code })).includes(created.recoveryCode as string),
+      'the recovery code is never carried on a room view, for anyone');
+
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[0], recoveryCode: '0000', token: newSessionToken() }),
+      'BAD_RECOVERY_CODE', 'a wrong recovery code is refused');
+
+    await rejects(
+      t.reclaimTeam({ code, teamName: 'Nobody FC', recoveryCode: created.recoveryCode as string, token: newSessionToken() }),
+      'TEAM_NOT_FOUND', 'reclaiming an unknown team name is refused');
+
+    const newDeviceToken = newSessionToken();
+    const reclaimed = await t.reclaimTeam({ code, teamName: TEAMS[0], recoveryCode: created.recoveryCode as string, token: newDeviceToken });
+    eq(reclaimed.rejoined, true, 'a successful reclaim comes back as a rejoin');
+    eq(reclaimed.pin, created.pin, "the team's PIN is unchanged by a reclaim");
+    ok(reclaimed.recoveryCode === undefined, 'a reclaim never reissues or re-returns the recovery code');
+
+    await rejects(t.read({ code, token: created.teamToken }), 'BAD_TOKEN',
+      "the old device's token stops working immediately after a reclaim");
+    const asNewDevice = await t.read({ code, token: newDeviceToken });
+    eq(asNewDevice.you.teamName, TEAMS[0], "the new device's token now authenticates as the team");
+
+    // Retried with the SAME new token — as if the response above was lost and
+    // the client resent the identical request: idempotent, not a failure.
+    const retried = await t.reclaimTeam({ code, teamName: TEAMS[0], recoveryCode: created.recoveryCode as string, token: newDeviceToken });
+    eq(retried.rejoined, true, 'retrying a reclaim with the same new token is idempotent');
+    eq(retried.teamToken, newDeviceToken, 'and hands back the same token, not a failure');
+  }
+
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const created = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+    for (let i = 0; i < 5; i++) {
+      await rejects(
+        t.reclaimTeam({ code, teamName: TEAMS[1], recoveryCode: '9999', token: newSessionToken() }),
+        'BAD_RECOVERY_CODE', `wrong attempt ${i + 1} of 5`);
+    }
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[1], recoveryCode: '9999', token: newSessionToken() }),
+      'TOO_MANY_ATTEMPTS', 'a sixth wrong attempt inside the window is rate-limited');
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[1], recoveryCode: created.recoveryCode as string, token: newSessionToken() }),
+      'TOO_MANY_ATTEMPTS', 'the CORRECT code is ALSO refused once tripped — the limiter blocks the team, not the guess');
+  }
+
 }
 
 // ---------------------------------------------------------------- the passes
