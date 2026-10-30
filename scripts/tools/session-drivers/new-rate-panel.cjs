@@ -270,11 +270,20 @@ async function plrIs(rc) {
   const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
   if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   // ⚠ THE RESULTS PAGE NO LONGER SHOWS THE RANGE EITHER — players are never
-  // told about the worlds, on any page. The range stays for the host.
-  await page.getByRole('button', { name: /^Results$/ }).first().click();
-  await page.waitForTimeout(1000);
-  ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Results: no surplus range across the worlds');
-  ok(!/\bworlds?\b/i.test((await page.locator('main').innerText()).replace(/\s+/g, ' ')), 'Results: the page never mentions the worlds');
+  // told about the worlds, on any page. Its two checks run ONLY WHEN THE TAB IS
+  // OFFERED: the tab cleanup (multiplayer 3bd6d2b, tabs.tsx HIDDEN_TABS) hides
+  // it, and clicking an absent tab timed out. When hidden no player can reach
+  // it, so there is nothing to check there; the same "worlds" checks still run
+  // on the Decisions page and the Annual Statement below.
+  const resultsTab = page.getByRole('button', { name: /^Results$/ });
+  if (await resultsTab.count() > 0) {
+    await resultsTab.first().click();
+    await page.waitForTimeout(1000);
+    ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Results: no surplus range across the worlds');
+    ok(!/\bworlds?\b/i.test((await page.locator('main').innerText()).replace(/\s+/g, ' ')), 'Results: the page never mentions the worlds');
+  } else {
+    console.log('  skip  Results: the tab is not offered (hidden), so its two worlds checks do not run');
+  }
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
   // ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS (the documents commit): the
