@@ -70,7 +70,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LocalSessionTransport } from '../../src/session/localTransport';
+import { LocalSessionTransport, ROOM_KEY_PREFIX } from '../../src/session/localTransport';
 import { HttpSessionTransport } from '../../src/session/httpTransport';
 import type { SessionTransport } from '../../src/session/contract';
 import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
@@ -209,6 +209,31 @@ let makeTransport: () => SessionTransport & { faults: { failNext(code?: SessionE
 function transport() {
   return makeTransport();
 }
+
+/**
+ * ⚠ THE STORE, REACHED AROUND THE INTERFACE — set by each pass, used only by the
+ * TEAM NUMBERS block: to make an OLDER ROOM (numbers taken off the stored record,
+ * as one written before they existed), to take a team out of a room (no endpoint
+ * does), and to read what the room stores rather than what a view shows.
+ */
+interface StoreHooks {
+  unnumber(code: string): Promise<void>;
+  dropTeam(code: string, name: string): Promise<void>;
+  stored(code: string): Promise<{ next?: number; byName: Record<string, number | undefined> }>;
+}
+let store: StoreHooks;
+
+/** The localStorage room record — the localStorage pass and the stub server's store alike. */
+const localStore: StoreHooks = (() => {
+  type Rec = { nextTeamNumber?: number; teams: Array<{ name: string; teamNumber?: number }> };
+  const get = (code: string): Rec => JSON.parse(globalThis.localStorage.getItem(ROOM_KEY_PREFIX + code)!) as Rec;
+  const put = (code: string, r: Rec) => globalThis.localStorage.setItem(ROOM_KEY_PREFIX + code, JSON.stringify(r));
+  return {
+    async unnumber(code) { const r = get(code); delete r.nextTeamNumber; for (const x of r.teams) delete x.teamNumber; put(code, r); },
+    async dropTeam(code, name) { const r = get(code); r.teams = r.teams.filter(x => x.name !== name); put(code, r); },
+    async stored(code) { const r = get(code); return { next: r.nextTeamNumber, byName: Object.fromEntries(r.teams.map(x => [x.name, x.teamNumber])) }; },
+  };
+})();
 
 /**
  * Advance one year the way a real client does: from the year it can SEE.
@@ -1309,12 +1334,79 @@ async function main(): Promise<void> {
       'INVALID_REQUEST', 'a PIN combined with role: player is refused — a PIN never claims a team');
   }
 
+  // ---- TEAM NUMBERS ------------------------------------------------------
+  //
+  // The first team to join is Team 1, the next Team 2, and so on — stored with
+  // the room, never changed once given, never reused (contract teamNumbers).
+  // An OLDER ROOM, written before numbers existed, is numbered by join order the
+  // first time it is read; `store` reaches around the interface to make one.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const numbersOf = async (token = hostToken) =>
+      Object.fromEntries((await t.read({ code, token })).room.teams.map(x => [x.name, x.teamNumber]));
+    const joined = [];
+    for (const name of TEAMS) joined.push(await t.join({ code, teamName: name, role: 'player' }));
+    const want = JSON.stringify({ [TEAMS[0]]: 1, [TEAMS[1]]: 2, [TEAMS[2]]: 3 });
+    eq(JSON.stringify(await numbersOf()), want, 'teams joining in a known order are numbered 1, 2, 3 in that order');
+    eq(JSON.stringify((await t.read({ code, token: hostToken })).room.teams.map(x => x.name)), JSON.stringify(TEAMS),
+      'and the host reads them in join order');
+    eq(JSON.stringify(await numbersOf(joined[1].teamToken)), want, 'a player reads the same numbers');
+    eq(JSON.stringify(await numbersOf('')), want, 'and so does an anonymous caller');
+    eq(JSON.stringify((await store.stored(code)).byName), want, 'the numbers are stored with the room');
+    await t.join({ code, teamName: TEAMS[0], role: 'player', token: joined[0].teamToken });
+    const v = await t.join({ code, teamName: TEAMS[2], role: 'viewer' });
+    await t.submit({ code, token: joined[1].teamToken, yearNumber: 1, decisions: decisionsFor(1, 'n') });
+    eq(JSON.stringify(await numbersOf(v.teamToken)), want, 'a rejoin, a viewer and a submit change no number');
+    await step(t, code, hostToken);
+    eq(JSON.stringify(await numbersOf()), want, 'nor does an advance');
+
+    // ⚠ NEVER REUSED: with team 3 taken out of the stored room, the next team
+    // to join is 4, not 3. (No endpoint removes a team; the store does.)
+    const late = await freshRoom(t);
+    const l1 = await t.join({ code: late.code, teamName: TEAMS[0], role: 'player' });
+    await t.join({ code: late.code, teamName: TEAMS[1], role: 'player' });
+    await t.join({ code: late.code, teamName: TEAMS[2], role: 'player' });
+    await store.dropTeam(late.code, TEAMS[2]);
+    await t.join({ code: late.code, teamName: 'Fourth FC', role: 'player' });
+    const lateNumbers = Object.fromEntries((await t.read({ code: late.code, token: l1.teamToken })).room.teams.map(x => [x.name, x.teamNumber]));
+    eq(JSON.stringify(lateNumbers), JSON.stringify({ [TEAMS[0]]: 1, [TEAMS[1]]: 2, 'Fourth FC': 4 }),
+      'a team that leaves takes its number with it: the next team is 4, not 3');
+
+    // ---- an older room, with no numbers stored ----
+    const old = await freshRoom(t);
+    for (const name of [TEAMS[2], TEAMS[0], TEAMS[1]]) await t.join({ code: old.code, teamName: name, role: 'player' });
+    await store.unnumber(old.code);
+    const before = await store.stored(old.code);
+    ok(before.next === undefined && Object.values(before.byName).every(n => n === undefined),
+      'the older room is stored with no team numbers and no next number');
+    const oldWant = JSON.stringify({ [TEAMS[2]]: 1, [TEAMS[0]]: 2, [TEAMS[1]]: 3 });
+    const firstRead = Object.fromEntries((await t.read({ code: old.code, token: old.hostToken })).room.teams.map(x => [x.name, x.teamNumber]));
+    eq(JSON.stringify(firstRead), oldWant, 'an older room read for the first time is numbered by join order');
+    const after = await store.stored(old.code);
+    eq(JSON.stringify(after.byName), oldWant, 'and that first read stores the numbers with the room');
+    eq(after.next, 4, 'with the room\'s next number one past them');
+    const fifth = await t.join({ code: old.code, teamName: 'Fourth FC', role: 'player' });
+    const thereafter = Object.fromEntries((await t.read({ code: old.code, token: fifth.teamToken })).room.teams.map(x => [x.name, x.teamNumber]));
+    eq(JSON.stringify(thereafter), JSON.stringify({ ...JSON.parse(oldWant), 'Fourth FC': 4 }),
+      'the next team to join the older room is 4, and none of the first three moved');
+
+    // An older room JOINED before anyone reads it is numbered by the join.
+    const old2 = await freshRoom(t);
+    for (const name of [TEAMS[1], TEAMS[0]]) await t.join({ code: old2.code, teamName: name, role: 'player' });
+    await store.unnumber(old2.code);
+    await t.join({ code: old2.code, teamName: TEAMS[2], role: 'player' });
+    eq(JSON.stringify((await store.stored(old2.code)).byName), JSON.stringify({ [TEAMS[1]]: 1, [TEAMS[0]]: 2, [TEAMS[2]]: 3 }),
+      'an older room\'s first join numbers its teams by join order and itself after them, and stores them');
+  }
+
 }
 
 // ---------------------------------------------------------------- the passes
 
-async function runPass(label: string, make: typeof makeTransport): Promise<number> {
+async function runPass(label: string, make: typeof makeTransport, hooks: StoreHooks = localStore): Promise<number> {
   makeTransport = make;
+  store = hooks;
   failures.length = 0;
   checks = 0;
   await main();
@@ -1465,8 +1557,37 @@ async function dynamoPasses(): Promise<number> {
     };
 
     const dynamo = dynamoFromEnv({ tableName: table, client });
+    // The room header's roster, for the TEAM NUMBERS block (StoreHooks).
+    const { GetCommand, UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
+    const { roomPk, ROOM_HEADER_SK } = await import('../../src/session/server/keys');
+    type Header = { nextTeamNumber?: number; roster: Record<string, { name: string; teamNumber?: number; joinedAt: number }> };
+    const headerKey = (code: string) => ({ pk: roomPk(code), sk: ROOM_HEADER_SK });
+    const header = async (code: string) =>
+      (await dynamo.doc.send(new GetCommand({ TableName: table, Key: headerKey(code), ConsistentRead: true }))).Item as Header;
+    const dynamoStore: StoreHooks = {
+      async unnumber(code) {
+        const ids = Object.keys((await header(code)).roster);
+        await dynamo.doc.send(new UpdateCommand({
+          TableName: table, Key: headerKey(code),
+          UpdateExpression: 'REMOVE nextTeamNumber' + ids.map((_, i) => `, roster.#t${i}.teamNumber`).join(''),
+          ExpressionAttributeNames: Object.fromEntries(ids.map((id, i) => [`#t${i}`, id])),
+        }));
+      },
+      async dropTeam(code, name) {
+        const id = Object.entries((await header(code)).roster).find(([, e]) => e.name === name)![0];
+        await dynamo.doc.send(new UpdateCommand({
+          TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE roster.#t', ExpressionAttributeNames: { '#t': id },
+        }));
+      },
+      async stored(code) {
+        const h = await header(code);
+        // A map has no order; join order is the roster's joinedAt (views.ts orderedRoster).
+        const byJoin = Object.values(h.roster).sort((a, b) => a.joinedAt - b.joinedAt);
+        return { next: h.nextTeamNumber, byName: Object.fromEntries(byJoin.map(e => [e.name, e.teamNumber])) };
+      },
+    };
     bad += await reached('DynamoDB, in-process', () =>
-      runPass('DynamoDB, in-process', () => new DynamoSessionTransport({ dynamo })));
+      runPass('DynamoDB, in-process', () => new DynamoSessionTransport({ dynamo }), dynamoStore));
 
     // ⚠ THE HANDLER EXACTLY AS LAMBDA LOADS IT: the module's own exported
     // `handler`, building its transport from the environment on first call — no
@@ -1490,7 +1611,7 @@ async function dynamoPasses(): Promise<number> {
         const addr = server.address();
         const shimPort = typeof addr === 'object' && addr ? addr.port : 0;
         const failed = await reached(label, () =>
-          runPass(label, () => new HttpSessionTransport({ baseUrl: `http://127.0.0.1:${shimPort}` })));
+          runPass(label, () => new HttpSessionTransport({ baseUrl: `http://127.0.0.1:${shimPort}` }), dynamoStore));
         await new Promise<void>(r => { server.close(() => r()); });
         return failed;
       };

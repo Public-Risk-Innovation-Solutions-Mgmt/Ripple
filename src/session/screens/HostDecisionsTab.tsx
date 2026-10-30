@@ -228,6 +228,7 @@ export default function HostDecisionsTab({ room }: Props) {
           <table data-testid="decisions-table" className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+                <th className="px-5 py-2 font-medium">Team number</th>
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-3 py-2 font-medium">Funding</th>
                 <th className="px-3 py-2 font-medium">Reinsurance</th>
@@ -249,6 +250,7 @@ export default function HostDecisionsTab({ room }: Props) {
                       className="cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50"
                       onClick={() => setOpenTeam(open ? null : team.name)}
                     >
+                      <td data-testid={`decisions-number-${team.name}`} className="whitespace-nowrap px-5 py-2 text-slate-600">Team {team.teamNumber}</td>
                       <td className="px-5 py-2 font-medium text-slate-700">{team.name}</td>
                       {state.kind !== 'reported' ? (
                         <td colSpan={7} className="px-3 py-2 text-xs italic text-slate-600">
@@ -260,7 +262,7 @@ export default function HostDecisionsTab({ room }: Props) {
                     </tr>
                     {open && (
                       <tr data-testid={`decisions-drill-${team.name}`}>
-                        <td colSpan={8} className="bg-slate-50 px-5 py-3">
+                        <td colSpan={9} className="bg-slate-50 px-5 py-3">
                           <TeamDrilldown team={team} line={effectiveLine} years={years} />
                         </td>
                       </tr>
