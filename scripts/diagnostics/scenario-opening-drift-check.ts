@@ -29,6 +29,15 @@
 //   v1 (wip/fixed-seed-scenarios): first record, on the fixed seeds as chosen,
 //      at capital WC $3.0M, GL $12.0M, Property $12.5M. Its premium-to-surplus
 //      figures are SCENARIO_SEEDS' table in pricingParameters.ts.
+//   v2 (wip/pricing-alae-load): pricing's ALAE load fixed per line
+//      (PRICING_ALAE_LOAD) in place of the window's mean drawn ratio. The
+//      control, multiplayer 861b8c7, opened exactly on v1. Every one of the 180
+//      recorded figures moves, and only through the pre-game's rates (2023-2026
+//      moved; 2021-2022, priced with no history, did not): opening surplus WC
+//      -14.6% to +24.7%, GL -16.4% to +11.0%, Property -4.3% to +4.3%; year-1
+//      premium WC -1.2% to +2.0%, GL -3.3% to +2.3%, Property -0.8% to +0.5%.
+//      ACCEPTED AS THEY FALL by ruling; no seed changed. The seeds will be
+//      re-picked on this build (SCENARIO_OPENING_BARS).
 // ============================================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -40,7 +49,7 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v1.json');
+const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v2.json');
 type Opening = { surplus: number; premium: number; ps: number };
 type Openings = Record<string, Record<CoverageLine, Opening>>;
 const failures: string[] = [];

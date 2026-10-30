@@ -1107,7 +1107,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // working, the decisions stage's two rows, the codes those move, and the
 // Version row (save key v41 -> v42). The guard's games choose no dividend or
 // assessment, so no figure moved.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v115.json');
+// v118: PRICING'S ALAE LOAD IS FIXED PER LINE (pr/alae-load, from aws a7d480d;
+// ⚠ REBASED onto aws 6941ade (team numbers, #73), which reproduces its
+// predecessor exactly; this baseline holds unchanged there, nothing re-captured.
+// numbered past every export baseline on multiplayer and pr/clf-stretch). The
+// control ran first: aws a7d480d reproduced v115 on all 48 keys. All 48 move.
+// Text-diffed against a7d480d's own text (GUARD_TEXT_DIR, shown, raw and
+// sheet): every moved line is the rate and premium (Current Rate and its
+// change, Pool Premium Rate and Pool Premium at Selected CLF, Written Premium),
+// General Admin Expense (20% of the new premium), Net Underwriting / Operating
+// Income, Investment Income, the Loss & LAE, Combined, Operating,
+// Premium-to-Surplus and Reserve-to-Surplus ratios, % of Premium, the balance
+// sheet's Assets, Invested, Uninvested, Earned Surplus, Paid in Capital and Net
+// Worth (the openings moved with the pre-game's rates), the Version line (save
+// key v42 -> v44), and the Year Walkthrough's Year code (a hash of its
+// figures). No loss, LAE incurred, reserve, IBNR, case, paid, ceded, claim or
+// exposure line moves, and no line was added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v118.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
