@@ -137,6 +137,26 @@ function startStub() {
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
   console.log(`\n  room ${code} — created over HTTP from the host context\n`);
 
+  // ⚠ CAPTURED VIA OUR OWN OBSERVER, NOT waitForSelector + textContent — every
+  // context launchBrowser() hands back already carries its OWN MutationObserver
+  // (_shared.cjs, added alongside the recovery code itself) that auto-clicks
+  // "recovery-code-saved" the instant the dialog appears, so OTHER drivers
+  // that do not know about this feature never get stuck on it. That observer
+  // and Playwright's selector polling are racing the same DOM mutation, and
+  // the observer usually wins — a waitForSelector here timed out against it.
+  // Reading the code is non-destructive, though, so our own observer — added
+  // before the first navigation, same as the shared one — captures it into a
+  // page global the instant it exists, independent of whichever observer's
+  // callback (ours reading, theirs clicking) runs first.
+  await deviceACtx.addInitScript(() => {
+    window.__capturedRecoveryCode = null;
+    new MutationObserver(() => {
+      if (window.__capturedRecoveryCode) return;
+      const el = document.querySelector('[data-testid="recovery-code"]');
+      if (el) window.__capturedRecoveryCode = el.textContent.trim();
+    }).observe(document, { childList: true, subtree: true });
+  });
+
   // ---- device A: create the team, save the recovery code off the screen --
   const deviceA = await deviceACtx.newPage();
   await deviceA.goto(`/join/${code}?api=${encodeURIComponent(API)}`);
@@ -144,13 +164,14 @@ function startStub() {
   await deviceA.fill('[data-testid="team-name"]', TEAM_NAME);
   await deviceA.click('[data-testid="join-team"]');
 
-  await deviceA.waitForSelector('[data-testid="recovery-code"]', { timeout: 30000 });
-  const recoveryCode = (await deviceA.textContent('[data-testid="recovery-code"]')).trim();
+  await deviceA.waitForFunction(() => window.__capturedRecoveryCode !== null, null, { timeout: 30000 });
+  const recoveryCode = await deviceA.evaluate(() => window.__capturedRecoveryCode);
   ok(/^\d{4}$/.test(recoveryCode), `device A was shown a 4-digit recovery code (${recoveryCode})`);
-  await deviceA.click('[data-testid="recovery-code-saved"]');
+  // No explicit dismissal click here — _shared.cjs's own observer already did
+  // it (see above), the same as it does for every other driver.
 
   await deviceA.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
-  ok(true, 'device A is driving the team after dismissing the recovery-code dialog');
+  ok(true, 'device A is driving the team after the recovery-code dialog dismissed itself');
 
   // ⚠ A SECOND DISMISSAL MUST NEVER HAPPEN. If this selector reappeared on a
   // later poll/rejoin, the one-time guarantee (JoinResponse.recoveryCode only
