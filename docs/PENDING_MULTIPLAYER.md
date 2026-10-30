@@ -53,14 +53,15 @@ is shown and narrated only (the Year Walkthrough's capital stage, the
 downloads); nothing in play reads it.
 
 **Landed with:** FAST 94/94 (the sweep alone) and SLOW 4/4, the manifest
-held; typecheck clean; lint identical to multiplayer 3bd6d2b (its 14 errors
+held; typecheck clean; lint identical to multiplayer (its 14 errors
 and 7 warnings, none in a changed file); `clf-stretch-check` (new, FAST) with
 three controls and the source broken by hand (WC at 1.25: exit 1);
 `baseline-cv-table-check` and `funding-table-check` restated to the stretched
 table, each with a control; VALUE_IDENTITY_v92, SOLO_EXPORT_GUARD_v116 and
 RENDER_IDENTITY_v118, each reproduced on its control first (15dc74b, then
-3bd6d2b) and every move attributed in the check's own note; all 26 session
-drivers with the admin-token hook; the contract harness on every pass
+3bd6d2b) and every move attributed in the check's own note, and holding
+again on multiplayer f170c03 (the lock confirmation), merged in before
+landing; all 27 session drivers with the admin-token hook; the contract harness on every pass
 (local, http, DynamoDB, built handler, admin, race probes). Two checks were
 red on multiplayer 3bd6d2b itself after the tab cleanup and are fixed here:
 `carry-decisions-check`'s second-write control (re-anchored on
