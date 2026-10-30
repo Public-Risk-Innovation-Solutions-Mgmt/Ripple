@@ -30,7 +30,8 @@ Re-pick, then restore the bars and re-record.
 second-write control re-anchored on `setActiveTab('statement')`, and the
 new-rate-panel driver's two Results-tab checks run only when the tab is offered.
 
-**Checked against aws a7d480d:** VALUE_IDENTITY_v94, SOLO_EXPORT_GUARD_v118,
+**Checked against aws a7d480d, and again on 6941ade (team numbers, #73) after
+the rebase, where every baseline held unchanged:** VALUE_IDENTITY_v94, SOLO_EXPORT_GUARD_v118,
 RENDER_IDENTITY_v120 (numbered past every one on multiplayer and pr/clf-stretch),
 each attributed; the full checks as recorded in the pull request.
 

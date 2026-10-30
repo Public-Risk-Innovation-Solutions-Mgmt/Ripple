@@ -1108,6 +1108,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Version row (save key v41 -> v42). The guard's games choose no dividend or
 // assessment, so no figure moved.
 // v118: PRICING'S ALAE LOAD IS FIXED PER LINE (pr/alae-load, from aws a7d480d;
+// ⚠ REBASED onto aws 6941ade (team numbers, #73), which reproduces its
+// predecessor exactly; this baseline holds unchanged there, nothing re-captured.
 // numbered past every export baseline on multiplayer and pr/clf-stretch). The
 // control ran first: aws a7d480d reproduced v115 on all 48 keys. All 48 move.
 // Text-diffed against a7d480d's own text (GUARD_TEXT_DIR, shown, raw and

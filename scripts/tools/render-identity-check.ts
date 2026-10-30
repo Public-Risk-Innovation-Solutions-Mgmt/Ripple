@@ -1732,6 +1732,8 @@ const BASELINE = process.env.RENDER_BASELINE
 // names taken out of the control's text, all 124 match the new text exactly.
 // No figure moved. 236 -> 174 keys.
 // v120: PRICING'S ALAE LOAD IS FIXED PER LINE (pr/alae-load, from aws a7d480d;
+// ⚠ REBASED onto aws 6941ade (team numbers, #73), which reproduces its
+// predecessor exactly; this baseline holds unchanged there, nothing re-captured.
 // numbered past every render baseline on multiplayer and pr/clf-stretch). The
 // control ran first: aws a7d480d reproduced v117, 174 of 174. Against its own
 // text (RENDER_TEXT_DIR), word-diffed: 144 of 174 move. 118 in numbers only —

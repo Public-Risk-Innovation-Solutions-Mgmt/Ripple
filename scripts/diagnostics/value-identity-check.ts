@@ -1512,6 +1512,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
 // prices reach nothing. v91 is retired.
 // v94: PRICING'S ALAE LOAD IS FIXED PER LINE (pr/alae-load, from aws a7d480d):
+// ⚠ REBASED onto aws 6941ade (team numbers, #73), which reproduces its
+// predecessor exactly; this baseline holds unchanged there, nothing re-captured.
 // PRICING_ALAE_LOAD (WC 11%, GL 15%, Property 3.5%) in place of the window's
 // mean drawn ratio. (Numbered past every value baseline on multiplayer and on
 // pr/clf-stretch, so no two pull requests share one.) The control ran first:
