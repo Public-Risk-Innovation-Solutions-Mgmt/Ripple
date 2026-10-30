@@ -269,12 +269,11 @@ async function plrIs(rc) {
   // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
   const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
   if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
-  // ⚠ THE RESULTS PAGE NO LONGER SHOWS THE RANGE EITHER — players are never
-  // told about the worlds, on any page. The range stays for the host.
-  await page.getByRole('button', { name: /^Results$/ }).first().click();
-  await page.waitForTimeout(1000);
-  ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Results: no surplus range across the worlds');
-  ok(!/\bworlds?\b/i.test((await page.locator('main').innerText()).replace(/\s+/g, ' ')), 'Results: the page never mentions the worlds');
+  // ⚠ THE RESULTS PAGE IS HIDDEN SINCE THE TAB CLEANUP (multiplayer 3bd6d2b,
+  // tabs.tsx HIDDEN_TABS), so a player cannot reach it to be told about the
+  // worlds there. This step clicked its tab and timed out on multiplayer
+  // itself; restated at wip/clf-stretch to hold that the tab is not offered.
+  ok(await page.getByRole('button', { name: /^Results$/ }).count() === 0, 'Results: the tab is not offered (hidden), so no player reaches a range there');
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
   // ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS (the documents commit): the
