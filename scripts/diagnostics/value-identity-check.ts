@@ -1511,7 +1511,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v90 value for value (0 of 39,600 differ). Every game here has its shocks
 // on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
 // prices reach nothing. v91 is retired.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v90.json');
+// v92: THE FUNDING TABLES STRETCHED (wip/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25), on multiplayer 15dc74b, which reproduces v90 here
+// first (and again on 3bd6d2b, and on aws a7d480d for pr/clf-stretch: v90
+// there, v92 here, recaptured byte-identical). Against v90, 8,113 of 39,600 values move, every one the stretched
+// table's: the default arm (Expected, a factor of 1.0) moves only the seven
+// fields that read required capital — reserveRiskMarginNeeded,
+// fundingMarginNeeded, fundingGap, capitalFundingGap, excessAvailableSurplus,
+// excessCapitalRatio, capitalAdequacyRatio — 1,050 values, every instance-year
+// (first instance's WC Y1 margin $3.40M -> $9.75M: the 80% stop 1.0513 ->
+// 1.1473); no premium, loss, surplus or rate. The squeezed arm (each line at
+// its lowest stop, which reads the table's 30% column, now lower) moves 7,063:
+// selectedFundingCLF and the premium it sets, admin, the expected and actual
+// ratios on that premium, income, surplus, assets and the next years' rates
+// built on them, and the capital fields. No loss, claim, reserve or
+// development figure moves in either arm; marketShare (19) and
+// investmentReturnRate (10) move in the last float digit only. The absolute
+// identities hold (def selectedFundingCLF = 1 bit-exactly).
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v92.json');
 
 function seedOf(id: string) {
   let h = 5381;
