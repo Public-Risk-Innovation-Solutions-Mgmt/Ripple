@@ -1,5 +1,5 @@
 // The Teams tab: three states at once, on three line views.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -81,7 +81,7 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
 
   // Two teams lock and play; the third is closed so it never computes or posts.
   for (const p of [wcTeam, glTeam]) {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(p);
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
   await slow.close();
@@ -104,7 +104,7 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
 
   // A second year: the two live teams lock and post year 2, known at once.
   for (const p of [wcTeam, glTeam]) {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(p);
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
   await host.click('[data-testid="host-tab-setup"]');

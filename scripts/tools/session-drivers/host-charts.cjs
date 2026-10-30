@@ -4,7 +4,7 @@
 // the start, then each year as it is played — and every year once the event is
 // over. Each expectation below is the count AT that latest known year. (They
 // ran a year behind, N - 2, until results stopped running a year behind.)
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -142,7 +142,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   for (let year = 1; year <= 3; year++) {
     const live = year === 1 ? players : [harbour, cedar];
     for (const p of live) {
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(p);
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]');

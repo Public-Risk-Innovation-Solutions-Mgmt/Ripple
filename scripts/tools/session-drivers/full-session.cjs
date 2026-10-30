@@ -2,7 +2,7 @@
 // REAL game UI, not a four-slider panel.
 // One context: localStorage is the server here, so separate contexts would give
 // four private universes in which everything passes and nothing is shared.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley', 'Tri-County'];
 const YEARS = 3;
 const SKIP_YEAR = 2;
@@ -214,7 +214,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
            `carry-forward setup: ${TEAMS[i]} moved Funding Confidence on the real page (${moved && moved.before} -> ${moved && moved.after})`);
       }
 
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(p);
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     ok(true, `year ${year}: teams locked in${year === SKIP_YEAR ? ` (${TEAMS[SKIPPER]} deliberately did not)` : ''}`);

@@ -30,7 +30,7 @@
 // Earthquake on its OWN lines — Workers' Compensation and General Liability,
 // never Property, which the Earthquake strikes but this team does not write.
 // ============================================================================
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -71,7 +71,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
 
   async function lock(next) {
     await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
@@ -176,7 +176,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
     await team.click('[data-testid="join-team"]');
     await team.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
     for (const y of [1, 2]) {
-      await team.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(team);
       await team.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
       await host.click('[data-testid="host-tab-setup"]').catch(() => {});
       await host.waitForTimeout(300);
