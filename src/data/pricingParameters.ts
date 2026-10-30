@@ -383,6 +383,10 @@ export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08
  * and Property lower: the host's shock draw fires more events). WC sits between
  * the 1.25 and 1.40 columns, so 1.30; GL and Property land on 1.25. With these,
  * 70 / 80 / 90% funding covers about that share of years with no development.
+ * AS BUILT (the same probe on the landing): single player WC 63 / 80 / 92,
+ * GL 67 / 78 / 88, Property 63 / 78 / 90; hosted None WC 63 / 82 / 94, GL
+ * 53 / 63 / 74, Property 60 / 74 / 86. Expected does not move (WC 26%, GL 46%,
+ * Property 36% in single player).
  *
  * ⚠ NOT A FIX FOR ADVERSE DEVELOPMENT. Development raises the year's cost
  * across the board rather than widening its spread, so no stretch makes the

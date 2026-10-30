@@ -11,6 +11,64 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## The funding tables stretched (save key v43) — wip/clf-stretch
+
+Each line's funding (CLF) table is its BaselineCV table stretched about 1.0,
+`CLF = 1 + (CLF − 1) × k`, with k set so the 95% stop is `CLF_STRETCH_95`: WC
+1.30, GL 1.25, Property 1.25 (k = 2.871 / 1.436 / 1.800). Every stop moves in
+proportion; Expected stays a factor of exactly 1.0. Required capital reads the
+same table (its 80% stop), so it rises by the same k. Why, and the measurement
+behind each stop, is beside `CLF_STRETCH_95` in pricingParameters.ts: the
+unstretched tables describe ordinary losses only and bought about half their
+label on the year's whole cost.
+
+**What it does** (20 fixed-seed scenarios, five years, 100 worlds, shocks on,
+defaults but funding; share of line-years with a combined ratio ≤ 100% at
+70 / 80 / 90% funding — before the stretch in brackets):
+
+| | WC | GL | Property |
+|---|---|---|---|
+| Single player | 63 / 80 / 92 (39 / 48 / 60) | 67 / 78 / 88 (61 / 70 / 80) | 63 / 78 / 90 (51 / 61 / 74) |
+| Hosted, None | 63 / 82 / 94 (38 / 48 / 60) | 53 / 63 / 74 (48 / 56 / 65) | 60 / 74 / 86 (49 / 59 / 71) |
+| Hosted, Low | 32 / 57 / 84 (12 / 17 / 28) | 40 / 52 / 66 (34 / 44 / 55) | 54 / 70 / 84 (41 / 52 / 66) |
+| Hosted, Mid | 0 / 3 / 20 (0 / 0 / 0) | 13 / 22 / 38 (10 / 15 / 24) | 36 / 55 / 76 (25 / 35 / 50) |
+
+2027 rate at Expected / 70 / 80 / 90%: WC 3.54 / 3.86 / 4.06 / 4.36, GL 5.01 /
+5.36 / 5.60 / 5.95, Property 0.28 / 0.31 / 0.32 / 0.34 (per $100). Hosted GL and
+Property sit below single player because the host's shock draw fires more
+events (40 across the 20 games against single player's 23).
+
+**Not a fix for adverse development.** Development raises the year's cost
+rather than its spread; at Mid, WC still loses surplus in most scenarios at
+70% funding (14 of 20 below zero). That wants a development loading in the
+rate, by level.
+
+**Capital status.** With required capital up by k, WC's status falls most at
+Expected, where nothing else moves: single player's scenario-averaged
+line-years Strong / Adequate / Thin / Deficient go 93 / 0 / 2 / 5 → 83 / 8 / 0 /
+9, hosted Low 87 / 6 / 0 / 7 → 37 / 23 / 6 / 34. Property 69 / 14 / 3 / 14 → 53 /
+27 / 6 / 14 in single player; GL barely moves. At 80% funding the higher
+premium builds surplus and the statuses come back to where they were. Status
+is shown and narrated only (the Year Walkthrough's capital stage, the
+downloads); nothing in play reads it.
+
+**Landed with:** FAST 94/94 (the sweep alone) and SLOW 4/4, the manifest
+held; typecheck clean; lint identical to multiplayer 3bd6d2b (its 14 errors
+and 7 warnings, none in a changed file); `clf-stretch-check` (new, FAST) with
+three controls and the source broken by hand (WC at 1.25: exit 1);
+`baseline-cv-table-check` and `funding-table-check` restated to the stretched
+table, each with a control; VALUE_IDENTITY_v92, SOLO_EXPORT_GUARD_v116 and
+RENDER_IDENTITY_v118, each reproduced on its control first (15dc74b, then
+3bd6d2b) and every move attributed in the check's own note; all 26 session
+drivers with the admin-token hook; the contract harness on every pass
+(local, http, DynamoDB, built handler, admin, race probes). Two checks were
+red on multiplayer 3bd6d2b itself after the tab cleanup and are fixed here:
+`carry-decisions-check`'s second-write control (re-anchored on
+`setActiveTab('statement')`) and the `new-rate-panel` driver's Results step
+(restated to the tab being hidden).
+
+---
+
 ## Decisions carry into the next year in single player — wip/carry-decisions
 
 Single player and Test player now start each year from the decisions the year
