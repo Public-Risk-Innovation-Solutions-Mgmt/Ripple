@@ -237,7 +237,13 @@ function play(scenario: string, mode: 'cover' | 'absent' | 'none'): Played {
   return { gs, byYear };
 }
 
-const SCENARIOS = ['8', '13', '15'];
+// The three games must between them hold a large claim, a surge and Economic
+// Inflation, or section 3's controls have nothing to bite on. ⚠ RESTATED AT
+// pr/seed-switch: 14 for 15. Re-picked, 15 draws no shock in five years and 8
+// a Recession where it drew Social Inflation, so the large-claim control found
+// 0 problems when broken. 14 draws Social Inflation in year 5 (and two
+// Winterstorms); 8 now brings the surge, 13 Economic Inflation as before.
+const SCENARIOS = ['8', '13', '14'];
 const games = SCENARIOS.map(s => ({ s, cover: play(s, 'cover'), absent: play(s, 'absent'), none: play(s, 'none') }));
 book2027 = Object.fromEntries(LINES.map(l => {
   const ac = games[0].cover.byYear[0][l][0].attritionalCover!;

@@ -11,6 +11,67 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## Fifteen scenarios' seeds re-picked (save key v45) — pr/seed-switch
+
+`SCENARIO_SEEDS` for 14, 20, 4, 1, 6, 3, 5, 10, 12, 8, 15, 11, 19, 9 and 17
+re-picked on the fixed ALAE load; 7, 18, 2, 13 and 16 kept. Each new seed opens
+within 5% of its slot's targets on every line, draws at least two shocks in ten
+years, and plays ten years (single player and hosted at Low, shocks on, the
+defaults) steadier than the seed it replaces, never below zero on any line.
+How they were chosen, the openings and the kept slots' misses are on
+`SCENARIO_SEEDS`. This settles the item owed below.
+
+**`SCENARIO_OPENING_BARS` restored** from temporary: worst miss 10.5% (10.35%,
+scenario 13's WC), 16 of 20 within 5% on every line. `SCENARIO_OPENINGS_v3`
+records the openings: the five kept scenarios' figures unchanged, the fifteen
+switched ones' moved to their seeds'.
+
+**One gate restated, not loosened:** aggregate-cover-check plays 14 in place of
+15, because 15 now draws no shock in five years and 8 a Recession where it drew
+Social Inflation, which left the large-claim control nothing to bite on (0
+problems when broken; 100 with 14).
+
+**With it, the session drivers fixed for the recovery code** (a separate
+commit, test-only): aws 45a7342's "Save your recovery code" modal held the game
+screen back on every team-creating join, so every hosted driver timed out on
+aws 0b4f5a5 itself; `_shared.cjs` now dismisses it in every context.
+
+**Checked against aws 0b4f5a5**, each control first: VALUE_IDENTITY_v94 holds;
+SOLO_EXPORT_GUARD_v119 (24 of 48, the Version row only); RENDER_IDENTITY_v121
+(26 of 174, all Year Walkthrough, the save key only). ⚠ **aws 0b4f5a5 does not
+reproduce RENDER_IDENTITY_v120**: 23 screens (every Rate Indication, 13 Year
+Walkthrough) differ deterministically, where f5e108a reproduces v117 in the same
+environment, so v120 was recorded on a tree other than the one merged; recorded
+at v121 in render-identity-check.ts. Typecheck clean; lint at aws's 21 problems;
+FAST 93/93; SLOW not run (the scenario-to-seed mapping only); all 27 session
+drivers with the admin-token hook; the contract harness on every pass and the
+race probes. Save key v45: **pr/clf-stretch, promised v45 below, takes v46.**
+
+## Pricing's ALAE load fixed per line (save key v44) — pr/alae-load
+
+Pricing loads ALAE at `PRICING_ALAE_LOAD` (WC 11%, GL 15%, Property 3.5%, each
+range's middle) every year, played and pre-game, not the window's mean drawn
+ratio; the ALAE booked is still drawn. Shown as "ALAE load (11.0%)" on the Rate
+Indication, Model tab and Year Walkthrough. Save key v44: v43 is pr/clf-stretch's,
+which merges after this and moves to v45 when rebased.
+
+**Owed — the seeds are to be re-picked on this build.** The openings moved with
+the pre-game's rates and were accepted as they fall (ruling, option 2):
+`SCENARIO_OPENING_BARS` holds scenarios-check 5 at what this build produces
+(worst miss 18.5%, 4 of 20 within 5%, against 12% and 18 when the seeds were
+picked) and is marked temporary; `SCENARIO_OPENINGS_v2` records the openings.
+Re-pick, then restore the bars and re-record.
+
+**With it, two checks red on aws since the tab cleanup:** carry-decisions-check's
+second-write control re-anchored on `setActiveTab('statement')`, and the
+new-rate-panel driver's two Results-tab checks run only when the tab is offered.
+
+**Checked against aws a7d480d, and again after each rebase — on 6941ade (team
+numbers, #73) and f5e108a (team recovery codes) — where every baseline held
+unchanged:** VALUE_IDENTITY_v94, SOLO_EXPORT_GUARD_v118,
+RENDER_IDENTITY_v120 (numbered past every one on multiplayer and pr/clf-stretch),
+each attributed; the full checks as recorded in the pull request.
+
 ## Decisions carry into the next year in single player — wip/carry-decisions
 
 Single player and Test player now start each year from the decisions the year

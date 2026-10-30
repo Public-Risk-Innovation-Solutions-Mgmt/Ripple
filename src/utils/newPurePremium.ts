@@ -62,7 +62,7 @@
 
 import {
   PRICING_WINDOW_YEARS_NEW, PRICING_DATA_LAG_YEARS,
-  ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
+  ALAE_OF_LOSS_COST, PRICING_ALAE_LOAD, ULAE_OF_LOSS_COST,
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
   CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SHOCKS_OUT_OF_EXPERIENCE,
   RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
@@ -84,7 +84,7 @@ import type {
  * WC's and GL's losses are the pool's supplied pure premium, which EXCLUDES
  * ALAE (SUPPLIED_PURE_PREMIUM_INCLUDES_ULAE in pricingParameters.ts), and
  * Property's are loss only — so ALAE is added on top on every line, at
- * ALAE_OF_LOSS_COST.
+ * PRICING_ALAE_LOAD.
  *
  * ⚠ GL WAS TRUE UNTIL THEN, AND THAT RULE CAME FROM THE OLD PER-CLAIM GL MODEL:
  * its fitted 3-component claim-size mixture included defence costs
@@ -138,9 +138,9 @@ export interface NewPurePremiumResult {
   /** The steady catastrophe load in it (catastropheLoadPer100); 0 with CATASTROPHE_LOAD off. */
   catastropheLoadPer100: number;
   alaePer100: number;
-  /** The ALAE load as a share of the loss cost: the window years' mean drawn ratio, or the range's middle. */
+  /** The ALAE load as a share of the loss cost: PRICING_ALAE_LOAD, every year. */
   alaeRatio: number;
-  /** The window years' drawn ALAE ratios, oldest first — what alaeRatio averages. */
+  /** The window years' DRAWN ALAE ratios, oldest first — shown beside the load, never priced on. */
   alaeRatios: number[];
   ulaePer100: number;
   /** loss cost + ALAE + ULAE, at expected. The headline. */
@@ -348,12 +348,12 @@ export function newPurePremiumPer100(
 
   // ⚠ ALAE IS NOT ADDED WHERE IT IS ALREADY IN THE LOSSES. See
   // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. Its load is
-  // the MEAN OF THE WINDOW YEARS' DRAWN ALAE RATIOS, as the ledger records them
-  // (alaeRatio.ts; a row from before the draw reads the range's middle). ULAE
+  // the EXPECTED ratio, PRICING_ALAE_LOAD, every year — not the window's drawn
+  // ratios, which are kept only to be shown (wip/pricing-alae-load). ULAE
   // is at its share of the claims on every line: on WC and GL the claims are
   // the pure premium / (1 + ULAE), so claims + ULAE give the pure premium back.
   const alaeRatios = points.map(p => basis.rows.find(r => r.yearNumber === p.accidentYear)?.alaeRatio ?? ALAE_OF_LOSS_COST[line]);
-  const alaeRatio = alaeRatios.reduce((a, b) => a + b, 0) / alaeRatios.length;
+  const alaeRatio = PRICING_ALAE_LOAD[line];
   const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * alaeRatio;
   const ulae = lossCost * ULAE_OF_LOSS_COST[line];
 
@@ -383,12 +383,12 @@ export function newPurePremiumFromLossCost(
   // The reserve inflation factor already in the loss cost — recorded, not applied.
   reserveInflation: number | null = null,
 ): NewPurePremiumResult {
-  // No history: ALAE at the middle of the line's range (ALAE_OF_LOSS_COST).
-  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCostPer100 * ALAE_OF_LOSS_COST[line];
+  // No history: ALAE at the same expected ratio (PRICING_ALAE_LOAD).
+  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCostPer100 * PRICING_ALAE_LOAD[line];
   const ulae = lossCostPer100 * ULAE_OF_LOSS_COST[line];
   return {
     lossCostPer100, catastropheLoadPer100: catastropheLoad, alaePer100: alae,
-    alaeRatio: ALAE_ALREADY_IN_LOSSES[line] ? 0 : ALAE_OF_LOSS_COST[line], alaeRatios: [], ulaePer100: ulae,
+    alaeRatio: ALAE_ALREADY_IN_LOSSES[line] ? 0 : PRICING_ALAE_LOAD[line], alaeRatios: [], ulaePer100: ulae,
     purePremiumPer100: lossCostPer100 + alae + ulae, points: [], skipped: 0, reserveInflation,
   };
 }

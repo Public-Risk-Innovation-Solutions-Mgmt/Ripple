@@ -172,17 +172,22 @@ async function launchBrowser() {
   const executablePath = chromiumPath();
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
   const token = process.env.ADMIN_TOKEN;
-  if (token) {
-    const newContext = browser.newContext.bind(browser);
-    browser.newContext = async (opts) => {
-      const ctx = await newContext(opts);
-      // Skipped while the context is acting as a player (asPlayer below).
-      await ctx.addInitScript(([k, t, p]) => {
-        try { if (localStorage.getItem(p) === null) localStorage.setItem(k, t); } catch { /* opaque origin */ }
-      }, [ADMIN_TOKEN_KEY, token, AS_PLAYER_KEY]);
-      return ctx;
-    };
-  }
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (opts) => {
+    const ctx = await newContext(opts);
+    // Skipped while the context is acting as a player (asPlayer below).
+    if (token) await ctx.addInitScript(([k, t, p]) => {
+      try { if (localStorage.getItem(p) === null) localStorage.setItem(k, t); } catch { /* opaque origin */ }
+    }, [ADMIN_TOKEN_KEY, token, AS_PLAYER_KEY]);
+    // ⚠ THE RECOVERY CODE (aws 45a7342): a team's creating join shows it once,
+    // in a modal that holds the game screen back until "I've saved it". No
+    // driver asserts it, so every context dismisses it as it appears.
+    await ctx.addInitScript(() => {
+      const dismiss = () => { const b = document.querySelector('[data-testid="recovery-code-saved"]'); if (b) b.click(); };
+      new MutationObserver(dismiss).observe(document, { childList: true, subtree: true });
+    });
+    return ctx;
+  };
   return browser;
 }
 
