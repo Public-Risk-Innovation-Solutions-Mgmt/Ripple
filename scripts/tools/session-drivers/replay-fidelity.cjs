@@ -16,7 +16,7 @@
 // afterwards, entry for entry, read from the record rather than inferred.
 // "A schedule exists" would have been the dangerous loosening — it passes on a
 // game whose schedule never fired — and that is exactly what is not asserted.
-const { BASE, REPO, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const { execFileSync } = require('node:child_process');
 const TEAM = 'Harbour Mutual';
 const YEARS = 4;
@@ -248,7 +248,7 @@ async function resultsYearText(page, year) {
       const v = await nudge(player, 'Funding Confidence Level', year > 1 ? 2 : 0);
       fcValues.push(v);
     }
-    await player.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(player);
     await player.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
 
     await host.click('[data-testid="advance"]');

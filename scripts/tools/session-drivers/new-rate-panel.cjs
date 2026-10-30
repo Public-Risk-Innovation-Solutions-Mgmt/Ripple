@@ -13,7 +13,7 @@
 // will report SKIPPED and exit 0.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -262,7 +262,7 @@ async function plrIs(rc) {
   // Lock a year. Players are never told about the worlds: neither the Results
   // page nor the Decisions page shows the surplus range across them, or says
   // they exist. The range stays in the session's posted results, for the host.
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }

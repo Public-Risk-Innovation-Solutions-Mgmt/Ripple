@@ -7,7 +7,7 @@
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/navigation.cjs
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 // ⚠ SINCE THE TAB CLEANUP the two bars are the same: Results, Result
 // Spreadsheet, Financial Statements and Model are hidden in solo (Single player
@@ -55,7 +55,7 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
 
   // A locked year lands on the Annual Statement (App's commit; Results, where it
   // used to land, is hidden since the tab cleanup).
-  await solo.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(solo);
   await solo.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
   await solo.waitForTimeout(500);
   ok(await active(solo) === 'Annual Statement', 'solo: a locked year lands on the Annual Statement', await active(solo));

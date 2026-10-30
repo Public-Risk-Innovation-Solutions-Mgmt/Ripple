@@ -28,7 +28,7 @@
 // and NO page error fires. The third is the one that was failing — the throw
 // happened before XLSX.writeFile, so the symptom was silence.
 // ============================================================================
-const { launchBrowser, requireServer, BASE, REPO } = require('./_shared.cjs');
+const { launchBrowser, requireServer, BASE, REPO, lockAndConfirm } = require('./_shared.cjs');
 const path = require('node:path');
 const ExcelJS = require('exceljs');
 const fs = require('node:fs');
@@ -197,7 +197,7 @@ async function screenBordersMatchTemplate(page) {
   // played year with a year after it, as they had while results ran a year
   // behind. A third would only make the driver slower.
   for (const next of [2028, 2029]) {
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) {
@@ -302,7 +302,7 @@ async function screenBordersMatchTemplate(page) {
     }
     await multi.getByRole('button', { name: 'Single player', exact: true }).click();
     await multi.waitForSelector('text=Lock Program Year', { timeout: 60000 });
-    await multi.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(multi);
     await multi.waitForTimeout(2500);
     const decline = multi.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) {

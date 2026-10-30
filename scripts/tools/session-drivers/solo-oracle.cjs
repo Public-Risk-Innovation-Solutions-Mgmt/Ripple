@@ -1,7 +1,7 @@
 // THE SOLO ORACLE. Walks every tab of the solo game and fingerprints what each
 // one renders. Run before and after the extraction: the derivation moving files
 // is not the derivation changing, so every fingerprint must match exactly.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
@@ -67,7 +67,7 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   // Advance two years through the real solo path and walk again — this exercises
   // lockedResults, the results pages and the audit cards with real data.
   for (let i = 0; i < 2; i++) {
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     // A loan prompt would block; resolve it by declining if it appears.
     const decline = page.getByRole('button', { name: /Decline/i }).first();

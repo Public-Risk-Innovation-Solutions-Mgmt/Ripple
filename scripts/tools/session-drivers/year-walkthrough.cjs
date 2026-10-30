@@ -35,7 +35,7 @@ const fs = require('node:fs');
 const { execFileSync, spawn } = require('node:child_process');
 const net = require('node:net');
 const XLSX = require('xlsx');
-const { BASE, REPO, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -78,7 +78,7 @@ async function openSolo(page, mode) {
 }
 async function lock(page) {
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
@@ -277,7 +277,7 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
       teams.push(page);
     }
     for (const page of teams) {
-      await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(page);
       await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]').catch(() => {});
