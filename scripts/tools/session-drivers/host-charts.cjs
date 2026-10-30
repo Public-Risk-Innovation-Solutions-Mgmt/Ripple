@@ -172,6 +172,23 @@ const activeView = page => page.$$eval('nav button', bs =>
     ok(await host.$(`[data-testid="chart-${id}"]`) !== null, `the ${id} chart is drawn`);
   }
 
+  // TEAM NUMBERS: the legend and the lines' end labels pair each team's number
+  // with its name, "Team 1 | Harbour Mutual", Team 1 the first to join — and
+  // Lakeside, the late fourth joiner, Team 4.
+  {
+    const want = ['Team 1 | Harbour Mutual', 'Team 2 | Cedar Valley', 'Team 3 | Tri-County', 'Team 4 | Lakeside'];
+    const legend = await host.$$eval('[data-testid^="chart-legend-"]', els => els.map(e => e.textContent.trim()));
+    ok(JSON.stringify(legend) === JSON.stringify(want), `the legend pairs each team's number with its name (${legend.join(', ')})`);
+    const ends = await host.$$eval('[data-testid="chart-surplus"] text', els => els.map(e => e.textContent.trim()).filter(t => /^Team \d+ \|/.test(t)));
+    ok(want.every(w => ends.includes(w)), `and so do the lines' end labels, in full (${ends.join(', ')})`);
+    // Inside the chart: the right margin widened for them (HostChartsTab, M.right).
+    const overhang = await host.$$eval('[data-testid="chart-surplus"] text', els => Math.max(0, ...els
+      .filter(e => /^Team \d+ \|/.test(e.textContent.trim()))
+      .map(e => { const b = e.getBBox(); return b.x + b.width - e.ownerSVGElement.viewBox.baseVal.width; })));
+    ok(overhang <= 0, `and every end label fits inside the chart (${overhang.toFixed(1)} px past its right edge)`);
+    if (process.env.CHARTS_SHOT) await host.locator('[data-testid="chart-surplus"]').screenshot({ path: process.env.CHARTS_SHOT });
+  }
+
   // ---- AS BOOKED vs AS DEVELOPED ---------------------------------------
   //
   // ⚠ UNDER FULL-COST BOOKING AN ACCIDENT YEAR'S ULTIMATE HOLDS STEADY AFTER

@@ -81,7 +81,7 @@ import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
-import type { RoomView, TeamYearFigures, TeamView } from '../index';
+import { teamLabel, type RoomView, type TeamYearFigures, type TeamView } from '../index';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -302,7 +302,8 @@ function niceScale(min: number, max: number, anchorZero: boolean): { lo: number;
 
 // ---------------------------------------------------------------- one chart
 
-const W = 760, H = 240, M = { top: 14, right: 118, bottom: 38, left: 74 };
+// ⚠ right: 160 (was 118) — the end labels carry the team number now, "Team 1 | Bob's Pool".
+const W = 760, H = 240, M = { top: 14, right: 160, bottom: 38, left: 74 };
 const PLOT_W = W - M.left - M.right;
 const PLOT_H = H - M.top - M.bottom;
 
@@ -375,7 +376,7 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
   const labels = drawn
     .map(({ s, points }) => {
       const last = [...points.keys()].sort((a, b) => a - b).slice(-1)[0];
-      return { name: s.team.name, color: s.color, anchor: y(points.get(last)!) };
+      return { name: teamLabel(s.team), color: s.color, anchor: y(points.get(last)!) };
     })
     .sort((a, b) => a.anchor - b.anchor)
     .map(l => ({ ...l, at: l.anchor }));
@@ -389,7 +390,7 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
     ? []
     : drawn
         .filter(d => d.points.has(hoverYear))
-        .map(d => ({ name: d.s.team.name, color: d.s.color, value: d.points.get(hoverYear)! }));
+        .map(d => ({ name: teamLabel(d.s.team), color: d.s.color, value: d.points.get(hoverYear)! }));
 
   return (
     <figure className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -500,7 +501,7 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
                   white surface, and three of these hues carry a contrast warning
                   precisely there. */}
               <text x={M.left + PLOT_W + 21} y={l.at + 3.5} className="fill-slate-600" fontSize={11}>
-                {l.name.length > 16 ? l.name.slice(0, 15) + '…' : l.name}
+                {l.name.length > 23 ? l.name.slice(0, 22) + '…' : l.name}
               </text>
             </g>
           ))}
@@ -609,7 +610,7 @@ export default function HostChartsTab({ room }: Props) {
             ) : (
               <span className="inline-block h-2.5 w-2.5 rounded-full border border-dashed border-slate-300" />
             )}
-            <span className={s.state.kind === 'drawn' ? 'text-slate-700' : 'text-slate-600'}>{s.team.name}</span>
+            <span data-testid={`chart-legend-${s.team.name}`} className={s.state.kind === 'drawn' ? 'text-slate-700' : 'text-slate-600'}>{teamLabel(s.team)}</span>
             {s.state.kind === 'absent' && (
               <span data-testid={`chart-absent-${s.team.name}`} className="italic text-slate-600">
                 does not write {effectiveView === 'pool' ? 'any line' : effectiveView}

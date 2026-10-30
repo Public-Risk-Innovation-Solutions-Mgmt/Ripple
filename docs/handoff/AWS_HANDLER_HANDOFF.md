@@ -254,6 +254,14 @@ completing retry against both `LocalSessionTransport` and `DynamoSessionTranspor
   `padYear` allows.
 - **Team order:** the roster is a map with no order, so teams sort on a `joinedAt` stamp, with
   `teamId` breaking ties.
+- **Team numbers:** each roster entry holds `teamNumber` and the header holds `nextTeamNumber`
+  (contract `teamNumbers`). A new team takes `nextTeamNumber` in the join's roster `Update`, which
+  is conditioned on the counter still being the value read, so two teams joining together cannot
+  take one number. The loser re-reads and takes the next one, on its own retry budget
+  (`MAX_NUMBER_RACES`, 60) rather than `MAX_ATTEMPTS`, so a class joining at once is not refused;
+  race probe N∥ holds this. A header written before numbers existed has neither field. Its
+  teams are numbered by join order on the first `read` (one conditioned `UpdateItem`, no `rev`
+  bump) or the first join, whichever comes first.
 - **Viewer joins no longer bump `rev`,** per `keys.ts`; `localTransport` bumps it. No assertion
   depends on it.
 
