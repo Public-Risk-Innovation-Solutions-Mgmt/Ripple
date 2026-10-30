@@ -1511,10 +1511,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v90 value for value (0 of 39,600 differ). Every game here has its shocks
 // on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
 // prices reach nothing. v91 is retired.
-// v91: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load):
+// v92: THE FUNDING TABLES STRETCHED (wip/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25), on multiplayer 15dc74b, which reproduces v90 here
+// first (and again on 3bd6d2b, merged in before landing: v90 there, v92 here). Against v90, 8,113 of 39,600 values move, every one the stretched
+// table's: the default arm (Expected, a factor of 1.0) moves only the seven
+// fields that read required capital — reserveRiskMarginNeeded,
+// fundingMarginNeeded, fundingGap, capitalFundingGap, excessAvailableSurplus,
+// excessCapitalRatio, capitalAdequacyRatio — 1,050 values, every instance-year
+// (first instance's WC Y1 margin $3.40M -> $9.75M: the 80% stop 1.0513 ->
+// 1.1473); no premium, loss, surplus or rate. The squeezed arm (each line at
+// its lowest stop, which reads the table's 30% column, now lower) moves 7,063:
+// selectedFundingCLF and the premium it sets, admin, the expected and actual
+// ratios on that premium, income, surplus, assets and the next years' rates
+// built on them, and the capital fields. No loss, claim, reserve or
+// development figure moves in either arm; marketShare (19) and
+// investmentReturnRate (10) move in the last float digit only. The absolute
+// identities hold (def selectedFundingCLF = 1 bit-exactly).
+// v93: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load):
 // PRICING_ALAE_LOAD (WC 11%, GL 15%, Property 3.5%) in place of the window's
-// mean drawn ratio. The control ran first: multiplayer 861b8c7 reproduced v90
-// exactly. 13,338 instances move across 54 fields, every one the load or
+// mean drawn ratio. The control ran first: multiplayer 2e80bb9 (the funding
+// tables stretched, merged in) reproduced v92 exactly. 13,393 instances move
+// across 54 fields (13,338 against 861b8c7's v90 before that merge, the same
+// 54 fields), every one the load or
 // downstream of it: pricingAlaeRatio (180, e.g. 0.0987 -> 0.11), the pure
 // premium it is part of (newPurePremiumPer100, netPurePremiumPer100,
 // purePremium(Per100)), the rates (ratePer100, first indication, final rate and
@@ -1526,7 +1544,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // actual/expenseRatio, marketShare and investmentReturnRate move by an ulp.
 // NO CLAIM, LOSS, RESERVE, DRAWN-ALAE OR BOOKED-ALAE FIELD MOVED (alaeRatio and
 // alaeIncurred included), and no field was added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v91.json');
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v93.json');
 
 function seedOf(id: string) {
   let h = 5381;

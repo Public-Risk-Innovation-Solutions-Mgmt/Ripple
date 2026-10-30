@@ -151,6 +151,7 @@ export default function HostTeamsTab({ room }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-600">
+              <th data-testid="teams-number-head" className="px-5 py-2 font-medium">Team number</th>
               <th className="px-5 py-2 font-medium">Team</th>
               <th className="px-5 py-2 font-medium">Ripple Score</th>
               <th className="px-5 py-2 font-medium">Premium to surplus</th>
@@ -171,6 +172,8 @@ export default function HostTeamsTab({ room }: Props) {
                   {/* ⚠ THE NAME ALONE. The team's lines used to follow it in a second
                       span with no space between them in the text, so a team named
                       "T" read "TWC+GL+Property"; the line view shows the lines. */}
+                  {/* The team's number in the room (contract teamNumbers), before its name. */}
+                  <td data-testid={`number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-slate-600">Team {t.teamNumber}</td>
                   <td data-testid={`name-${t.name}`} className="px-5 py-2.5 text-slate-700">{t.name}</td>
                   {state.kind === 'absent' && (
                     // ⚠ ONE CELL, IN WORDS. Nothing here can be read as a

@@ -1731,8 +1731,24 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Financial Statements", "Results" and "Result Spreadsheet". With those
 // names taken out of the control's text, all 124 match the new text exactly.
 // No figure moved. 236 -> 174 keys.
-// v118: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load). The
-// control ran first: multiplayer 3bd6d2b reproduced v117, 174 of 174. Against
+// v118: THE FUNDING TABLES STRETCHED (wip/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25), on multiplayer 3bd6d2b, which reproduced v117 174 of
+// 174 here first. 36 of 174 move, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides). The harness plays at Expected (a factor of
+// 1.0), so every move is the stretched table read where it is shown:
+//   the Year Walkthrough (26): the save version (riskpool_gamestate_v42 ->
+//   v43), and at y2 the capital stage — the margin factor (GL CLF at 80%
+//   1.0829 -> 1.1190), required capital (WC $3,689,390 -> $10,591,549),
+//   excess over required, the capital ratio (GL 586.85% -> 378.32%) — and the
+//   codes that fingerprint it (the capital stage's and the year code);
+//   the Rate Indication (10): each funding level's rate (GL 80% 5.422 -> 5.532,
+//   +9.3% -> +11.5% over Expected). Its Expected rate does not move.
+// No premium, loss or surplus figure moves. No key added or removed. (On
+// 15dc74b, before the tab cleanup, the same change also moved the capital rows
+// on Financial Statements, Results and the Result Spreadsheet, now hidden.)
+// v119: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load). The
+// control ran first: multiplayer 2e80bb9 (the funding tables stretched, merged
+// in) reproduced v118, 174 of 174, and again 3bd6d2b v117 before that. Against
 // its own text (RENDER_TEXT_DIR), word-diffed: 144 of 174 move. 118 in numbers
 // only — Annual Statement, Decision History and Decisions (26 each),
 // Introduction (20), Rate Indication (10), the header (10): the rates, premium,
@@ -1741,9 +1757,9 @@ const BASELINE = process.env.RENDER_BASELINE
 // the hidden tabs' 62 screens included, the same kinds of move.) The 26 Year Walkthrough screens move
 // in wording too, and only where this change put it: "ALAE ratio (window
 // average)" becomes "ALAE load (x.x%)" (16, the y2 screens), the version reads
-// riskpool_gamestate_v43 (26), and the stage and year codes — hashes of the
+// riskpool_gamestate_v44 (26), and the stage and year codes — hashes of the
 // figures — follow the figures. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v118.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v119.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

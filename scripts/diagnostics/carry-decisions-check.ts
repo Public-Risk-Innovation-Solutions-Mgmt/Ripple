@@ -203,9 +203,10 @@ const RESET = `const nextDecisions: DecisionSet = {
     };`;
 const planted = APP.replace(/const nextDecisions: DecisionSet = carryDecisions\([\s\S]*?\);/, RESET);
 control('App.tsx with the reset written back into commitYear is refused', planted === APP ? 0 : appProblems(planted).length);
-// The plant sits after the tab switch that ends commitYear — 'statement' since the
-// tab cleanup (3bd6d2b; it was 'results', and the old anchor then found no site,
-// so this control read the unbroken App as passing).
+// Planted beside commitYear's tab switch: 'statement' since the tab cleanup
+// (3bd6d2b), which hid Results — the old 'results' site was gone, nothing was
+// planted, and this control read red on multiplayer 3bd6d2b (re-anchored at
+// wip/clf-stretch).
 const extra = APP.replace('setActiveTab(\'statement\');', 'setActiveTab(\'statement\');\n    setCurrentDecisions(defaultDecisionSet(nextYearNumber));');
 control('a second write of the defaults after a year locks is refused', extra === APP ? 0 : appProblems(extra).length);
 

@@ -354,6 +354,52 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
 export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
 
 /**
+ * THE FUNDING TABLES' STRETCH, PER LINE — the 95% stop each line's table is
+ * stretched to (wip/clf-stretch). Each line's table is its BaselineCV table
+ * stretched about 1.0:
+ *
+ *     CLF_new = 1 + (CLF_old - 1) x k,   k = (CLF_STRETCH_95 - 1) / (CLF_old at 95% - 1)
+ *
+ * so the 95% stop is exactly this value, every other stop moves in proportion,
+ * and Expected stays a factor of exactly 1.0 (a stretch about 1 moves no stop
+ * to or from 1, and the table's own Expected position does not move). The k
+ * this gives: WC 0.30 / 0.1045 = 2.871, GL 0.25 / 0.1741 = 1.436, Property
+ * 0.25 / 0.1389 = 1.800. clf-stretch-check holds each table to it.
+ *
+ * ⚠ WHY: TODAY'S TABLES BOUGHT ABOUT HALF THEIR LABEL. The BaselineCV tables
+ * describe ordinary losses only; a year's retained cost also carries the large
+ * claims, the shocks and LAE, so a stop's label overstated what it delivered.
+ * Measured on multiplayer 15dc74b (the CLF chat's stretch probe: the 20
+ * fixed-seed scenarios, five years, 100 worlds, shocks on, defaults but
+ * funding), the share of line-years whose combined ratio came in at or under
+ * 100% at 70 / 80 / 90% funding, single player:
+ *
+ *                 unstretched     95% stop 1.25    95% stop 1.40
+ *     WC           38 / 47 / 59    58 / 74 / 87     72 / 88 / 96
+ *     GL           55 / 61 / 68    67 / 78 / 88     77 / 88 / 96
+ *     Property     47 / 55 / 64    63 / 78 / 90     76 / 91 / 97
+ *
+ * Hosted with no adverse development reads the same within a few points (GL
+ * and Property lower: the host's shock draw fires more events). WC sits between
+ * the 1.25 and 1.40 columns, so 1.30; GL and Property land on 1.25. With these,
+ * 70 / 80 / 90% funding covers about that share of years with no development.
+ * AS BUILT (the same probe on the landing): single player WC 63 / 80 / 92,
+ * GL 67 / 78 / 88, Property 63 / 78 / 90; hosted None WC 63 / 82 / 94, GL
+ * 53 / 63 / 74, Property 60 / 74 / 86. Expected does not move (WC 26%, GL 46%,
+ * Property 36% in single player).
+ *
+ * ⚠ NOT A FIX FOR ADVERSE DEVELOPMENT. Development raises the year's cost
+ * across the board rather than widening its spread, so no stretch makes the
+ * labels hold at Low, Mid or High: a stretch wide enough to reach 90% there
+ * under-covers at 70% (WC Mid at a 1.60 stop: 7 / 45 / 91). That wants a
+ * development loading in the rate, by level — not more stretch.
+ *
+ * ⚠ REQUIRED CAPITAL READS THE SAME TABLE (unpaid reserve x (CLF at
+ * RESERVE_MARGIN_CONFIDENCE - 1)), so the stretch raises it by the same k.
+ */
+export const CLF_STRETCH_95: PerLine<number> = { WC: 1.30, GL: 1.25, Property: 1.25 };
+
+/**
  * The combined dividend / assessment control, IN DOLLARS: negative is an
  * assessment, positive a dividend, $1M a notch. Its 31 notches are the ones it
  * had as a share of surplus (-15% to +15% in 1% steps); each is now $1M.
@@ -2651,13 +2697,26 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'baseline-cv-table-check holds the two to the same value.',
       }],
       ['CLF tables', {
-        value: 'the BaselineCV tables, in clfTables.ts', unit: 'multiplier on the retained pure premium',
-        what: 'Confidence level factors by line and stop: each line reads the table built at its own Baseline CV. '
+        value: 'the BaselineCV tables, stretched, in clfTables.ts', unit: 'multiplier on the retained pure premium',
+        what: 'Confidence level factors by line and stop: each line reads the table built at its own Baseline CV, '
+          + 'stretched to its Funding table stretch. '
           + 'Required capital is the unpaid reserve x (the same table\'s 90% factor - 1).',
         basis: 'SOURCED',
         note: 'The data scientist\'s method, by simulation on the game\'s opening book units, ordinary losses only '
           + '(clf-ds-method-derive). The factor multiplies the whole retained pure premium. The new-engine and '
           + 'member-engine tables before them are kept in the file as history, not in use.',
+      }],
+      ['Funding table stretch', {
+        value: perLine(CLF_STRETCH_95, 2), unit: 'the 95% stop each line\'s table is stretched to',
+        what: 'Each line\'s funding table is its Baseline CV table stretched about 1.0: CLF = 1 + (table CLF - 1) x k, '
+          + 'with k set so the 95% stop is this value. Every stop moves in proportion; Expected stays exactly 1.0. '
+          + 'Required capital reads the stretched table too.',
+        basis: 'CHOSEN',
+        note: 'Measured: the unstretched tables bought about half their label — 70 / 80 / 90% funding covered the year\'s '
+          + 'costs in 38-55 / 47-61 / 59-68% of years, because the tables describe ordinary losses only. Stretched to '
+          + 'these stops, 70 / 80 / 90% funding covers about that share of years with no adverse development (20 '
+          + 'scenarios, five years, shocks on). Not a fix for adverse development, which raises the year\'s cost rather '
+          + 'than its spread; no stretch makes the labels hold at Low, Mid or High.',
       }],
       ['Funding slider stops', {
         value: `${FUNDING_SLIDER_RANGE.min} to ${FUNDING_SLIDER_RANGE.max}, step ${FUNDING_SLIDER_RANGE.step}, plus Expected`,

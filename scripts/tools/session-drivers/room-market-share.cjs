@@ -110,6 +110,8 @@ async function hostShares(host) {
     // can be the opening books' or a year a locked team has not yet posted past.
     // The figure is read without it; the label is recorded beside it.
     for (const t of TEAMS) {
+      // TEAM NUMBERS: the share's row carries the team's number before its name.
+      (out.numbers ??= {})[`${v}|${t}`] = (await host.textContent(`[data-testid="number-${t}"]`)).trim();
       const text = (await host.textContent(`[data-testid="share-${t}"]`)).trim();
       out[v][t] = text.replace(/\s*\(\d{4}\)$/, '');
       (out.labels ??= {})[`${v}|${t}`] = (/\((\d{4})\)$/.exec(text) ?? [])[1] ?? null;
@@ -249,7 +251,12 @@ function expectedShares(rec, year) {
       'before year 1 every team holds exactly one third on every line and the pool');
     // The table's results are the opening's (2026, the heading's year) and so
     // are the shares — the same year, so no share names a year of its own.
-    const lab0 = (await hostShares(host)).labels;
+    const hs0 = await hostShares(host);
+    const lab0 = hs0.labels;
+    // The teams joined in TEAMS' order, so Team 1, 2, 3 — on every view's share row.
+    ok(['pool', ...LINES].every(v => TEAMS.every((t, i) => hs0.numbers[`${v}|${t}`] === `Team ${i + 1}`)),
+      'every view: each team\'s market share sits on the row with its number, Team 1 the first to join',
+      TEAMS.map((t, i) => `${hs0.numbers[`pool|${t}`]} | ${t}`).join(', '));
     ok(Object.values(lab0).length > 0 && Object.values(lab0).every(y => y === null),
       `before year 1 the shares are the heading's year, the opening's 2026, and name no other (${[...new Set(Object.values(lab0))].join(', ')})`);
     // ⚠ NO PLAYER SEES ANOTHER TEAM'S FIGURES. The wire redaction is the contract
