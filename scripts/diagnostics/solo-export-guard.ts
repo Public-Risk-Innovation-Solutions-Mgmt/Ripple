@@ -1107,7 +1107,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // working, the decisions stage's two rows, the codes those move, and the
 // Version row (save key v41 -> v42). The guard's games choose no dividend or
 // assessment, so no figure moved.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v115.json');
+// v116: THE FUNDING TABLES STRETCHED (wip/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25), on multiplayer 3bd6d2b, which reproduces v115 here
+// 48 of 48 first (and again on aws a7d480d for pr/clf-stretch, v116
+// recaptured byte-identical). 36 of 48 move, each text-diffed against the control
+// (GUARD_TEXT_DIR both sides):
+//   the 12 default Results files (Expected funding, a factor of 1.0): the save
+//   version (riskpool_gamestate_v42 -> v43), and only the rows that read
+//   required capital — Reserve Risk Margin Needed (WC MAMC6EA4 2026
+//   $3,412,297 -> $9,796,068), Excess Available Surplus, Excess Capital Ratio
+//   and Excess Capital Status (WC there Strong in all five years -> Adequate,
+//   Deficient, Adequate, Strong, Strong) — with the Year Walkthrough sheet's
+//   capital stage and the year codes that fingerprint it; no premium, loss or
+//   surplus row;
+//   the 12 squeezed Results files and their 12 statements (each line at its
+//   lowest stop, the stretched table's lower 30% column): Selected CLF and the
+//   premium, rate, admin, ratio, income, surplus and asset rows built on it,
+//   and the capital rows. No loss, claim, reserve or development row moves.
+// The 12 default statements do not move: no capital row is on them.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v116.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
