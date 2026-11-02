@@ -125,13 +125,14 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // in aggregate. ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND
     // MODEL ARE HIDDEN since the tab cleanup, in multiplayer and single player
     // alike (src/game/tabs.tsx HIDDEN_TABS). The PAGES are intact. The Year
-    // Walkthrough is on the bar (year-walkthrough.cjs).
+    // Walkthrough is hidden in a hosted session (MULTIPLAYER_HIDDEN_TABS;
+    // year-walkthrough.cjs).
     // ⚠ DASHBOARD AND DEPARTMENTS ARE HIDDEN IN BOTH (src/game/tabs.tsx), and
     // Rate Indication joined the bar, and Investments is hidden too (its memo is
     // in the Introduction tab); navigation.cjs holds the order.
     const tabs = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                  'Decision History', 'Year Walkthrough'];
-    const hiddenTabs = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments'];
+                  'Decision History'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments', 'Year Walkthrough'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
@@ -287,9 +288,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // ---- the results pages render another year's real output ----------------
   {
     const p = players[0];
-    // The results pages are hidden (the tab cleanup); the Annual Statement and
-    // the Year Walkthrough carry the year's output here.
-    for (const tab of ['Annual Statement', 'Year Walkthrough']) {
+    // The results pages are hidden (the tab cleanup), and in a hosted session the
+    // Year Walkthrough too; the Annual Statement carries the year's output here.
+    for (const tab of ['Annual Statement']) {
       await p.getByRole('button', { name: tab, exact: true }).click();
       await p.waitForTimeout(500);
       const txt = await p.locator('main').innerText();

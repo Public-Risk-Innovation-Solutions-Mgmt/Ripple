@@ -154,6 +154,9 @@ function screen(page, mode) {
           charged: (await page.locator(`[data-testid="ri-${l}-built-charged"]`).count()) ? await value(`[data-testid="ri-${l}-built-charged"]`) : null,
           window: await page.locator(`[data-testid="ri-${l}-built-window"] tbody tr`).count(),
           noHistory: (await page.locator(`[data-testid="ri-${l}-built-no-history"]`).count()) > 0,
+          // The summary kept in every mode: the rows from the projected loss cost to the rate.
+          summary: (await Promise.all(['loss-cost', 'alae', 'ulae', 'pp', 'clf', 'admin', 'risk-control', 'plr', 'rate']
+            .map(k => page.locator(`[data-testid="ri-${l}-built-${k}"]`).count()))).every(n => n === 1),
           clfLabel: (await page.locator(`[data-testid="ri-${l}-built-clf"]`).locator('xpath=../td[1]').innerText()).trim(),
         },
         projected: await value(`[data-testid="ri-${l}-projected"]`),
@@ -432,8 +435,18 @@ function screen(page, mode) {
         const b = ind[l].built;
         ok(b !== null && b.charged !== null && near(b.rate, b.charged),
           `${mode}, ${name}, ${o.text}, ${l}: how the rate was built — its rate is the rate charged`, b ? `${b.rate} vs ${b.charged}` : 'no build');
-        ok(b !== null && (b.window > 0) !== b.noHistory && (o.value > -4 || b.noHistory),
-          `${mode}, ${name}, ${o.text}, ${l}: the window, or with none the expected-loss basis`, b ? `${b.window} window years${b.noHistory ? ', expected-loss basis' : ''}` : '');
+        // ⚠ A HOSTED SESSION HIDES THE WINDOW (RateIndicationPage hideWindow):
+        // no accident years and no basis sentence, only the summary. Single
+        // player and Test player show the window, or with none the basis — the
+        // control: the hosted reading fails there, and the solo one here.
+        if (mode === 'hosted') {
+          ok(b !== null && b.window === 0 && !b.noHistory && b.summary,
+            `${mode}, ${name}, ${o.text}, ${l}: where the rate came from is hidden — no window, no basis sentence; the summary stays`,
+            b ? `${b.window} window rows${b.noHistory ? ', basis sentence shown' : ''}${b.summary ? '' : ', summary incomplete'}` : 'no build');
+        } else {
+          ok(b !== null && (b.window > 0) !== b.noHistory && (o.value > -4 || b.noHistory) && b.summary,
+            `${mode}, ${name}, ${o.text}, ${l}: the window, or with none the expected-loss basis, and the summary`, b ? `${b.window} window years${b.noHistory ? ', expected-loss basis' : ''}` : '');
+        }
         if (o.value <= 0) ok(b !== null && b.clfLabel === 'Funding: Expected (the prior board)',
           `${mode}, ${name}, ${o.text}, ${l}: the prior board funded at Expected`, b ? b.clfLabel : '');
       }

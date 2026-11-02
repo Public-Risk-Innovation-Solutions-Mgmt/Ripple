@@ -23,9 +23,11 @@
 //    screen or in either download.
 // 3. Hosted (only with ADMIN_TOKEN): the host's header shows the version, the
 //    scenario and the same fixed seed; two teams in their own contexts lock
-//    the same decisions, the host advances, and each team's Year Walkthrough
-//    shows the version, no seed, and codes identical between the teams; no
-//    team screen or download — the walkthrough's own included — shows the seed.
+//    the same decisions and the host advances. ⚠ A HOSTED TEAM HAS NO YEAR
+//    WALKTHROUGH (tabs.tsx MULTIPLAYER_HIDDEN_TABS): the tab is not on its bar,
+//    asking for it shows another tab, and its download is nowhere on the
+//    screen; no team screen shows the seed. Single player and Test player keep
+//    it (1 and 2 above).
 //
 // ⚠ THE SOLO CONTEXTS NEVER CARRY THE ADMIN TOKEN (as test-player.cjs). The
 // hosted part runs against the session stub server (as two-contexts.cjs), so
@@ -287,27 +289,25 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
       await page.waitForFunction(() => document.querySelector('[data-testid="posted-year"]')?.textContent.includes('year 1 result posted'), null, { timeout: 180000 });
       await page.waitForTimeout(800);
     }
-    const tw = [];
     for (const [k, page] of teams.entries()) {
-      // ⚠ NO WAIT FOR THE ROOM'S SHARE: it is information only and in no code,
-      // so two teams match whenever each happens to read the page.
-      const w = await walk(page);
-      tw.push(w);
-      ok(w.version === truth.version && w.seed === null, `Team ${k + 1}: the version and no seed`, `${w.version} · ${w.seed}`);
-      const auditText = await page.locator('main').innerText().catch(() => '');
-      ok(!/Temporary debug page/.test(auditText), `Team ${k + 1}: the Year Walkthrough tab is the walkthrough alone`);
+      // ⚠ THE TAB IS HIDDEN IN A HOSTED SESSION: not on the bar, and the
+      // walkthrough and its download are nowhere on any team screen.
+      const bar = (await page.locator('nav').first().locator('button').allInnerTexts()).map(t => t.trim());
+      ok(bar.length > 0 && !bar.includes('Year Walkthrough') && await page.getByRole('button', { name: 'Year Walkthrough', exact: true }).count() === 0,
+        `Team ${k + 1}: no Year Walkthrough tab (hidden in a hosted session)`, bar.join(' | '));
+      let walkSeen = 0;
+      for (const tab of TABS) {
+        const b = page.getByRole('button', { name: tab, exact: true }).first();
+        if (await b.count() === 0) continue;
+        await b.click();
+        await page.waitForTimeout(500);
+        walkSeen += await page.locator('[data-testid="year-walkthrough"], [data-testid="walk-download"]').count();
+      }
+      ok(walkSeen === 0, `Team ${k + 1}: the walkthrough and its download are on no team screen`, `${walkSeen} found`);
       const hits = await seedOnAnyScreen(page);
       ok(hits.length === 0, `Team ${k + 1}: the fixed seed is on no screen`, hits.join(', '));
       ok(await noResultsDownload(page), `Team ${k + 1}: no Result Spreadsheet tab and no Results download (the tab cleanup)`);
-      const wd = await walkDownload(page);
-      ok(!!wd && /^Year_Walkthrough_2027\.xlsx$/.test(wd.name) && seedCells(wd).length === 0 && wd.rows.some(r => r[0] === 'Version'),
-        `Team ${k + 1}: "Download Year Walkthrough (Excel)" — the version, no seed`, wd ? `${wd.name} ${seedCells(wd).slice(0, 2).join(', ')}` : 'no file');
-      ok(!!w.share && w.share.last === 'marketShare' && w.share.codes === 0 && w.share.text.includes('Not part of the model — depends on the room'),
-        `Team ${k + 1}: the room's market share at the end, marked not part of the model, with no code`);
     }
-    ok(JSON.stringify(tw[0].blocks) === JSON.stringify(tw[1].blocks) && tw[0].yearCode === tw[1].yearCode && tw[0].decisionsCode === tw[1].decisionsCode,
-      'Hosted: two teams, same decisions — every code identical',
-      `${tw[0].yearCode} / ${tw[1].yearCode}; first differing: ${tw[0].blocks.find((b, i) => b !== tw[1].blocks[i]) ?? 'none'} / ${tw[1].blocks.find((b, i) => b !== tw[0].blocks[i]) ?? 'none'}`);
     await tb.close();
     await hb.close();
   }

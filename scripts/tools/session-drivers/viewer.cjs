@@ -67,10 +67,11 @@ async function tabText(page, tab) {
   // are hidden from players and viewers alike since the tab cleanup
   // (src/game/tabs.tsx HIDDEN_TABS). The PAGES are intact. Dashboard and
   // Departments are hidden in both, and Investments; Rate Indication joined. The
-  // Year Walkthrough (once the Calculation Audit) is on the bar.
+  // Year Walkthrough (once the Calculation Audit) is hidden in a hosted session
+  // (tabs.tsx MULTIPLAYER_HIDDEN_TABS) — from players and viewers alike.
   const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                'Decision History', 'Year Walkthrough'];
-  const HIDDEN = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments'];
+                'Decision History'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments', 'Year Walkthrough'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
   ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);
