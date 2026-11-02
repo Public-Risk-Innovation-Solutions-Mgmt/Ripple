@@ -18,7 +18,8 @@
 //     on every line view — and, the tables matching cell for cell, the same on
 //     the host's screen and every team's. Tri-County buys a per-claim cover
 //     before year 1 (carried into year 2), so its surplus differs from the two
-//     teams on the defaults, which tie.
+//     teams on the defaults, which tie — from year 2: in year 1 the cover's
+//     price passes through in the rate and, with no shocks, recovers nothing.
 // And the tab is absent in single player and in Test player.
 // ============================================================================
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
@@ -226,10 +227,12 @@ async function viewOf(page, scope, label) {
   }
 
   ok(hasViewer, 'a viewer joined and was checked');
-  // The room's ranks: all tie at the opening; after the cover, two teams tie and Tri-County differs.
-  const after = rippleSeen.filter(r => r.phase !== 'opening');
-  ok(rippleSeen[0]?.ranks.every(r => r === 1) && after.length === 2 && after.every(r => r.tie && r.distinct),
-    'Ripple Score: every team 1st at the opening; after each played year a tie and a distinct rank', rippleSeen.map(r => `${r.phase}: ${r.ranks.join(',')}`).join(' | '));
+  // The room's ranks: all tie at the opening; the two teams on the defaults tie
+  // throughout; Tri-County's cover is a pass-through in year 1 (its price is in
+  // the rate and, with no shocks, it recovers nothing), so its surplus first
+  // differs after year 2 — a tie and a distinct rank there.
+  ok(rippleSeen.length === 3 && rippleSeen[0].ranks.every(r => r === 1) && rippleSeen.every(r => r.tie) && rippleSeen[2].distinct,
+    'Ripple Score: every team 1st at the opening, a tie at every phase, and a distinct rank after year 2', rippleSeen.map(r => `${r.phase}: ${r.ranks.join(',')}`).join(' | '));
   ok(errs.length === 0, 'no page errors', errs[0] ?? '');
   await browser.close();
   console.log(`\nmarket-survey: ${checks - fails.length}/${checks} checks passed`);
