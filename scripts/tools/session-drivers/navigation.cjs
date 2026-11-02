@@ -13,12 +13,13 @@ const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_share
 // Spreadsheet, Financial Statements and Model are hidden in solo (Single player
 // and Test player) and multiplayer alike (tabs.tsx HIDDEN_TABS).
 const SOLO = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History', 'Year Walkthrough'];
-// The Year Walkthrough (the slot the Calculation Audit held) is on both bars
-// (GameShell; year-walkthrough.cjs checks what it shows).
-const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History', 'Year Walkthrough'];
+// The Year Walkthrough (the slot the Calculation Audit held) is on the solo bar
+// only: a hosted session hides it (tabs.tsx MULTIPLAYER_HIDDEN_TABS) — where the
+// figures come from is not shown to a team. year-walkthrough.cjs checks both.
+const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History'];
 // Investments is hidden too: its memorandum is in the Introduction tab (introduction.cjs).
 const HIDDEN = ['Game Setup', 'Investments', 'Dashboard', 'Departments', 'Results', 'Result Spreadsheet', 'Financial Statements', 'Model'];
-const MULTI_HIDDEN = HIDDEN;
+const MULTI_HIDDEN = [...HIDDEN, 'Year Walkthrough'];
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
