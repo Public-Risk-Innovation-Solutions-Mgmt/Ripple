@@ -84,11 +84,12 @@ export const HIDDEN_TABS: readonly TabId[] = [
 ];
 
 /**
- * Hidden in a hosted session (players and viewers) on top of HIDDEN_TABS. None
- * since the tab cleanup: every tab a hosted session hid is now hidden in solo
- * too. ⚠ 'audit' — THE YEAR WALKTHROUGH — IS SHOWN IN A HOSTED SESSION.
+ * Hidden in a hosted session (players and viewers) on top of HIDDEN_TABS.
+ * ⚠ 'audit' — THE YEAR WALKTHROUGH — IS HIDDEN IN A HOSTED SESSION: where the
+ * figures come from is not shown to a team. Single player and Test player keep
+ * it. The page and its code are untouched (gates still read them).
  */
-export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [];
+export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = ['audit'];
 
 /** Whether a tab is hidden on this screen. */
 export function isHiddenTab(t: TabId, multiplayer: boolean): boolean {

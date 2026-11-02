@@ -265,7 +265,7 @@ export default function GameShell({
         {shownTab === 'investments' && !hidden('investments') && gameState && <InvestmentsPage gameState={gameState} />}
 
         {shownTab === 'rateIndication' && gameState && (
-          <RateIndicationPage gameState={gameState} decisions={currentDecisions} />
+          <RateIndicationPage gameState={gameState} decisions={currentDecisions} multiplayer={!!multiplayer} />
         )}
 
         {/* Hidden everywhere since the tab cleanup (HIDDEN_TABS), so never rendered. */}

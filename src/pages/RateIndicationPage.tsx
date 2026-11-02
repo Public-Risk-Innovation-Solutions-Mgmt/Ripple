@@ -45,6 +45,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // funding, the expense shares and the rate, against the rate the engine
 // charged. Labels and figures only. A history year with no accident year to
 // price from shows the expected-loss basis it was priced on, and says so.
+//
+// ⚠ IN A HOSTED SESSION (players and viewers) THE WINDOW IS HIDDEN — the table
+// of accident years, its shock footnote, and the no-history sentence that
+// stands in its place: where the figures come from is not shown to a team.
+// The summary below it stays. Single player and Test player show all of it.
+// Hidden, not deleted: `hideWindow` alone gates it.
 // ============================================================================
 const f4 = (x: number) => x.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
@@ -57,7 +63,7 @@ function BuiltRow({ label, testId, value, children, strong }: { label: string; t
   );
 }
 
-function Built({ ri }: { ri: RateIndication }) {
+function Built({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean }) {
   const b = ri.built!;
   const l = ri.line;
   // The prior board funded its history years on a margin of 0: Expected.
@@ -65,7 +71,7 @@ function Built({ ri }: { ri: RateIndication }) {
   return (
     <div data-testid={`ri-${l}-built`} className="space-y-3">
       <h4 className="text-sm font-semibold text-gray-800 pb-2 border-b border-gray-300">How the {ri.calendarYear} rate was built</h4>
-      {b.window.length === 0 ? (
+      {hideWindow ? null : b.window.length === 0 ? (
         <p data-testid={`ri-${l}-built-no-history`} className="text-sm text-gray-700">
           No accident year to price from: the {ri.calendarYear} rate was struck on the expected loss cost for the book,{' '}
           <span className="font-mono" data-value={b.noHistory?.lossCostPer100}>{rate(b.noHistory?.lossCostPer100 ?? 0)}</span> per $100.
@@ -136,7 +142,7 @@ function Built({ ri }: { ri: RateIndication }) {
   );
 }
 
-function LineCard({ ri }: { ri: RateIndication }) {
+function LineCard({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean }) {
   const l = ri.line;
   const p = ri.pure;
   const x = ri.expenses;
@@ -203,7 +209,7 @@ function LineCard({ ri }: { ri: RateIndication }) {
         </Section>
       </div>
 
-      {ri.built && <Built ri={ri} />}
+      {ri.built && <Built ri={ri} hideWindow={hideWindow} />}
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="max-w-md">
@@ -248,7 +254,11 @@ function LineCard({ ri }: { ri: RateIndication }) {
   );
 }
 
-export default function RateIndicationPage({ gameState, decisions }: { gameState: GameState; decisions: DecisionSet }) {
+export default function RateIndicationPage({ gameState, decisions, multiplayer = false }: {
+  gameState: GameState; decisions: DecisionSet;
+  /** A hosted session's screen (players and viewers): the build's window table is hidden. */
+  multiplayer?: boolean;
+}) {
   const years = useMemo(() => rateIndicationYears(gameState), [gameState]);
   // null follows the default — the coming year, or the last played once the game is over.
   const [chosen, setChosen] = useState<number | null>(null);
@@ -275,7 +285,7 @@ export default function RateIndicationPage({ gameState, decisions }: { gameState
           {years.map(y => <option key={y.yearNumber} value={y.yearNumber}>Program Year {y.calendarYear}</option>)}
         </select>
       </div>
-      {cards.map(ri => <LineCard key={ri.line} ri={ri} />)}
+      {cards.map(ri => <LineCard key={ri.line} ri={ri} hideWindow={multiplayer} />)}
     </div>
   );
 }
