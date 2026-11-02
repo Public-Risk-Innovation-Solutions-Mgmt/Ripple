@@ -2,7 +2,7 @@
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
-function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
+function ok(c, w, detail = '') { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w + (detail ? `  — ${detail}` : '')); } else console.log('  ok    ' + w); }
 
 async function join(ctx, code, name, line) {
   const p = await ctx.newPage();
@@ -33,6 +33,32 @@ const PCT = /^\d+\.\d%$/;
 // never the loss-ratio scale's sky.
 const CR_CLASS = /\btext-(emerald|amber|red)-600\b/;
 const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
+
+// THE RIPPLE SCORE PLACEHOLDER (utils/rippleScore): each reported team's rank by
+// the pool's net surplus, 1 for the highest, ties sharing a rank, shown as an
+// ordinal alone. Read per row: the rank (data-rank), its text, and the exact
+// surplus (data-value) — on the Pool view the pool's.
+const ORDINAL = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] ?? 'th'}`;
+const readRanks = page => page.$$eval('[data-testid="teams-table"] tr', rows => rows.map(r => {
+  const name = r.children[1]?.textContent.trim();
+  const rc = r.querySelector('[data-testid^="ripple-"]'), sc = r.querySelector('[data-testid^="surplus-"]');
+  return { name, rank: rc?.getAttribute('data-rank') ? Number(rc.getAttribute('data-rank')) : null, text: rc?.textContent.trim() ?? null,
+    surplus: sc?.getAttribute('data-value') ? Number(sc.getAttribute('data-value')) : null };
+}));
+// The ranks a set of rows should carry: 1 + the number of teams with a strictly higher surplus.
+const wantRanks = (rows, rankOf = (s, all) => 1 + all.filter(o => o > s).length) => {
+  const all = rows.filter(r => r.surplus !== null).map(r => r.surplus);
+  return rows.map(r => (r.surplus === null ? null : rankOf(r.surplus, all)));
+};
+// Problems with a Pool view's ranks; empty when they follow total surplus.
+function rankProblems(rows, want = wantRanks(rows)) {
+  const out = [];
+  rows.forEach((r, i) => {
+    if (r.rank !== want[i]) out.push(`${r.name} rank ${r.rank} vs ${want[i]}`);
+    if (r.rank !== null && r.text !== ORDINAL(r.rank)) out.push(`${r.name} reads "${r.text}", not "${ORDINAL(r.rank)}" alone`);
+  });
+  return out;
+}
 
 (async () => {
   await requireServer();
@@ -104,6 +130,13 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
   ok(/^Results for 2026$/.test(y0.trim()), `before any advance the opening, 2026, is the latest known year: "${y0.trim()}"`);
   ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null && await host.$('[data-testid="pending-Harbour Mutual"]') === null,
     'and every team shows its opening figures, not pending');
+  {
+    // The opening: every team on the same scenario opens on the same surplus, so all three tie, 1st.
+    const r0 = await readRanks(host);
+    const p0 = rankProblems(r0);
+    ok(p0.length === 0 && r0.length === 3 && r0.every(r => r.rank === 1 && r.text === '1st'),
+      `Ripple Score at the opening: the three teams tie on surplus and all read "1st" (${r0.map(r => `${r.name} ${r.text}`).join(', ')})`, p0.join('; '));
+  }
 
   // Two teams lock and play; the third is closed so it never computes or posts.
   for (const p of [wcTeam, glTeam]) {
@@ -167,6 +200,7 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
   const views = await host.$$eval('nav button, [role="tablist"] button', b => b.map(x => x.textContent.trim()));
   console.log('  line-view bar :', views.filter(v => /Pool|Compensation|Liability|Property/.test(v)));
 
+  let poolRanks = null;
   for (const [label, sel] of [['Pool', 'Pool'], ['WC', "Workers' Compensation"], ['GL', 'General Liability']]) {
     await host.getByRole('button', { name: sel, exact: true }).first().click();
     // The view switch is local state, so this only waits for React to paint.
@@ -193,6 +227,11 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
       const cells = (await readTable(host))['Harbour Mutual'];
       ok(cells.at(-2) === (await host.textContent('[data-testid="share-Harbour Mutual"]')).trim(), 'WC view: market share is the last figure column, before Hand Off');
     }
+    if (label !== 'Pool') {
+      const lr = Object.fromEntries((await readRanks(host)).map(r => [r.name, r.rank]));
+      ok(poolRanks !== null && JSON.stringify(lr) === JSON.stringify(poolRanks),
+        `${label} view: the Ripple Score is the pool's rank, the same on every line view (${JSON.stringify(lr)})`);
+    }
     if (label === 'GL') {
       ok(await host.$('[data-testid="absent-Harbour Mutual"]') === null, 'GL view: no team is ABSENT either');
       ok(await host.$('[data-testid="surplus-Cedar Valley"]') !== null, 'GL view: the GL team shows figures');
@@ -217,9 +256,21 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
       ok(PCT.test(admin) && parseFloat(admin) > 0 && parseFloat(admin) < 50, `Pool view: the year's admin expense as a share of premium ("${admin}")`);
       const crClass = await host.getAttribute('[data-testid="cr-Harbour Mutual"]', 'class');
       ok(CR_CLASS.test(crClass), `Pool view: the combined ratio on the combined-ratio colour scale ("${crClass.match(/text-\w+-\d+/)?.[0]}")`);
-      const ripple = (await host.textContent('[data-testid="ripple-Harbour Mutual"]')).trim();
-      ok(ripple === '—' && /Ripple Score is coming/.test(await host.textContent('[data-testid="teams-table"] >> xpath=ancestor::div[1]')),
-        `Pool view: the Ripple Score is a placeholder, with its note ("${ripple}")`);
+      // THE RIPPLE SCORE: the rank by the pool's net surplus, ties shared, the ordinal alone.
+      const rr = await readRanks(host);
+      poolRanks = Object.fromEntries(rr.map(r => [r.name, r.rank]));
+      const pr = rankProblems(rr);
+      ok(pr.length === 0, `Pool view: the Ripple Score is each team's rank by the pool's net surplus, as an ordinal alone (${rr.map(r => `${r.name} ${r.text}`).join(', ')})`, pr.join('; '));
+      const reported = rr.filter(r => r.rank !== null);
+      ok(reported.length === 2 && reported[0].surplus === reported[1].surplus && reported.every(r => r.rank === 1),
+        `Pool view: the two teams that played the same decisions tie on surplus and share "1st"`, reported.map(r => `${r.name} ${r.surplus}`).join(', '));
+      ok(rr.find(r => r.name === 'Tri-County')?.rank === null, 'Pool view: the non-reporter has no rank');
+      // CONTROL: ranks that drop the tie (1st and 2nd by order) are refused on the same rows.
+      const broken = rr.map(r => ({ ...r }));
+      broken.filter(r => r.rank !== null).forEach((r, i) => { r.rank = i + 1; r.text = ORDINAL(i + 1); });
+      ok(rankProblems(broken, wantRanks(rr)).length > 0, 'Pool view: control — ranks that split the tie are refused');
+      ok(/Ripple Score is for now each team.s rank by the pool.s net surplus/.test(await host.textContent('[data-testid="teams-table"] >> xpath=ancestor::div[1]')),
+        'Pool view: the note says the Ripple Score is for now the rank by net surplus');
       ok(await host.$('[data-testid="pending-Tri-County"]') !== null, 'Pool view: the non-reporter is still pending');
     }
   }

@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import { latestKnownRoomYear } from '../../utils/knownYears';
+import { ordinal, rippleScoreRanks } from '../../utils/rippleScore';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -96,6 +97,12 @@ export default function StandingsTable({
   // opening before the first advance, then each year as it is played.
   const reportingYear = Math.min(latestKnownRoomYear({ currentYear, yearCount }), currentYear - 1);
 
+  // ⚠ THE RIPPLE SCORE IS A PLACEHOLDER (utils/rippleScore): each team's rank by
+  // the pool's net surplus for the year shown, ties sharing a rank — the pool's
+  // rank on every line view. From the standings already posted; nothing else.
+  const rippleRanks = rippleScoreRanks(Object.fromEntries(teams.map(t =>
+    [t.name, reportingYear < 0 ? undefined : t.resultsByYear?.[String(reportingYear)]?.pool?.endingSurplus])));
+
   if (teams.length === 0) {
     return (
       <p data-testid="teams-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
@@ -173,7 +180,10 @@ export default function StandingsTable({
 
                   {state.kind === 'reported' && (
                     <>
-                      <td data-testid={`ripple-${t.name}`} className="px-5 py-2.5 font-mono text-slate-600">—</td>
+                      {/* The placeholder Ripple Score: the rank alone, an ordinal, no figure beside it. */}
+                      <td data-testid={`ripple-${t.name}`} data-rank={rippleRanks[t.name]} className="px-5 py-2.5 font-mono text-slate-700">
+                        {rippleRanks[t.name] !== undefined ? ordinal(rippleRanks[t.name]) : <span className="text-slate-600">—</span>}
+                      </td>
                       <td data-testid={`pts-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
                         {state.figures.premiumToSurplus !== undefined ? state.figures.premiumToSurplus.toFixed(2) : <span className="text-slate-600">—</span>}
                       </td>
@@ -195,7 +205,7 @@ export default function StandingsTable({
                         className={`px-5 py-2.5 font-mono ${state.figures.yearCombinedRatio !== undefined ? colorForCombinedRatio(state.figures.yearCombinedRatio) : 'text-slate-600'}`}>
                         {state.figures.yearCombinedRatio !== undefined ? formatPct(state.figures.yearCombinedRatio) : '—'}
                       </td>
-                      <td data-testid={`surplus-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
+                      <td data-testid={`surplus-${t.name}`} data-value={state.figures.endingSurplus} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
                         {formatCurrency(state.figures.endingSurplus, true)}
                       </td>
                     </>
@@ -231,7 +241,7 @@ export default function StandingsTable({
           {effectiveView === 'pool'
             ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
             : `Every figure is ${effectiveView}, so the column compares like with like.`}
-          {' '}Ripple Score is coming: a single score for each team, still being designed.
+          {' '}Ripple Score is for now each team&rsquo;s rank by the pool&rsquo;s net surplus; the full score is still being designed.
         </p>
       </div>
 

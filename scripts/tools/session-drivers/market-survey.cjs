@@ -12,7 +12,14 @@
 //   - each team's own row is highlighted (data-own) and no other is;
 //   - no team's survey shows decisions: the page carries no funding level, no
 //     cover, no dividend, no decision word at all;
-//   - a viewer of a team sees the same table, that team's row highlighted.
+//   - a viewer of a team sees the same table, that team's row highlighted;
+//   - the Ripple Score (a placeholder, utils/rippleScore) is each team's rank by
+//     the pool's net surplus, ties sharing a rank, the ordinal alone, the same
+//     on every line view — and, the tables matching cell for cell, the same on
+//     the host's screen and every team's. Tri-County buys a per-claim cover
+//     before year 1 (carried into year 2), so its surplus differs from the two
+//     teams on the defaults, which tie — from year 2: in year 1 the cover's
+//     price passes through in the rate and, with no shocks, recovers nothing.
 // And the tab is absent in single player and in Test player.
 // ============================================================================
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
@@ -21,6 +28,27 @@ let checks = 0;
 function ok(c, w, detail = '') { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w + (detail ? `  — ${detail}` : '')); } else console.log('  ok    ' + w + (detail ? `  — ${detail}` : '')); }
 
 const TEAMS = ['Harbour Mutual', 'Cedar Valley', 'Tri-County'];
+const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability']];
+
+// THE RIPPLE SCORE PLACEHOLDER: rank by the pool's net surplus, 1 highest, ties shared, an ordinal alone.
+const ORDINAL = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] ?? 'th'}`;
+const readRanks = (page, scope) => page.$eval(scope, root => [...root.querySelectorAll('[data-testid="teams-table"] tr')].map(r => {
+  const rc = r.querySelector('[data-testid^="ripple-"]'), sc = r.querySelector('[data-testid^="surplus-"]');
+  return { name: r.children[1]?.textContent.trim(), rank: rc?.getAttribute('data-rank') ? Number(rc.getAttribute('data-rank')) : null,
+    text: rc?.textContent.trim() ?? null, surplus: sc?.getAttribute('data-value') ? Number(sc.getAttribute('data-value')) : null };
+}));
+const wantRanks = rows => {
+  const all = rows.filter(r => r.surplus !== null).map(r => r.surplus);
+  return rows.map(r => (r.surplus === null ? null : 1 + all.filter(o => o > r.surplus).length));
+};
+function rankProblems(rows, want = wantRanks(rows)) {
+  const out = [];
+  rows.forEach((r, i) => {
+    if (r.rank !== want[i]) out.push(`${r.name} rank ${r.rank} vs ${want[i]}`);
+    if (r.rank !== null && r.text !== ORDINAL(r.rank)) out.push(`${r.name} reads "${r.text}", not "${ORDINAL(r.rank)}" alone`);
+  });
+  return out;
+}
 const VIEWS = ['Pool', "Workers' Compensation", 'General Liability'];
 
 async function join(ctx, code, name) {
@@ -112,6 +140,24 @@ async function viewOf(page, scope, label) {
     await host.waitForFunction(n => document.querySelectorAll('[data-testid^="surplus-"]').length >= n, 2, { timeout: 60000 }).catch(() => {});
     const hostT = await hostTables();
     ok(hostT.Pool.year === `Results for ${wantYear}`, `${phase}: the host's table shows ${wantYear}`, hostT.Pool.year);
+    // THE RIPPLE SCORE on the host's table: the pool's rank, the same on every line view.
+    await viewOf(host, HOST_SCOPE, 'Pool');
+    const pr = await readRanks(host, HOST_SCOPE);
+    const probs = rankProblems(pr);
+    ok(probs.length === 0 && pr.every(r => r.rank !== null),
+      `${phase}: the Ripple Score is each team's rank by the pool's net surplus, as an ordinal alone (${pr.map(r => `${r.name} ${r.text}`).join(', ')})`, probs.join('; '));
+    const ranks = pr.map(r => r.rank);
+    rippleSeen.push({ phase, ranks, tie: new Set(ranks).size < ranks.length, distinct: new Set(ranks).size > 1 });
+    for (const v of VIEWS.slice(1)) {
+      await viewOf(host, HOST_SCOPE, v);
+      const lr = await readRanks(host, HOST_SCOPE);
+      ok(JSON.stringify(lr.map(r => r.rank)) === JSON.stringify(ranks), `${phase}, ${v}: the Ripple Score is the pool's rank on this line view too`, lr.map(r => r.text).join(', '));
+    }
+    // CONTROL: ranks by row order (no ties) are refused whenever the rows tie.
+    if (new Set(ranks).size < ranks.length) {
+      const broken = pr.map((r, i) => ({ ...r, rank: i + 1, text: ORDINAL(i + 1) }));
+      ok(rankProblems(broken, wantRanks(pr)).length > 0, `${phase}: control — ranks that split a tie are refused`);
+    }
     const watchers = [...teams.map((p, i) => [TEAMS[i], p, TEAMS[i]]), ...(hasViewer ? [['viewer of ' + TEAMS[1], viewer, TEAMS[1]]] : [])];
     for (const [who, page, own] of watchers) {
       if (page.isClosed()) continue;
@@ -130,11 +176,24 @@ async function viewOf(page, scope, label) {
     }
   }
 
+  const rippleSeen = [];
   await compareAll('opening', '2026');
 
   for (const [y, next] of [[1, '2027'], [2, '2028']]) {
     for (const p of teams) {
       await p.getByRole('button', { name: 'Decisions', exact: true }).first().click();
+      // Tri-County buys the first per-claim cover on each line before year 1
+      // (a hosted team's decisions carry into year 2), so its surplus differs.
+      if (y === 1 && p === teams[2]) {
+        for (const [l, label] of LINES) {
+          await p.getByRole('button', { name: label, exact: true }).first().click();
+          await p.waitForTimeout(300);
+          const offered = await p.$$eval(`[data-testid^="reins-option-${l}-"]`, (els, prefix) => els.map(e => e.getAttribute('data-testid').replace(prefix, '')), `reins-option-${l}-`);
+          const cover = offered.find(id => id !== 'none');
+          if (cover) { await p.click(`[data-testid="reins-option-${l}-${cover}"]`); await p.waitForTimeout(300); }
+          ok(!!cover, `Tri-County buys a per-claim cover on ${l} (${cover})`);
+        }
+      }
       await lockAndConfirm(p);
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
@@ -168,6 +227,12 @@ async function viewOf(page, scope, label) {
   }
 
   ok(hasViewer, 'a viewer joined and was checked');
+  // The room's ranks: all tie at the opening; the two teams on the defaults tie
+  // throughout; Tri-County's cover is a pass-through in year 1 (its price is in
+  // the rate and, with no shocks, it recovers nothing), so its surplus first
+  // differs after year 2 — a tie and a distinct rank there.
+  ok(rippleSeen.length === 3 && rippleSeen[0].ranks.every(r => r === 1) && rippleSeen.every(r => r.tie) && rippleSeen[2].distinct,
+    'Ripple Score: every team 1st at the opening, a tie at every phase, and a distinct rank after year 2', rippleSeen.map(r => `${r.phase}: ${r.ranks.join(',')}`).join(' | '));
   ok(errs.length === 0, 'no page errors', errs[0] ?? '');
   await browser.close();
   console.log(`\nmarket-survey: ${checks - fails.length}/${checks} checks passed`);
