@@ -3,7 +3,9 @@
 //
 // ⚠ A SUMMARY, NOT THE TEAM'S PAGES. The host is looking for who is in
 // trouble, not diagnosing why. Per line and for the pool: Team · Ripple Score (a
-// placeholder, "—" until it exists) · Premium to surplus · Rate (per $100, with
+// PLACEHOLDER until the real score is designed: the team's rank by the pool's
+// net surplus, "1st" for the highest, ties sharing a rank — utils/rippleScore)
+// · Premium to surplus · Rate (per $100, with
 // the year's change) · Admin expense (the year's, over premium) · Combined ratio
 // (the year's own — the team's statement's newest column and its top-bar figure —
 // headed with the year, on the combined-ratio colour scale) · Net
