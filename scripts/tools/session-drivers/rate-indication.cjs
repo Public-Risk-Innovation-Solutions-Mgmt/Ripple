@@ -433,20 +433,21 @@ function screen(page, mode) {
       if (o.value <= 0) { sectionOne(ind, `${name}, history`, 0); sectionThree(ind, `${name}, history`); }
       for (const [l] of LINES) {
         const b = ind[l].built;
+        // ⚠ A HOSTED SESSION HIDES THE WHOLE "How the <year> rate was built"
+        // SECTION (RateIndicationPage hideBuild), window and summary alike, for
+        // every year; the team still reads the year's rates and cover prices.
+        // Single player and Test player show it all — each mode's reading is
+        // the other's control: a hosted build fails here, a missing solo one too.
+        if (mode === 'hosted') {
+          ok(b === null && Number.isFinite(ind[l].expected) && ind[l].expected > 0 && Object.keys(ind[l].reins).length > 0,
+            `${mode}, ${name}, ${o.text}, ${l}: how the rate was built is hidden — the section is absent; the year's rates and cover prices are shown`,
+            b ? 'the build section is shown' : `rate at Expected ${ind[l].expected}, ${Object.keys(ind[l].reins).length} cover prices`);
+          continue;
+        }
         ok(b !== null && b.charged !== null && near(b.rate, b.charged),
           `${mode}, ${name}, ${o.text}, ${l}: how the rate was built — its rate is the rate charged`, b ? `${b.rate} vs ${b.charged}` : 'no build');
-        // ⚠ A HOSTED SESSION HIDES THE WINDOW (RateIndicationPage hideWindow):
-        // no accident years and no basis sentence, only the summary. Single
-        // player and Test player show the window, or with none the basis — the
-        // control: the hosted reading fails there, and the solo one here.
-        if (mode === 'hosted') {
-          ok(b !== null && b.window === 0 && !b.noHistory && b.summary,
-            `${mode}, ${name}, ${o.text}, ${l}: where the rate came from is hidden — no window, no basis sentence; the summary stays`,
-            b ? `${b.window} window rows${b.noHistory ? ', basis sentence shown' : ''}${b.summary ? '' : ', summary incomplete'}` : 'no build');
-        } else {
-          ok(b !== null && (b.window > 0) !== b.noHistory && (o.value > -4 || b.noHistory) && b.summary,
-            `${mode}, ${name}, ${o.text}, ${l}: the window, or with none the expected-loss basis, and the summary`, b ? `${b.window} window years${b.noHistory ? ', expected-loss basis' : ''}` : '');
-        }
+        ok(b !== null && (b.window > 0) !== b.noHistory && (o.value > -4 || b.noHistory) && b.summary,
+          `${mode}, ${name}, ${o.text}, ${l}: the window, or with none the expected-loss basis, and the summary`, b ? `${b.window} window years${b.noHistory ? ', expected-loss basis' : ''}` : '');
         if (o.value <= 0) ok(b !== null && b.clfLabel === 'Funding: Expected (the prior board)',
           `${mode}, ${name}, ${o.text}, ${l}: the prior board funded at Expected`, b ? b.clfLabel : '');
       }

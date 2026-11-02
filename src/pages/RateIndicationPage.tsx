@@ -46,11 +46,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // charged. Labels and figures only. A history year with no accident year to
 // price from shows the expected-loss basis it was priced on, and says so.
 //
-// ⚠ IN A HOSTED SESSION (players and viewers) THE WINDOW IS HIDDEN — the table
-// of accident years, its shock footnote, and the no-history sentence that
-// stands in its place: where the figures come from is not shown to a team.
-// The summary below it stays. Single player and Test player show all of it.
-// Hidden, not deleted: `hideWindow` alone gates it.
+// ⚠ IN A HOSTED SESSION (players and viewers) THE WHOLE SECTION IS HIDDEN, for
+// every year — the window and the summary below it alike: how a rate was built
+// is not shown to a team. The team still sees each year's rates (the
+// indication above) and the cover prices (below). Single player and Test player
+// show all of it. Hidden, not deleted: LineCard's `hideBuild` alone gates it.
 // ============================================================================
 const f4 = (x: number) => x.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
@@ -63,7 +63,7 @@ function BuiltRow({ label, testId, value, children, strong }: { label: string; t
   );
 }
 
-function Built({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean }) {
+function Built({ ri }: { ri: RateIndication }) {
   const b = ri.built!;
   const l = ri.line;
   // The prior board funded its history years on a margin of 0: Expected.
@@ -71,7 +71,7 @@ function Built({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean }) 
   return (
     <div data-testid={`ri-${l}-built`} className="space-y-3">
       <h4 className="text-sm font-semibold text-gray-800 pb-2 border-b border-gray-300">How the {ri.calendarYear} rate was built</h4>
-      {hideWindow ? null : b.window.length === 0 ? (
+      {b.window.length === 0 ? (
         <p data-testid={`ri-${l}-built-no-history`} className="text-sm text-gray-700">
           No accident year to price from: the {ri.calendarYear} rate was struck on the expected loss cost for the book,{' '}
           <span className="font-mono" data-value={b.noHistory?.lossCostPer100}>{rate(b.noHistory?.lossCostPer100 ?? 0)}</span> per $100.
@@ -142,7 +142,7 @@ function Built({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean }) 
   );
 }
 
-function LineCard({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean }) {
+function LineCard({ ri, hideBuild }: { ri: RateIndication; hideBuild: boolean }) {
   const l = ri.line;
   const p = ri.pure;
   const x = ri.expenses;
@@ -209,7 +209,7 @@ function LineCard({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean 
         </Section>
       </div>
 
-      {ri.built && <Built ri={ri} hideWindow={hideWindow} />}
+      {ri.built && !hideBuild && <Built ri={ri} />}
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="max-w-md">
@@ -256,7 +256,7 @@ function LineCard({ ri, hideWindow }: { ri: RateIndication; hideWindow: boolean 
 
 export default function RateIndicationPage({ gameState, decisions, multiplayer = false }: {
   gameState: GameState; decisions: DecisionSet;
-  /** A hosted session's screen (players and viewers): the build's window table is hidden. */
+  /** A hosted session's screen (players and viewers): "How the <year> rate was built" is hidden. */
   multiplayer?: boolean;
 }) {
   const years = useMemo(() => rateIndicationYears(gameState), [gameState]);
@@ -285,7 +285,7 @@ export default function RateIndicationPage({ gameState, decisions, multiplayer =
           {years.map(y => <option key={y.yearNumber} value={y.yearNumber}>Program Year {y.calendarYear}</option>)}
         </select>
       </div>
-      {cards.map(ri => <LineCard key={ri.line} ri={ri} hideWindow={multiplayer} />)}
+      {cards.map(ri => <LineCard key={ri.line} ri={ri} hideBuild={multiplayer} />)}
     </div>
   );
 }
