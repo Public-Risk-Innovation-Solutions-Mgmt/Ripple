@@ -31,6 +31,9 @@
 //   four-tabs         15  four tabs sharing one localStorage — the arrangement
 //                         that found the identity leak and the lost update.
 //   host-teams        13  the Teams tab's three states on three line views.
+//   market-survey     91  each team's Market Survey is the host's Teams table,
+//                         cell for cell, its own row highlighted, no decisions;
+//                         absent in single player and Test player.
 //   replay-fidelity    8  vary decisions across three years, reload, and require
 //                         the rebuilt results to match what was posted AT THE TIME.
 //   downloads          7  clicks all three export buttons and requires a file to

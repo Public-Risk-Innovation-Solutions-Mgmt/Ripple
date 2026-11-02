@@ -137,13 +137,18 @@ export interface GameShellProps {
    * hosted team leave it unset and see the version alone.
    */
   showSeed?: boolean;
+  /**
+   * The Market Survey tab's page — a hosted session's alone (session/screens/
+   * MarketSurveyTab); the tab is hidden without `multiplayer` (tabs.ts).
+   */
+  marketSurvey?: React.ReactNode;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
@@ -332,6 +337,8 @@ export default function GameShell({
         {shownTab === 'decisionHistory' && gameState && (
           <DecisionHistoryPage lockedResults={d.viewResults} lineView={lineView} />
         )}
+
+        {shownTab === 'marketSurvey' && !hidden('marketSurvey') && marketSurvey}
 
         {shownTab === 'financials' && !hidden('financials') && gameState && startingFinancials && (
           <FinancialsPage

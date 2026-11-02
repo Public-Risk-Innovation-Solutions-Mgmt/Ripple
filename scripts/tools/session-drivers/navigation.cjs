@@ -16,7 +16,9 @@ const SOLO = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions'
 // The Year Walkthrough (the slot the Calculation Audit held) is on the solo bar
 // only: a hosted session hides it (tabs.tsx MULTIPLAYER_HIDDEN_TABS) — where the
 // figures come from is not shown to a team. year-walkthrough.cjs checks both.
-const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History'];
+// The Market Survey (every team's standing, MarketSurveyTab) is on the hosted
+// bar only, after Decision History (tabs.tsx SOLO_HIDDEN_TABS).
+const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History', 'Market Survey'];
 // Investments is hidden too: its memorandum is in the Introduction tab (introduction.cjs).
 const HIDDEN = ['Game Setup', 'Investments', 'Dashboard', 'Departments', 'Results', 'Result Spreadsheet', 'Financial Statements', 'Model'];
 const MULTI_HIDDEN = [...HIDDEN, 'Year Walkthrough'];
