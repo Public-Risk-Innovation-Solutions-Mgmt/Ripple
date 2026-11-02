@@ -66,6 +66,7 @@ import {
 } from './contract';
 import { Faults } from './faults';
 import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
+import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
@@ -561,6 +562,14 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     // Host only, the latest known year's: every other caller gets its own team's on CallerView.
     ...(role === 'host' && shownShares(room, room.marketSharesByYear)
       ? { marketShares: shownShares(room, room.marketSharesByYear) } : {}),
+    // EVERY TEAM'S STANDING, a player's or a viewer's (the Market Survey tab):
+    // the host's table's figures alone, built as the server builds them.
+    ...(role === 'player' || role === 'viewer'
+      ? { standings: buildStandings(
+        room.teams.map(t => ({ name: t.name, teamNumber: t.teamNumber ?? 0, lines: t.lines, results: t.resultsByYear })),
+        room.currentYear,
+        shownShares(room, room.marketSharesByYear),
+      ) } : {}),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     rev: room.rev,

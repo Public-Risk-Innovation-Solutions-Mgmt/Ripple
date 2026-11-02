@@ -53,6 +53,7 @@ import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
 import { decisionsForYear, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
+import MarketSurveyTab from './MarketSurveyTab';
 import GameShell from '../../game/GameShell';
 import type { TabId } from '../../components/TabNav';
 import type { DecisionSet, LineView } from '../../types/simulation';
@@ -614,6 +615,8 @@ export default function PlayScreen({ code, role }: Props) {
       multiplayer
       // The team's share of the ROOM, its own figure only (CallerView).
       roomMarketShare={you.marketShare ?? null}
+      // Every team's standing — the host's Teams table, read only, own row highlighted.
+      marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.

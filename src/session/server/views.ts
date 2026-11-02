@@ -7,7 +7,11 @@
 // record. Where they differ, the difference is named at the function and is
 // deliberate.
 //
-// ⚠ ONE DIFFERENCE IS THE POINT: OTHER TEAMS' RESULTS ARE NOT SENT TO PLAYERS.
+// ⚠ ONE DIFFERENCE IS THE POINT: OTHER TEAMS' RESULTS ARE NOT SENT TO PLAYERS
+// — not as resultsByYear. ⚠ Since the Market Survey tab a player or viewer gets
+// every team's STANDING (RoomView.standings): the host's Teams table's figures
+// for the year it shows and nothing else, built by session/standings, which
+// both transports call.
 // localTransport.ts's teamView fills resultsByYear for EVERY caller and says so
 // as a live over-send and privacy gap. keys.ts's READ section designs it closed:
 // the host's query fetches every team's R# range and nobody else's does. So here
@@ -28,6 +32,7 @@ import type {
 import { teamNumbers } from '../contract';
 import type { CoverageLine } from '../../types/simulation';
 import { shownShares, type RoomSharesByYear } from '../marketShares';
+import { buildStandings } from '../standings';
 
 /** Canonical order, and the fallback for a header written before the host
  *  picked the lines. Mirrors rooms.ts's own copy. */
@@ -138,6 +143,13 @@ export interface YearItem {
 export interface Fetched {
   results: Map<string, Record<string, TeamYearSummary>>;
   decisions: Map<string, Record<string, JsonValue>>;
+  /**
+   * EVERY TEAM'S RESULTS, fetched for a player's or a viewer's STANDINGS only
+   * (the Market Survey tab) and read by nothing else: TeamView.resultsByYear
+   * still carries the caller's own team alone. Absent for the host and an
+   * anonymous caller.
+   */
+  standings?: Map<string, Record<string, TeamYearSummary>>;
 }
 
 export function statusOf(header: RoomHeader): RoomStatus {
@@ -247,6 +259,20 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     // Host only, the latest known year's, as in localTransport: a player gets its own on CallerView.
     ...(role === 'host' && shownShares(header, header.marketSharesByYear)
       ? { marketShares: shownShares(header, header.marketSharesByYear) } : {}),
+    // EVERY TEAM'S STANDING, a player's or a viewer's (the Market Survey tab):
+    // the host's table's figures alone (session/standings), as localTransport.
+    ...((role === 'player' || role === 'viewer') && fetched.standings
+      ? { standings: (() => {
+        const { byTeam } = rosterNumbers(header);
+        return buildStandings(
+          orderedRoster(header).map(([teamId, entry]) => ({
+            name: entry.name, teamNumber: byTeam.get(teamId) ?? entry.teamNumber ?? 0, lines: entry.lines,
+            results: fetched.standings!.get(teamId),
+          })),
+          header.currentYear,
+          shownShares(header, header.marketSharesByYear),
+        );
+      })() } : {}),
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
     rev: header.rev,

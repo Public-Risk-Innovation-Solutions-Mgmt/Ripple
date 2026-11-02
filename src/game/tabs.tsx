@@ -11,7 +11,7 @@ import type React from 'react';
 import {
   LayoutDashboard, ClipboardList, FileText, Settings, BarChart2,
   Calculator, Table, History as HistoryIcon, ScrollText, BookOpen, Landmark,
-  TrendingUp, Percent, Users, Sigma,
+  TrendingUp, Percent, Users, Sigma, Trophy,
 } from 'lucide-react';
 import type { TabId } from '../components/TabNav';
 
@@ -26,6 +26,7 @@ export const TAB_DEFS: Record<TabId, { label: string; icon: React.ReactNode }> =
   dashboard: { label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
   decisions: { label: 'Decisions', icon: <ClipboardList size={16} /> },
   decisionHistory: { label: 'Decision History', icon: <ScrollText size={16} /> },
+  marketSurvey: { label: 'Market Survey', icon: <Trophy size={16} /> },
   financials: { label: 'Financial Statements', icon: <FileText size={16} /> },
   results: { label: 'Results', icon: <BarChart2 size={16} /> },
   spreadsheet: { label: 'Result Spreadsheet', icon: <Table size={16} /> },
@@ -48,6 +49,7 @@ export const TAB_ORDER: readonly TabId[] = [
   'dashboard',
   'decisions',
   'decisionHistory',
+  'marketSurvey',
   'financials',
   'results',
   'spreadsheet',
@@ -91,9 +93,18 @@ export const HIDDEN_TABS: readonly TabId[] = [
  */
 export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = ['audit'];
 
+/**
+ * Hidden OUTSIDE a hosted session — single player and Test player — on top of
+ * HIDDEN_TABS. The Market Survey is every team in the ROOM, and those games
+ * have no room.
+ */
+export const SOLO_HIDDEN_TABS: readonly TabId[] = ['marketSurvey'];
+
 /** Whether a tab is hidden on this screen. */
 export function isHiddenTab(t: TabId, multiplayer: boolean): boolean {
-  return HIDDEN_TABS.includes(t) || (multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t));
+  return HIDDEN_TABS.includes(t)
+    || (multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t))
+    || (!multiplayer && SOLO_HIDDEN_TABS.includes(t));
 }
 
 /** The top bar for this screen, in order. */

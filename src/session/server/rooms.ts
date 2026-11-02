@@ -148,6 +148,7 @@ import {
   attemptSk, createPk, decisionPrefix, decisionSk, handoffSk, lobbyEventPath, nameSk, pinPk,
   resultPrefix, resultSk, roomPk, tokenSk, viewerSk,
 } from './keys';
+import { standingsYear } from '../standings';
 import {
   dynamoFromEnv, hashesMatch, hashToken, newRecoveryCode, newRoomCode, newTeamId, newViewerPin,
   type Dynamo, type DynamoConfig,
@@ -344,6 +345,24 @@ export class DynamoSessionTransport implements SessionTransport {
     return { code: item.code, teamId: item.teamId };
   }
 
+  /** Items by key, strongly consistent, in chunks of 100 with BatchGetItem's retries; a missing key is absent. */
+  private async getItems(all: Array<Record<string, string>>): Promise<Record<string, unknown>[]> {
+    const found: Record<string, unknown>[] = [];
+    for (let c = 0; c < all.length; c += 100) {
+      let keys = all.slice(c, c + 100);
+      for (let i = 0; keys.length > 0; i++) {
+        if (i > 0) await sleep(Math.min(200, 10 * 2 ** i));
+        const res = await this.db.doc.send(new BatchGetCommand({
+          RequestItems: { [this.db.table]: { Keys: keys, ConsistentRead: true } },
+        }));
+        found.push(...(res.Responses?.[this.db.table] ?? []));
+        keys = (res.UnprocessedKeys?.[this.db.table]?.Keys ?? []) as Array<Record<string, string>>;
+        if (i > 8 && keys.length > 0) throw new Error('BatchGetItem left keys unprocessed.');
+      }
+    }
+    return found;
+  }
+
   private async queryPrefix(pk: string, prefix: string): Promise<YearItem[]> {
     const out: YearItem[] = [];
     let start: Record<string, unknown> | undefined;
@@ -392,7 +411,9 @@ export class DynamoSessionTransport implements SessionTransport {
    *
    *   host       every team's results     (begins_with R#)
    *   player     its own decisions        (begins_with D#<teamId>#)
-   *              and its own results      (begins_with R#<teamId>#)
+   *              and every team's results (begins_with R#) — its own for its
+   *              team row, every team's for the standings alone (the Market
+   *              Survey tab: the host's table's figures, no decisions)
    *   viewer     as the player it watches
    *   anonymous  the header alone
    *
@@ -420,6 +441,21 @@ export class DynamoSessionTransport implements SessionTransport {
         fetched.decisions.set(item.teamId, held);
       }
       resultItems.push(...await this.queryPrefix(pk, resultPrefix(teamId)));
+      // ⚠ EVERY TEAM'S RESULT FOR THE YEAR THE STANDINGS SHOW, AND ONLY THAT
+      // YEAR (the Market Survey tab; keys.ts READ, point 4). The table shows the
+      // latest known year alone — the year just played, currentYear - 1, as the
+      // host's — so one item per team is fetched by key, not every team's
+      // history: a read that grows with the teams, not the teams x the years.
+      // They reach the view only through buildStandings, which keeps the host's
+      // table's figures and drops the rest — decisions above all.
+      const shown = standingsYear(header.currentYear);
+      fetched.standings = new Map();
+      if (shown !== null) {
+        const keys = Object.keys(header.roster ?? {}).map(id => ({ pk, sk: resultSk(id, shown) }));
+        for (const item of await this.getItems(keys) as unknown as YearItem[]) {
+          fetched.standings.set(item.teamId, { [String(item.year)]: JSON.parse(item.body) as TeamYearSummary });
+        }
+      }
     }
     for (const item of resultItems) {
       const held = fetched.results.get(item.teamId) ?? {};

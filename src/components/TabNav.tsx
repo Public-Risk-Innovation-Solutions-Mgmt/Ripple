@@ -12,6 +12,7 @@ export type TabId =
   | 'dashboard'
   | 'decisions'
   | 'decisionHistory'
+  | 'marketSurvey'
   | 'financials'
   | 'results'
   | 'spreadsheet'

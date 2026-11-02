@@ -1066,6 +1066,90 @@ async function main(): Promise<void> {
     eq((await shares())?.year, 4, 'and the final year shows when it completes');
   }
 
+  // ---- THE STANDINGS: A TEAM READS THE ROOM (the Market Survey tab) ------
+  //
+  // A player and a viewer get every team's standing (RoomView.standings): the
+  // host's Teams table's figures, per team, for the year the table shows —
+  // the latest known year, currentYear - 1 — and the room's shares, exactly the
+  // host's. READ ONLY AND NOTHING ELSE: no decisions (the marker is searched for
+  // in the whole serialised standings), no result field the table does not
+  // show, no year but the one shown; the team rows' resultsByYear stay the
+  // caller's own. The host and an anonymous caller get no standings.
+  {
+    const t = transport();
+    const LINES2: CoverageLine[] = ['WC', 'GL'];
+    const { code, hostToken } = await t.createRoom({
+      hostToken: newSessionToken(), seed: '7', yearCount: 3, startingYear: 2027,
+      eventName: 'Standings Room', expectedTeams: 3, lines: LINES2, shocks: [],
+    });
+    const [a, b, c] = [
+      await t.join({ code, teamName: TEAMS[0], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[1], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[2], role: 'player' }),
+    ];
+    const viewer = await t.join({ code, teamName: TEAMS[1], role: 'viewer' });
+    // A team's posted year: the table's figures off-centre per team, a cumulative
+    // combined ratio the table does not show, and (played years) a decisions block.
+    const post = (year: number, k: number): TeamYearSummary => {
+      const s = summaryFor(year, 1_000_000 * k, LINES2, 1, true);
+      const table = (f: TeamYearFigures, j: number): TeamYearFigures => ({
+        ...f, premiumToSurplus: 1.1 * k + j, ratePer100: 3 + k + j / 10, rateChange: 0.01 * k, adminExpenseRatio: 0.2 + 0.001 * k,
+        yearCombinedRatio: 0.9 + 0.01 * k + 0.001 * j, combinedRatio: 0.5 + k,
+      });
+      return { ...s, pool: table(s.pool, 0), byLine: { WC: table(s.byLine.WC!, 1), GL: table(s.byLine.GL!, 2) } };
+    };
+    const TABLE_FIELDS = ['endingSurplus', 'premiumToSurplus', 'ratePer100', 'rateChange', 'adminExpenseRatio', 'yearCombinedRatio'];
+    const same = (x: unknown, y: unknown, what: string) => eq(JSON.stringify(x), JSON.stringify(y), what);
+    const read = async (token?: string) => (await t.read({ code, ...(token ? { token } : {}) }));
+
+    let r = await read(a.teamToken);
+    same(r.room.standings?.teams.map(x => x.name), [...TEAMS], 'standings: a player sees every team, in join order');
+    same(r.room.standings?.teams.map(x => x.teamNumber), [1, 2, 3], 'standings: each with its team number');
+    ok(r.room.standings!.teams.every(x => x.resultsByYear === undefined), 'standings: nothing posted, nothing shown');
+
+    for (const [p, k] of [[a, 1], [b, 2], [c, 3]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 0, result: post(0, k) });
+    r = await read(a.teamToken);
+    same(r.room.standings?.teams.map(x => Object.keys(x.resultsByYear ?? {})), [['0'], ['0'], ['0']], 'standings: before the first advance, the opening (2026) shows');
+    for (const [p, k] of [[a, 1], [b, 2], [c, 3]] as const) {
+      await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, `st${k}`) });
+    }
+    await step(t, code, hostToken);
+    for (const [p, k] of [[a, 1], [b, 2], [c, 3]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 1, result: post(1, k) });
+
+    const host = await read(hostToken);
+    eq(host.room.currentYear, 2, 'standings: the room is deciding year 2, so year 1 shows');
+    eq(host.room.standings, undefined, 'standings: the host gets none (it reads teams and marketShares)');
+    eq((await read()).room.standings, undefined, 'standings: an anonymous caller gets none');
+    for (const [who, token] of [['player', a.teamToken], ['viewer', viewer.teamToken]] as const) {
+      r = await read(token);
+      const st = r.room.standings;
+      ok(st !== undefined, `standings: a ${who} gets them`);
+      if (!st) continue;
+      for (const team of st.teams) {
+        const hostRow = host.room.teams.find(x => x.name === team.name)!;
+        same(Object.keys(team.resultsByYear ?? {}), ['1'], `standings (${who}): ${team.name} carries the year shown alone`);
+        const mine = team.resultsByYear!['1'];
+        const want = hostRow.resultsByYear!['1'];
+        for (const [scope, got, from] of [
+          ['pool', mine.pool, want.pool], ['WC', mine.byLine.WC, want.byLine.WC], ['GL', mine.byLine.GL, want.byLine.GL],
+        ] as const) {
+          same(Object.keys(got ?? {}).sort(), [...TABLE_FIELDS].sort(), `standings (${who}): ${team.name} ${scope} carries the table's fields and no other`);
+          for (const f of TABLE_FIELDS) {
+            eq((got as unknown as Record<string, number>)[f], (from as unknown as Record<string, number>)[f], `standings (${who}): ${team.name} ${scope} ${f} is the host's`);
+          }
+        }
+        ok(!('decisions' in mine) && !('developed' in mine) && !('surplusRange' in mine), `standings (${who}): ${team.name} carries no decisions, developed column or range`);
+      }
+      ok(!JSON.stringify(st).includes(String(DECISION_MARKER)) && !JSON.stringify(st).includes('"decisions"'), `standings (${who}): no decision anywhere in them`);
+      same(st.marketShares, host.room.marketShares, `standings (${who}): the room's shares are the host's`);
+      // The team rows themselves are unchanged: the caller's own results, nobody else's.
+      for (const row of r.room.teams) {
+        const own = row.name === (who === 'player' ? TEAMS[0] : TEAMS[1]);
+        ok(own ? row.resultsByYear !== undefined : row.resultsByYear === undefined, `standings (${who}): ${row.name}'s team row carries ${own ? 'its own' : 'no'} results`);
+      }
+    }
+  }
+
   // ---- completion ------------------------------------------------------
   {
     const t = transport();

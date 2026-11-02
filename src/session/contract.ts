@@ -585,6 +585,38 @@ export interface RoomMarketShares {
   byTeam: Record<string, TeamMarketShare>;
 }
 
+// ---------------------------------------------------------------- standings
+
+/**
+ * ⚠ THE HOST'S TEAMS TABLE, FOR A TEAM — the Market Survey tab. A player or a
+ * viewer gets every team's standing: exactly the figures the host's table
+ * shows (session/standings.STANDING_FIELDS), per year, the pool and each line,
+ * and the room's market shares. READ ONLY, and NOTHING ELSE: no decisions, no
+ * other result field — built by session/standings.buildStandings, which copies
+ * the table's fields one by one. The host's own view keeps TeamView and
+ * RoomView.marketShares and gets no standings.
+ */
+export type StandingFigures = Pick<TeamYearFigures, 'endingSurplus'>
+  & Partial<Pick<TeamYearFigures, 'premiumToSurplus' | 'ratePer100' | 'rateChange' | 'adminExpenseRatio' | 'yearCombinedRatio'>>;
+export interface StandingSummary {
+  yearNumber: number;
+  calendarYear: number;
+  pool: StandingFigures;
+  byLine: Partial<Record<CoverageLine, StandingFigures>>;
+}
+export interface StandingTeam {
+  name: string;
+  teamNumber: number;
+  lines: CoverageLine[];
+  /** Keyed by year as a string, as TeamView.resultsByYear; absent with nothing posted. */
+  resultsByYear?: Record<string, StandingSummary>;
+}
+export interface RoomStandings {
+  teams: StandingTeam[];
+  /** The room's shares for the latest known year — the host's own (RoomView.marketShares). */
+  marketShares?: RoomMarketShares;
+}
+
 // ---------------------------------------------------------------- views
 
 export type RoomStatus = 'lobby' | 'running' | 'complete';
@@ -875,6 +907,13 @@ export interface RoomView {
   teams: TeamView[];
   /** Every team's room market share — HOST ONLY; absent for every other caller. */
   marketShares?: RoomMarketShares;
+  /**
+   * EVERY TEAM'S STANDING — PLAYERS AND VIEWERS ONLY (the Market Survey tab):
+   * the host's Teams table's figures for every team and the room's shares, read
+   * only (RoomStandings). Absent for the host, who reads `teams` and
+   * `marketShares`, and for an anonymous caller.
+   */
+  standings?: RoomStandings;
   createdAt: number;
   updatedAt: number;
   // Monotonic per write. A poller compares this to know something moved without

@@ -450,6 +450,12 @@
 //                                                     played year and the harness
 //                                                     reads a player's OWN
 //                                                     resultsByYear back. ~9 KB.
+//                   AND BatchGetItem R#<every teamId>#<currentYear - 1>
+//                                                     — THE STANDINGS (the Market
+//                                                     Survey tab): one item per
+//                                                     team, the year the table
+//                                                     shows, slimmed to its
+//                                                     figures (session/standings).
 //        viewer     as the player it watches
 //        anonymous  the header alone, token hashes stripped
 //
@@ -537,6 +543,12 @@
 //      players are ever shown other teams, every player's poll becomes
 //      host-sized — ~87 KB x every client x every change. That wants a small
 //      per-team "latest figures" entry in the header, not the full history.
+//      ⚠ NOW SHOWN (the Market Survey tab), AND BOUNDED, NOT HOST-SIZED: a
+//      player's read fetches ONE R# item per team — the year the table shows —
+//      by key, and the response carries only the table's figures for that year
+//      (session/standings.buildStandings). The read still grows with the
+//      teams (an R# item is the whole summary, ~9 KB); the per-team header
+//      entry above remains the way to shrink it if the event needs it.
 //   5. REMOVING A ROOM. It is ~220 items, not one. Every item needs its own
 //      expiresAtSec copied from the header's (see WHAT SETS THE EXPIRY), TTL
 //      removes them one by one rather than as a room, and an explicit delete is
