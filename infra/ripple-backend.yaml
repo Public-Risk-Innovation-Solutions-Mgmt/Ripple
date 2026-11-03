@@ -293,6 +293,28 @@ Resources:
       AuthorizationType: NONE
       ApiKeyRequired: false
 
+  SaveDraftRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /saveDraft"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
+  UndoLockRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /undoLock"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
   SubmitRoute:
     Type: AWS::ApiGatewayV2::Route
     DeletionPolicy: Retain

@@ -167,10 +167,12 @@ import type {
   ListEventsRequest, ListEventsResponse,
   ReadRequest, ReadResponse,
   ReclaimTeamRequest, ReclaimTeamResponse,
+  SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   SessionErrorCode,
   SessionTransport,
   SubmitRequest, SubmitResponse,
+  UndoLockRequest, UndoLockResponse,
 } from './contract';
 import { SessionError } from './contract';
 import { Faults } from './faults';
@@ -256,8 +258,16 @@ export class HttpSessionTransport implements SessionTransport {
     return this.call('createHandoff', req);
   }
 
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse> {
+    return this.call('undoLock', req);
+  }
+
   submit(req: SubmitRequest): Promise<SubmitResponse> {
     return this.call('submit', req);
+  }
+
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse> {
+    return this.call('saveDraft', req);
   }
 
   advance(req: AdvanceRequest): Promise<AdvanceResponse> {

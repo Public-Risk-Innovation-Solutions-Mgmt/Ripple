@@ -51,6 +51,10 @@ export default function HostRoomScreen({ code }: Props) {
   );
   const [resumeInput, setResumeInput] = useState('');
   const [advancing, setAdvancing] = useState(false);
+  // Which team's lock is being undone, or null — a per-row action, so this is
+  // a name rather than a single boolean (only one row at a time, in practice,
+  // but nothing here forces that).
+  const [undoingTeam, setUndoingTeam] = useState<string | null>(null);
   const [actionError, setActionError] = useState<SessionError | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [hiding, setHiding] = useState(false);
@@ -82,6 +86,26 @@ export default function HostRoomScreen({ code }: Props) {
       setActionError(isSessionError(e) ? e : null);
     } finally {
       setAdvancing(false);
+    }
+  }
+
+  /**
+   * ⚠ A HOST ACTION — see contract.ts's UndoLockRequest. Reopens a team's
+   * CURRENT year, the one its "locked" cell shows; the team's own decisions
+   * are left untouched server-side, so its Decisions tab reopens on exactly
+   * what it submitted, on its own next poll.
+   */
+  async function handleUndoLock(teamName: string) {
+    if (!hostToken || !room) return;
+    setUndoingTeam(teamName);
+    setActionError(null);
+    try {
+      await sessionTransport().undoLock({ code, token: hostToken, teamName, yearNumber: room.currentYear });
+      refresh();
+    } catch (e) {
+      setActionError(isSessionError(e) ? e : null);
+    } finally {
+      setUndoingTeam(null);
     }
   }
 
@@ -339,7 +363,22 @@ export default function HostRoomScreen({ code }: Props) {
                   </td>
                   <td className="px-5 py-2.5">
                     {t.locked
-                      ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> locked</span>
+                      ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600">
+                          <CheckCircle2 size={14} /> locked
+                          {/* ⚠ INSTANTLY REVERSIBLE, NO CONFIRM STEP — unlike
+                              the lock itself, which other teams and the
+                              host's own advance decision rely on. The team
+                              locking again is the only "undo" an undo needs. */}
+                          <button
+                            type="button"
+                            data-testid={`undo-lock-${t.name}`}
+                            disabled={undoingTeam === t.name}
+                            onClick={() => void handleUndoLock(t.name)}
+                            className="ml-1 text-xs font-medium text-blue-600 underline hover:text-blue-700 disabled:opacity-50"
+                          >
+                            {undoingTeam === t.name ? 'Undoing…' : 'Undo'}
+                          </button>
+                        </span>
                       : <span className="flex items-center gap-1.5 text-slate-600"><Circle size={14} /> open</span>}
                   </td>
                   <td className="px-5 py-2.5">

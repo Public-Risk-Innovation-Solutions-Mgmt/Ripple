@@ -85,10 +85,10 @@ const STATUS: Record<SessionErrorCode, number> = {
 // change rather than a handler change. Mike adds the routes in API Gateway; see
 // docs/AWS_HANDOFF.md.
 type Endpoint =
-  | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'submit' | 'advance' | 'read'
+  | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'undoLock' | 'submit' | 'saveDraft' | 'advance' | 'read'
   | 'listEvents' | 'setEventHidden';
 const ENDPOINTS: readonly Endpoint[] = [
-  'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'submit', 'advance', 'read',
+  'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'undoLock', 'submit', 'saveDraft', 'advance', 'read',
   'listEvents', 'setEventHidden',
 ];
 

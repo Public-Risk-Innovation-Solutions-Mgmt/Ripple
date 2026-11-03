@@ -970,6 +970,27 @@ export interface CallerView {
    * may see. Absent until the team has a share in the stored set.
    */
   marketShare?: TeamMarketShareOfYear;
+  /**
+   * ⚠ THE TEAM'S OWN PLAYER ONLY — NOT A VIEWER, UNLIKE decisionsByYear ABOVE.
+   * Device switching's third feature (saveDraft): the current year's
+   * unsubmitted choices, auto-saved every few seconds so a crash or a device
+   * switch mid-year loses nothing. A viewer has no form to restore this into —
+   * it renders the team's LAST LOCKED set, never a live draft — so this is
+   * never set for one, the same restriction Mike's guide states.
+   *
+   * ⚠ ALWAYS THE CURRENT YEAR, NEVER A HISTORY. Only one draft exists at a
+   * time, for whichever year the room is currently deciding; `yearNumber` is
+   * carried here (rather than assumed to equal RoomView.currentYear) only so a
+   * client reading a slightly stale poll can tell whether this draft is even
+   * for the year it thinks it's showing.
+   *
+   * ⚠ A LOCKED YEAR ALWAYS WINS OVER ITS DRAFT. Submitting decisions for a year
+   * deletes that year's draft in the same write that locks it (server/rooms.ts's
+   * submit, localTransport.ts's submit) — so this is never present for a year
+   * the team has already locked, and a client restoring it on load never
+   * clobbers what was actually submitted.
+   */
+  draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
 }
 
 // ---------------------------------------------------------------- requests
@@ -1221,6 +1242,34 @@ export interface CreateHandoffResponse {
   expiresAtSec: number;
 }
 
+/**
+ * ⚠ A HOST ACTION, NOT A PLAYER ONE — host token, like CreateHandoffRequest,
+ * not the team's own. A team locks its own year by submitting decisions; only
+ * the host can undo that lock, from the Game Setup tab's team table. `token`
+ * is the host token, `teamName` names which team to reopen (the host has no
+ * team of its own to imply one).
+ *
+ * ⚠ `yearNumber` IS THE SAME COMPARE-AND-SWAP DISCIPLINE AdvanceRequest's
+ * expectedYear ALREADY USES — the year the host's own screen believes is
+ * locked, read from its own polled RoomView.currentYear. Refused with
+ * WRONG_YEAR if the room has since moved on: an undo must only ever reach a
+ * year that has not yet been advanced past, never a played one.
+ */
+export interface UndoLockRequest {
+  code: string;
+  token: string;
+  teamName: string;
+  yearNumber: number;
+}
+
+/**
+ * ⚠ THE ROOM, NOT A CallerView — same shape as SetEventHiddenResponse. The
+ * host has no team-shaped slice of its own to return.
+ */
+export interface UndoLockResponse {
+  room: RoomView;
+}
+
 // Decisions for a year, a result for a year, or both.
 //
 // ⚠ ONE ENDPOINT, TWO SLOTS, AND THAT IS DELIBERATE. Posting a computed result
@@ -1240,6 +1289,31 @@ export interface SubmitRequest {
 export interface SubmitResponse {
   room: RoomView;
   you: CallerView;
+}
+
+/**
+ * ⚠ A SEPARATE ENDPOINT FROM submit, NOT A THIRD SLOT ON IT. submit LOCKS a
+ * year; saveDraft never does — it is the player's own form, auto-saved while
+ * still open, and giving it submit's authority-and-locking machinery would
+ * make "merely saved" and "locked in" the same write with two names for it.
+ *
+ * ⚠ ALWAYS THE CURRENT YEAR. `yearNumber` must equal the room's `currentYear`
+ * or the call is refused with WRONG_YEAR (submit's own rule, reused rather
+ * than reinvented) — a tab that sat open while the host advanced must not
+ * save a draft for a year that is no longer open. Refused with
+ * INVALID_REQUEST if the team already locked this year: a locked year is not
+ * a draft any more, and saveDraft is not a second way to edit it.
+ */
+export interface SaveDraftRequest {
+  code: string;
+  token: string;
+  yearNumber: number;
+  /** Opaque, same as SubmitRequest.decisions — this layer never inspects it. */
+  decisions: JsonValue;
+}
+
+export interface SaveDraftResponse {
+  savedAt: number;
 }
 
 // ⚠ GAP CLOSED, AND IT IS THE ONE THAT CHANGES THE WIRE. This said the request
@@ -1316,7 +1390,14 @@ export interface SessionTransport {
   // handoffToken path then resolves. Next to reclaimTeam for the same reason
   // that is next to join: one feature, two ends of it.
   createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse>;
+  // ⚠ HOST-AUTHENTICATED, ACTING ON A NAMED TEAM — see UndoLockRequest. Next
+  // to createHandoff for that reason, not next to submit (team-authenticated).
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse>;
   submit(req: SubmitRequest): Promise<SubmitResponse>;
+  // ⚠ THE THIRD DEVICE-SWITCHING FEATURE — see SaveDraftRequest. Next to
+  // submit for the same reason reclaimTeam sits next to join: one feature,
+  // the form it protects.
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse>;
   advance(req: AdvanceRequest): Promise<AdvanceResponse>;
   read(req: ReadRequest): Promise<ReadResponse>;
   // ---- the lobby ----------------------------------------------------------

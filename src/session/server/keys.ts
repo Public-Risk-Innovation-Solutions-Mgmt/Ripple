@@ -354,9 +354,29 @@
 //                                                                characters is not worth a
 //                                                                retry loop over
 //   submit, decisions   Transact: Update ROOM (lockedYear,      currentYear = :y
-//                       ADD rev), Put D#
+//                       ADD rev), Put D#, Delete                (the Delete is
+//                       DRAFT#<teamId>#<yyy>                    unconditioned —
+//                                                                a maybe-absent
+//                                                                item's delete
+//                                                                is already a
+//                                                                no-op)
 //   submit, result      Transact: Update ROOM (posted.<y>,      currentYear >= :y AND
 //                       ADD rev), Put R#                        :y >= 0
+//   saveDraft           Put DRAFT#<teamId>#<yyy>                none — an
+//                                                                application
+//                                                                guard (year =
+//                                                                current year,
+//                                                                team not
+//                                                                locked for
+//                                                                it), checked
+//                                                                before the
+//                                                                write rather
+//                                                                than
+//                                                                conditioned —
+//                                                                Mike's guide
+//                                                                asks for no
+//                                                                transaction
+//                                                                here
 //   advance             Update ROOM only: currentYear = :e+1,   currentYear = :e AND
 //                       ADD rev                                 currentYear <= yearCount
 //                                                               AND hostTokenHash = :h
@@ -785,4 +805,26 @@ export function attemptSk(teamId: string): string {
 export function handoffSk(hash: string): string {
   if (hash.length === 0) throw new RangeError('A handoff-token hash must be non-empty.');
   return checkSortKey(`HANDOFF#${hash}`);
+}
+
+/**
+ * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. A team's unsubmitted
+ * decisions for ONE year, auto-saved every few seconds while the form is
+ * open. Same prefix shape as decisionSk/resultSk, not attemptSk/handoffSk: it
+ * carries the ROOM'S OWN expiresAtSec rather than a fixed short window — Mike's
+ * guide names no TTL exception for this item, and there is no reason to invent
+ * one a draft that simply outlives its own usefulness once the room expires.
+ *
+ * ⚠ OVERWRITTEN BY YEAR, NEVER ACCUMULATED. A team only ever has ONE live
+ * draft — for whichever year the room is currently deciding — so saveDraft
+ * always targets this same key for the room's current year, re-Put each time
+ * rather than building a history the way decisionSk's per-year keys do.
+ *
+ * ⚠ DELETED BY submit, IN THE SAME TRANSACTION THAT LOCKS THE YEAR. That is
+ * what makes "a locked year always wins over its draft" true: the item is
+ * gone atomically with the lock, so no read between those two writes can ever
+ * see a stale draft for a year that is already locked. See rooms.ts's submit.
+ */
+export function draftSk(teamId: string, year: number): string {
+  return `DRAFT#${checkTeamId(teamId)}#${padYear(year)}`;
 }

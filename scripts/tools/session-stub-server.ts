@@ -109,10 +109,10 @@ const STATUS: Record<SessionErrorCode, number> = {
 // ---------------------------------------------------------------- routing
 
 type Endpoint =
-  | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'submit' | 'advance' | 'read'
+  | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'undoLock' | 'submit' | 'saveDraft' | 'advance' | 'read'
   | 'listEvents' | 'setEventHidden';
 const ENDPOINTS: Endpoint[] = [
-  'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'submit', 'advance', 'read',
+  'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'undoLock', 'submit', 'saveDraft', 'advance', 'read',
   'listEvents', 'setEventHidden',
 ];
 

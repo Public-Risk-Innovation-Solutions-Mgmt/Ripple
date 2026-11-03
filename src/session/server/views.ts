@@ -150,6 +150,14 @@ export interface Fetched {
    * anonymous caller.
    */
   standings?: Map<string, Record<string, TeamYearSummary>>;
+  /**
+   * DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. A PLAYER'S OWN draft for
+   * the room's current year, fetched by key (keys.ts's draftSk) and ONLY for a
+   * player — never a viewer, matching CallerView.draft's own restriction.
+   * Absent when nothing was fetched (every other role) or the team has no
+   * draft saved.
+   */
+  draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
 }
 
 export function statusOf(header: RoomHeader): RoomStatus {
@@ -302,6 +310,11 @@ export function buildCallerView(
   view.lines = [...entry.lines];
   const decisions = fetched.decisions.get(teamId);
   if (decisions && Object.keys(decisions).length > 0) view.decisionsByYear = { ...decisions };
+  // ⚠ PLAYER ONLY, ENFORCED BY THE FETCH NOT BY A CHECK HERE — rooms.ts's
+  // viewFor only ever populates fetched.draft when role === 'player', so a
+  // viewer's call (which reaches this same function, for the team it watches)
+  // never has one to attach.
+  if (fetched.draft) view.draft = { ...fetched.draft };
 
   const postedYears = Object.keys(entry.posted ?? {})
     .map(Number)

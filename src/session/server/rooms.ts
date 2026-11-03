@@ -131,10 +131,12 @@ import type {
   PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
   ReclaimTeamRequest, ReclaimTeamResponse,
+  SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
+  UndoLockRequest, UndoLockResponse,
 } from '../contract';
 import {
   SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
@@ -145,7 +147,7 @@ import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
-  attemptSk, createPk, decisionPrefix, decisionSk, handoffSk, lobbyEventPath, nameSk, pinPk,
+  attemptSk, createPk, decisionPrefix, decisionSk, draftSk, handoffSk, lobbyEventPath, nameSk, pinPk,
   resultPrefix, resultSk, roomPk, tokenSk, viewerSk,
 } from './keys';
 import { standingsYear } from '../standings';
@@ -455,6 +457,20 @@ export class DynamoSessionTransport implements SessionTransport {
         for (const item of await this.getItems(keys) as unknown as YearItem[]) {
           fetched.standings.set(item.teamId, { [String(item.year)]: JSON.parse(item.body) as TeamYearSummary });
         }
+      }
+    }
+    // ⚠ PLAYER ONLY, NOT VIEWER — device switching's third feature. A viewer
+    // has no form to restore a draft into; it always shows the team's last
+    // locked set, never a live one. One GetItem by key, same as the handoff
+    // lookup in reclaimTeam, not a Query — there is at most one draft, for the
+    // room's current year.
+    if (role === 'player' && teamId) {
+      const res = await this.db.doc.send(new GetCommand({
+        TableName: this.db.table, Key: { pk, sk: draftSk(teamId, header.currentYear) }, ConsistentRead: true,
+      }));
+      const item = res.Item as { body?: string; savedAt?: number } | undefined;
+      if (item?.body !== undefined && item.savedAt !== undefined) {
+        fetched.draft = { yearNumber: header.currentYear, decisions: JSON.parse(item.body) as JsonValue, savedAt: item.savedAt };
       }
     }
     for (const item of resultItems) {
@@ -1185,6 +1201,73 @@ export class DynamoSessionTransport implements SessionTransport {
     });
   }
 
+  /**
+   * ⚠ A HOST ACTION, NOT A TEAM ONE — see contract.ts's UndoLockRequest.
+   * Reopens a team's CURRENT year, which a team locked by submitting
+   * decisions; the decisions themselves are left untouched, so the team's
+   * form reopens on exactly what it last submitted rather than resetting.
+   *
+   * ⚠ READ-THEN-COMPARE FOR NOT_HOST, LIKE createHandoff — safe here because,
+   * unlike currentYear, a room's hostTokenHash never changes after creation,
+   * so there is no race for a condition to close. currentYear DOES race (the
+   * host's own advance, from another tab), which is what the Update's
+   * ConditionExpression guards.
+   */
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      const rawName = requireString(req.teamName, 'teamName');
+      const y = requireInteger(req.yearNumber, 'yearNumber');
+
+      const header = await this.getHeader(code);
+      if (hashToken(token) !== header.hostTokenHash) {
+        throw new SessionError('NOT_HOST', 'Only the host may undo a lock.');
+      }
+      const name = rawName.trim();
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+      if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      const [teamId, team] = found;
+
+      if (y !== header.currentYear) {
+        throw new SessionError('WRONG_YEAR', `The room is on year ${header.currentYear}; that lock is for year ${y}.`);
+      }
+      if (team.lockedYear !== header.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is not locked, so there is nothing to undo.');
+      }
+
+      const names: Record<string, string> = { '#tid': teamId };
+      const values: Record<string, unknown> = { ':null': null, ':now': Date.now(), ':one': 1, ':y': y };
+      const sets = ['roster.#tid.lockedYear = :null', 'updatedAt = :now'];
+      // The per-year map submit() also sets — only present on a room written
+      // with it from the start (see the same `if` there).
+      if (header.roster[teamId]?.lockedYears) {
+        sets.push('roster.#tid.lockedYears.#ly = :false');
+        names['#ly'] = String(y);
+        values[':false'] = false;
+      }
+      try {
+        await this.db.doc.send(new UpdateCommand({
+          TableName: this.db.table,
+          Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
+          UpdateExpression: `SET ${sets.join(', ')} ADD rev :one`,
+          ConditionExpression: 'attribute_exists(roster.#tid) AND currentYear = :y',
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }));
+      } catch (e) {
+        if (!(e instanceof ConditionalCheckFailedException)) throw e;
+        // The only thing this condition guards is currentYear (NOT_HOST and
+        // TEAM_NOT_FOUND were already settled above, against a consistent
+        // read) — a failed condition here always means the room's year moved
+        // under this request, which is correct on a retry too.
+        throw new SessionError('WRONG_YEAR', 'The room moved to another year before this could be undone.');
+      }
+      const view = await this.freshView(code, 'host', null);
+      return { room: view.room };
+    });
+  }
+
   // ---- submit ----------------------------------------------------------
 
   submit(req: SubmitRequest): Promise<SubmitResponse> {
@@ -1245,6 +1328,13 @@ export class DynamoSessionTransport implements SessionTransport {
               body: JSON.stringify(req.decisions), expiresAtSec: header.expiresAtSec,
             },
           } });
+          // ⚠ THE DRAFT DIES WITH THE LOCK, ATOMICALLY. A locked year always
+          // wins over its draft (contract.ts's CallerView.draft) because this
+          // Delete lands in the SAME transaction as the lock — no read between
+          // the two writes can ever see a stale draft for a year that is
+          // already locked. Unconditioned: deleting an item that may not exist
+          // is already a no-op.
+          items.push({ Delete: { TableName: this.db.table, Key: { pk, sk: draftSk(teamId, y) } } });
         }
         if (req.result !== undefined) {
           sets.push('roster.#tid.posted.#y = :true');
@@ -1288,6 +1378,40 @@ export class DynamoSessionTransport implements SessionTransport {
           throw new SessionError('WRONG_YEAR', 'The room moved to another year during this submit.');
         }
       }
+    });
+  }
+
+  /**
+   * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. NOT submit: this never
+   * locks a year, never writes the header, and never touches `rev` — a team's
+   * auto-save every few seconds must not contend with the header the way a
+   * lock does. A plain check-then-write, not a transaction: Mike's guide asks
+   * for an application-level guard here (year = current year, team not locked
+   * for it), not a DynamoDB condition, and a 3-second auto-save racing a lock
+   * is not worth closing with one.
+   */
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      const y = requireInteger(req.yearNumber, 'yearNumber');
+      const header = await this.getHeader(code);
+      const h = hashToken(token);
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.tokenHash === h);
+      if (!found) throw new SessionError('BAD_TOKEN', 'Only a team player may save a draft.');
+      const [teamId, team] = found;
+      if (y !== header.currentYear) {
+        throw new SessionError('WRONG_YEAR', `The room is on year ${header.currentYear}; that draft is for year ${y}.`);
+      }
+      if (team.lockedYear === header.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is already locked in — a draft cannot replace it.');
+      }
+      const savedAt = Date.now();
+      await this.db.doc.send(new PutCommand({
+        TableName: this.db.table,
+        Item: { pk: roomPk(code), sk: draftSk(teamId, y), teamId, year: y, body: JSON.stringify(req.decisions), savedAt, expiresAtSec: header.expiresAtSec },
+      }));
+      return { savedAt };
     });
   }
 

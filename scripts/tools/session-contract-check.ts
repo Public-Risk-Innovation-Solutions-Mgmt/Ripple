@@ -1540,6 +1540,128 @@ async function main(): Promise<void> {
     ok(retried.recoveryCode === undefined, 'and does NOT reissue a second fresh code on the idempotent retry');
   }
 
+  // ---- DRAFT SAVING --------------------------------------------------------
+  //
+  // ⚠ PHASE 3 OF DEVICE SWITCHING. The current year's UNSUBMITTED decisions,
+  // auto-saved every few seconds by the client; saveDraft never locks a year
+  // and is not a second way to edit one already locked. CallerView.draft is
+  // the team's own player ONLY — never the host, never another team, never a
+  // viewer watching this one.
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+    const viewer = await t.join({ code, teamName: TEAMS[0], role: 'viewer' });
+
+    await rejects(
+      t.saveDraft({ code, token: newSessionToken(), yearNumber: 1, decisions: decisionsFor(1, 'forged') }),
+      'BAD_TOKEN', 'an unrecognised token cannot save a draft');
+    await rejects(
+      t.saveDraft({ code, token: p0.teamToken, yearNumber: 2, decisions: decisionsFor(2, 'stale') }),
+      'WRONG_YEAR', 'a draft for a year that is not the room\'s current one is refused');
+
+    const saved = await t.saveDraft({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'first-draft') });
+    ok(typeof saved.savedAt === 'number' && saved.savedAt > 0, 'saveDraft returns a savedAt timestamp');
+
+    const mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.you.draft?.yearNumber, 1, "the saving team's own read carries the draft, for the right year");
+    eq((mine.you.draft?.decisions as { marker?: string } | undefined)?.marker, 'first-draft',
+      'and the exact decisions just saved');
+    eq(mine.you.draft?.savedAt, saved.savedAt, 'and the same savedAt saveDraft returned');
+
+    // Overwritten, not accumulated — one slot per team, not a history.
+    const resaved = await t.saveDraft({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'second-draft') });
+    const after = await t.read({ code, token: p0.teamToken });
+    eq((after.you.draft?.decisions as { marker?: string } | undefined)?.marker, 'second-draft',
+      'a second save replaces the first rather than keeping both');
+    eq(after.you.draft?.savedAt, resaved.savedAt, 'and the newer savedAt');
+
+    const other = await t.read({ code, token: p1.teamToken });
+    ok(other.you.draft === undefined, "a DIFFERENT team's read never carries this team's draft");
+
+    const host = await t.read({ code });
+    ok(!JSON.stringify(host.room).includes('second-draft'), "the host's room view never carries a draft");
+
+    const watched = await t.read({ code, token: viewer.teamToken });
+    ok(watched.you.draft === undefined, "a VIEWER watching this team never carries its draft");
+
+    // ⚠ A LOCKED YEAR ALWAYS WINS OVER ITS DRAFT. Locking the year deletes the
+    // draft in the same write (server/rooms.ts's submit, localTransport.ts's
+    // submit) — the whole point of the mechanism.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'locked-in') });
+    const postLock = await t.read({ code, token: p0.teamToken });
+    ok(postLock.you.draft === undefined, 'locking the year makes the draft disappear');
+
+    await rejects(
+      t.saveDraft({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'too-late') }),
+      'INVALID_REQUEST', 'saving a draft for an already-locked year is refused');
+  }
+
+  // ---- UNDO LOCK -------------------------------------------------------
+  //
+  // ⚠ A HOST ACTION, NOT A PLAYER ONE. Reopens a team's current year after it
+  // locked by submitting decisions; the decisions themselves are left
+  // untouched, so the team's form reopens on exactly what it submitted. And
+  // the undo must actually reach market-share computation
+  // (storeSharesIfComplete/roomSharesFor) — not just the UI's "locked" flag —
+  // which is the whole reason localTransport.ts gained its own lockedYears
+  // map alongside the one DynamoDB already had.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+
+    await rejects(
+      t.undoLock({ code, token: p0.teamToken, teamName: TEAMS[0], yearNumber: 1 }),
+      'NOT_HOST', "a team's own token cannot undo its own lock");
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: 'Nobody FC', yearNumber: 1 }),
+      'TEAM_NOT_FOUND', 'undoing a lock for an unknown team is refused');
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 }),
+      'INVALID_REQUEST', 'a team that has not locked has nothing to undo');
+
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'first-lock') });
+    let mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.locked, true, 'the team is locked after submitting decisions');
+
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 2 }),
+      'WRONG_YEAR', "undoing a year that is not the room's current one is refused");
+
+    await t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 });
+    mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.locked, false, "the host's undo reopens the team's lock");
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.lockedYear, null, 'and clears lockedYear');
+    eq((mine.you.decisionsByYear?.['1'] as { marker?: string } | undefined)?.marker, 'first-lock',
+      "the team's submitted decisions are UNTOUCHED — undo reopens editing, it doesn't erase it");
+
+    // Re-locking the same year afterward works normally.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'second-lock') });
+    mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.locked, true, 're-locking the same year after an undo succeeds normally');
+
+    // ⚠ MARKET SHARE: undo it again, advance past year 1, then have p1 (who
+    // never locked year 1 at all — already "stopped" by the existing rule)
+    // post ITS year-1 result. That alone triggers the computation
+    // (storeSharesIfComplete runs inside a result submit, never inside
+    // advance). p0 is now undone and must be treated as "stopped" the SAME
+    // way p1 always was, or the set would wait forever for a result nobody
+    // will ever post against a lock that no longer exists.
+    for (const p of [p0, p1]) await t.submit({ code, token: p.teamToken, yearNumber: 0, result: summaryFor(0, 1_000_000) });
+    await t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 });
+    await step(t, code, hostToken);
+    await t.submit({ code, token: p1.teamToken, yearNumber: 1, result: summaryFor(1, 1_000_000) });
+    const sharesNow = (await t.read({ code, token: hostToken })).room.marketShares;
+    eq(sharesNow?.year, 1, "year 1 completes on p1's post alone — p0 is not waited for, since its lock was undone");
+
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 }),
+      'WRONG_YEAR', 'undoing a year the room has already advanced past is refused');
+  }
+
   // ---- TEAM NUMBERS ------------------------------------------------------
   //
   // The first team to join is Team 1, the next Team 2, and so on — stored with

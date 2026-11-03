@@ -54,11 +54,13 @@ import type {
   ReadRequest, ReadResponse,
   ReclaimTeamRequest, ReclaimTeamResponse,
   RoomStatus, RoomView,
+  SaveDraftRequest, SaveDraftResponse,
   ScheduledShockSpec,
   SessionTransport,
   TeamYearSummary,
   SubmitRequest, SubmitResponse,
   TeamView,
+  UndoLockRequest, UndoLockResponse,
 } from './contract';
 import {
   SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
@@ -322,10 +324,28 @@ interface TeamRecord {
   teamNumber?: number;
   joined: boolean;
   lockedYear: number | null;
+  /**
+   * ⚠ MIRRORS server/views.ts's RosterEntry.lockedYears — added for undoLock.
+   * Before it existed, `decisionsByYear[year] !== undefined` WAS "locked for
+   * year" (storeSharesIfComplete's own inline check), which is exactly what
+   * undoLock must stop being true: it deliberately leaves `decisionsByYear`
+   * untouched (so a team's form reopens on what it submitted, not a reset),
+   * so "locked" needs a flag independent of "has decisions on file." Year
+   * number (as a string key) -> whether the team is currently locked for it.
+   */
+  lockedYears?: Record<string, boolean>;
   // Year number (as a string key, per JSON) -> that year's submitted decisions.
   // Stored whole and never read here (uw-hybrid's two sliders changed only
   // contract.ts's shape, not this store).
   decisionsByYear: Record<string, JsonValue>;
+  /**
+   * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING, AND ONE SLOT, NOT A
+   * HISTORY LIKE decisionsByYear ABOVE. A team has at most one live draft, for
+   * whichever year the room is currently deciding; saveDraft overwrites this
+   * whole, submit's decisions branch deletes it (see submit() — that is what
+   * makes a locked year always win over its draft).
+   */
+  draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
   // Year number (as a string key, per JSON) -> that year's posted summary.
   resultsByYear: Record<string, TeamYearSummary>;
 }
@@ -615,6 +635,12 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
   if (Object.keys(team.decisionsByYear).length > 0) {
     view.decisionsByYear = { ...team.decisionsByYear };
   }
+  // ⚠ PLAYER ONLY, NOT A VIEWER — callerView is called with the SAME team
+  // object for a viewer watching it, so the role check is what keeps a
+  // viewer from ever seeing a draft it has no form to restore into.
+  if (role === 'player' && room && team.draft && team.draft.yearNumber === room.currentYear) {
+    view.draft = { ...team.draft };
+  }
   const postedYears = Object.keys(team.resultsByYear)
     .map(Number)
     .filter(Number.isFinite)
@@ -645,7 +671,11 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
 function storeSharesIfComplete(room: RoomRecord, year: number): void {
   const set = roomSharesFor(year, room.teams.filter(t => t.joined).map(t => ({
     name: t.name,
-    lockedYear: t.decisionsByYear[String(year)] !== undefined,
+    // ⚠ THE FLAG, PREFERRED OVER INFERENCE — same fallback shape rooms.ts's
+    // own storeSharesIfComplete already uses. A team written before
+    // lockedYears existed has none, and keeps reading "locked" from whether
+    // it has decisions on file, same as every room did before undoLock.
+    lockedYear: t.lockedYears ? t.lockedYears[String(year)] === true : t.decisionsByYear[String(year)] !== undefined,
     results: t.resultsByYear,
   })), room.lines ?? LINE_ORDER);
   if (!set || !mayStoreShares(room.marketSharesByYear, year, Object.keys(set.byTeam).length)) return;
@@ -968,6 +998,7 @@ export class LocalSessionTransport implements SessionTransport {
         teamNumber: room.nextTeamNumber ?? teamNumbers(room.teams).next,
         joined: true,
         lockedYear: null,
+        lockedYears: {},
         decisionsByYear: {},
         resultsByYear: {},
       };
@@ -1094,6 +1125,38 @@ export class LocalSessionTransport implements SessionTransport {
     }, true); // exclusive — reads then writes the room's secret-adjacent index
   }
 
+  /**
+   * ⚠ A HOST ACTION, NOT A TEAM ONE — see contract.ts's UndoLockRequest.
+   * Leaves decisionsByYear untouched, same reasoning as server/rooms.ts's
+   * own undoLock: the team's form reopens on what it submitted, not a reset.
+   */
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') {
+        throw new SessionError('NOT_HOST', 'Only the host may undo a lock.');
+      }
+      if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+      const name = req.teamName.trim();
+      const team = room.teams.find(t => t.name === name);
+      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      if (req.yearNumber !== room.currentYear) {
+        throw new SessionError(
+          'WRONG_YEAR',
+          `The room is on year ${room.currentYear}; that lock is for year ${req.yearNumber}.`,
+        );
+      }
+      if (team.lockedYear !== room.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is not locked, so there is nothing to undo.');
+      }
+      team.lockedYear = null;
+      if (team.lockedYears) team.lockedYears[String(req.yearNumber)] = false;
+      saveRoom(room);
+      return { room: roomView(room) };
+    }, true);
+  }
+
   submit(req: SubmitRequest): Promise<SubmitResponse> {
     return this.call(() => {
       const room = loadRoom(req.code);
@@ -1120,6 +1183,13 @@ export class LocalSessionTransport implements SessionTransport {
         // what makes a reload able to replay what was actually played.
         team.decisionsByYear[String(req.yearNumber)] = req.decisions;
         team.lockedYear = req.yearNumber;
+        if (!team.lockedYears) team.lockedYears = {};
+        team.lockedYears[String(req.yearNumber)] = true;
+        // ⚠ THE DRAFT DIES WITH THE LOCK. A locked year always wins over its
+        // draft (contract.ts's CallerView.draft) — deleting it here, in the
+        // same saveRoom this whole method already ends with, is what makes
+        // that true rather than merely usually true.
+        delete team.draft;
       }
 
       if (req.result !== undefined) {
@@ -1151,6 +1221,37 @@ export class LocalSessionTransport implements SessionTransport {
 
       saveRoom(room);
       return { room: roomView(room, role, team.name), you: callerView(role, team, room) };
+    }, true);
+  }
+
+  /**
+   * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. NOT submit: this never
+   * locks a year and is not a second way to edit one already locked — see
+   * SaveDraftRequest. Mirrors server/rooms.ts's saveDraft rule for rule: the
+   * same WRONG_YEAR/INVALID_REQUEST guards, checked against this room rather
+   * than conditioned, since there is nothing here for a condition to race
+   * against (navigator.locks already makes this whole call exclusive).
+   */
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role, team } = callerOf(room, req.token);
+      if (role !== 'player' || !team) {
+        throw new SessionError('BAD_TOKEN', 'Only a team player may save a draft.');
+      }
+      if (req.yearNumber !== room.currentYear) {
+        throw new SessionError(
+          'WRONG_YEAR',
+          `The room is on year ${room.currentYear}; that draft is for year ${req.yearNumber}.`,
+        );
+      }
+      if (team.lockedYear === room.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is already locked in — a draft cannot replace it.');
+      }
+      const savedAt = Date.now();
+      team.draft = { yearNumber: req.yearNumber, decisions: req.decisions, savedAt };
+      saveRoom(room);
+      return { savedAt };
     }, true);
   }
 

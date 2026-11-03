@@ -51,7 +51,7 @@ import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, type EventSta
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
-import { decisionsForYear, decisionsToJson } from '../client/decisions';
+import { decisionsForYear, decisionsFromJson, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
 import MarketSurveyTab from './MarketSurveyTab';
 import GameShell from '../../game/GameShell';
@@ -215,12 +215,22 @@ export default function PlayScreen({ code, role }: Props) {
   const [reclaimError, setReclaimError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decisions, setDecisions] = useState<DecisionSet | null>(null);
+  // Auto-save (Mike's device-switching guide, Step 5): "Saving…"/"Saved",
+  // shown beside the status strip's locked/open indicator.
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const lastSavedDecisions = useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('decisions');
   const [lineView, setLineView] = useState<LineView>('pool');
 
   const { room, you, error, loading, refresh } = useRoom(code, token);
   const game = useSessionGame(code, room, you, token);
+
+  // ⚠ HOISTED ABOVE EVERY EARLY RETURN BELOW, because the auto-save effect
+  // further down needs `locked` and hooks cannot follow a conditional return.
+  // Null-safe: `room`/`you` are not yet known this early in a fresh mount.
+  const myTeam = room?.teams.find(t => t.name === you?.teamName);
+  const locked = myTeam?.locked ?? false;
 
   // ⚠ SET HERE, NEVER INFERRED FROM error ALONE — error.code is BAD_TOKEN for
   // this AND for a stray/forged token that never belonged to anyone, and the
@@ -250,6 +260,19 @@ export default function PlayScreen({ code, role }: Props) {
     if (!room || you?.role !== role) return;
     if (seededYear.current === room.currentYear) return;
     seededYear.current = room.currentYear;
+    // ⚠ A SAVED DRAFT WINS OVER CARRY-FORWARD, THE FIRST TIME THIS YEAR IS
+    // SEEDED. This runs exactly once per year transition, before anything is
+    // held locally for that year yet, so the draft (if any) is always "newer
+    // than anything held locally" in the simple sense Mike's guide asks for —
+    // see CallerView.draft, which is never present for an already-locked year.
+    if (you.draft && you.draft.yearNumber === room.currentYear) {
+      const restored = { ...decisionsFromJson(you.draft.decisions), yearNumber: room.currentYear } as DecisionSet;
+      setDecisions(restored);
+      // Primed so the auto-save effect below does not immediately re-POST
+      // content that is already saved.
+      lastSavedDecisions.current = JSON.stringify(restored);
+      return;
+    }
     // Seeding the editable set is the same question the replay asks: what was
     // this team playing in this year? For an unlocked year that is the most
     // recent lock before it — carry-forward, unchanged in meaning.
@@ -257,6 +280,30 @@ export default function PlayScreen({ code, role }: Props) {
     // switch is whether anything is scheduled (shockLosses.gameShocksOn).
     setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0));
   }, [room, you, role]);
+
+  // ---- auto-save the current year's draft (Mike's guide, Step 5) ----------
+  //
+  // ⚠ ONE EFFECT, NOT A TIMER AND A LISTENER SPLIT ACROSS TWO. Both the
+  // 3-second debounce and a tab-hide flush must land on the exact same
+  // "has anything changed since the last save" check at the moment they
+  // actually fire — not at schedule time — or a repeated hide/show with no
+  // edits in between would re-POST identical content on every hide.
+  useEffect(() => {
+    if (isViewer || !room || !decisions || !token || locked) return;
+    function save() {
+      const json = JSON.stringify(decisions);
+      if (json === lastSavedDecisions.current) return;
+      setDraftStatus('saving');
+      void sessionTransport().saveDraft({
+        code, token: token!, yearNumber: room!.currentYear, decisions: decisionsToJson(decisions!),
+      }).then(() => { lastSavedDecisions.current = json; setDraftStatus('saved'); })
+        .catch(() => setDraftStatus('idle'));
+    }
+    const id = window.setTimeout(save, 3000);
+    function onVisibility() { if (document.hidden) { window.clearTimeout(id); save(); } }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { window.clearTimeout(id); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [isViewer, room, decisions, token, locked, code]);
 
   async function enter(teamName: string) {
     setClaiming(teamName);
@@ -596,8 +643,8 @@ export default function PlayScreen({ code, role }: Props) {
     );
   }
 
-  const myTeam = room.teams.find(t => t.name === you.teamName);
-  const locked = myTeam?.locked ?? false;
+  // myTeam/locked are hoisted above this component's early returns — see the
+  // auto-save effect's note near the top of this function.
   const complete = room.status === 'complete';
   const outstanding = room.teams.filter(t => t.joined && !t.locked).map(teamLabel);
   const processing = game.phase === 'processing';
@@ -695,6 +742,17 @@ export default function PlayScreen({ code, role }: Props) {
             ) : (
               <span data-testid={isViewer ? 'viewer-open' : undefined} className="flex items-center gap-1.5 text-slate-500">
                 <Clock size={13} /> {isViewer ? `Still deciding Program Year ${room.startingYear + room.currentYear - 1}` : 'Open for decisions'}
+              </span>
+            )}
+
+            {/* ⚠ PLAYER ONLY, NEVER ONCE LOCKED — a locked year's decisions
+                are submitted, not drafted, and a draft never outlives the
+                lock (contract.ts's CallerView.draft). */}
+            {!isViewer && !locked && !complete && draftStatus !== 'idle' && (
+              <span className="flex items-center gap-1.5 text-slate-500" data-testid="draft-status">
+                {draftStatus === 'saving'
+                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                  : <><CheckCircle2 size={13} /> Saved</>}
               </span>
             )}
 
