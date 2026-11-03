@@ -30,9 +30,17 @@ export function adverseDevelopmentRate(
   return lo + adverseDevelopmentUniform(gameSeed, line, valuationYear, accidentYear) * (hi - lo);
 }
 
-/** The level a game develops a line at: the setup's, or the default — null where the setup says Off (single player). */
-export const developmentLevelOf = (setup: Pick<GameSetupSettings, 'developmentLevels'>, line: CoverageLine): DevelopmentLevel | null => {
-  const s = setup.developmentLevels?.[line] ?? ADVERSE_DEVELOPMENT_DEFAULT_LEVEL;
+/**
+ * The level a game develops a line at in a year: the year's own where an edit
+ * set one (developmentLevelsByYear, wip/mid-game-edits), else the setup's, else
+ * the default — null where it says Off (single player). `yearNumber` absent
+ * reads the setup's, as before.
+ */
+export const developmentLevelOf = (
+  setup: Pick<GameSetupSettings, 'developmentLevels' | 'developmentLevelsByYear'>, line: CoverageLine, yearNumber?: number,
+): DevelopmentLevel | null => {
+  const s = (yearNumber !== undefined ? setup.developmentLevelsByYear?.[String(yearNumber)]?.[line] : undefined)
+    ?? setup.developmentLevels?.[line] ?? ADVERSE_DEVELOPMENT_DEFAULT_LEVEL;
   return s === 'Off' ? null : s;
 };
 

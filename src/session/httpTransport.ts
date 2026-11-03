@@ -169,6 +169,7 @@ import type {
   ReclaimTeamRequest, ReclaimTeamResponse,
   SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
+  EditGameRequest, EditGameResponse,
   SessionErrorCode,
   SessionTransport,
   SubmitRequest, SubmitResponse,
@@ -288,6 +289,10 @@ export class HttpSessionTransport implements SessionTransport {
 
   setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse> {
     return this.call('setEventHidden', req);
+  }
+
+  editGame(req: EditGameRequest): Promise<EditGameResponse> {
+    return this.call('editGame', req);
   }
 
   // ---- the one place a request becomes a request ------------------------

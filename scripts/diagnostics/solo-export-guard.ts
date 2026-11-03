@@ -1130,7 +1130,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // against 0b4f5a5's own text (GUARD_TEXT_DIR): no other line moves — the
 // guard's games are built on their own ids, not on a scenario number, so no
 // figure, label or row could.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v119.json');
+// v121: MID-GAME EDITS (pr/mid-game-edits, from aws 4b0683a; numbered past
+// every export baseline on any branch — v120 is taken). Games that never edit
+// play exactly as before. The control: the same tree with the save key put
+// back to v45 reproduces v119 on all 48 keys. With it at v47, 24 of 48 move,
+// and only in one line: the Version row (save key v45 -> v47; v46 is reserved
+// for pr/clf-stretch). Text-diffed (GUARD_TEXT_DIR) v45 against v47: 48 lines
+// differ, every one the Version row.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v121.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

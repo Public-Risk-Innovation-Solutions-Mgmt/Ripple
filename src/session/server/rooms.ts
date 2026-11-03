@@ -133,6 +133,7 @@ import type {
   ReclaimTeamRequest, ReclaimTeamResponse,
   SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
+  EditGameRequest, EditGameResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
@@ -145,6 +146,7 @@ import {
 import { Faults } from '../faults';
 import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
+import { applyGameEdit, GameEditError } from '../../utils/gameEdits';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
   attemptSk, createPk, decisionPrefix, decisionSk, draftSk, handoffSk, lobbyEventPath, nameSk, pinPk,
@@ -1678,6 +1680,68 @@ export class DynamoSessionTransport implements SessionTransport {
       await this.writeLobbyRow(header);
       const view = await this.viewFor(header, 'host', null);
       return { room: view.room };
+    });
+  }
+
+  editGame(req: EditGameRequest): Promise<EditGameResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      if (!req.years || typeof req.years !== 'object') {
+        throw new SessionError('INVALID_REQUEST', 'years must be an object of year settings.');
+      }
+      const h = hashToken(req.token);
+      // ⚠ READ, DECIDE, THEN WRITE CONDITIONED ON WHAT WAS READ — the host's
+      // hash, the room's rev and its current year — so an edit cannot land on a
+      // room that advanced (or was edited) between the read and the write and
+      // change a year that has since been played. A lost race re-reads and
+      // decides again, as join does.
+      let lastFailure: SessionError | null = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const header = await this.getHeader(code);
+        if (header.hostTokenHash !== h) throw new SessionError('NOT_HOST', 'Only the host may change the game.');
+        if (header.currentYear > header.yearCount) throw new SessionError('GAME_COMPLETE', 'The game is over: no year is left to change.');
+        const lines = header.lines ?? ['WC', 'GL', 'Property'] as CoverageLine[];
+        let out;
+        try {
+          out = applyGameEdit(
+            { developmentLevels: header.developmentLevels ?? {}, developmentLevelsByYear: header.developmentLevelsByYear, shocks: header.shocks ?? [] },
+            req.years,
+            { firstEditable: header.currentYear, yearCount: header.yearCount, lines, by: 'Host', now: Date.now() },
+          );
+        } catch (e) {
+          if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+          throw e;
+        }
+        const lockedTeams = Object.values(header.roster).filter(t => t.lockedYear === header.currentYear).map(t => t.name);
+        if (out.edits.length === 0) {
+          const view = await this.viewFor(header, 'host', null);
+          return { room: view.room, edits: [], lockedTeams };
+        }
+        try {
+          await this.db.doc.send(new UpdateCommand({
+            TableName: this.db.table,
+            Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
+            UpdateExpression: 'SET shocks = :s, developmentLevelsByYear = :d, shocksOn = :on, editHistory = :hist, updatedAt = :now ADD rev :one',
+            ConditionExpression: 'attribute_exists(sk) AND hostTokenHash = :h AND rev = :rev AND currentYear = :cy',
+            ExpressionAttributeValues: {
+              ':s': out.settings.shocks,
+              ':d': out.settings.developmentLevelsByYear ?? {},
+              // Pinned from the schedule as it stood before the first edit.
+              ':on': header.shocksOn ?? (header.shocks ?? []).length > 0,
+              ':hist': [...(header.editHistory ?? []), ...out.edits],
+              ':now': Date.now(), ':one': 1, ':h': h, ':rev': header.rev, ':cy': header.currentYear,
+            },
+          }));
+        } catch (err) {
+          if (!(err instanceof ConditionalCheckFailedException)) throw err;
+          lastFailure = new SessionError('TRANSPORT_FAILURE', 'The room changed while the edit was being made.', true);
+          continue;
+        }
+        const fresh = await this.getHeader(code);
+        const view = await this.viewFor(fresh, 'host', null);
+        return { room: view.room, edits: out.edits, lockedTeams };
+      }
+      throw lastFailure ?? new SessionError('TRANSPORT_FAILURE', 'The room kept changing under this edit.', true);
     });
   }
 

@@ -370,6 +370,19 @@ Resources:
       AuthorizationType: NONE
       ApiKeyRequired: false
 
+  # The host's mid-game edits (wip/mid-game-edits): host token in the body,
+  # like setEventHidden. Without this route the "Edit game" panel 404s.
+  EditGameRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /editGame"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
   SessionInvokePermission:
     Type: AWS::Lambda::Permission
     DeletionPolicy: Retain

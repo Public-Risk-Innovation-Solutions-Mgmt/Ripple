@@ -21,6 +21,8 @@ import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { loadActive, loadHeld, rememberHostToken, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { eventStatusOf, teamLabel } from '../contract';
+import { EditGamePanel } from '../../components/EditGamePanel';
+import type { YearSettings } from '../../utils/gameEdits';
 
 interface Props {
   code: string;
@@ -437,6 +439,29 @@ export default function HostRoomScreen({ code }: Props) {
                 </button>
               </>
             )}
+          </div>
+        )}
+
+        {/* ---- the host's mid-game edits (wip/mid-game-edits) ---- */}
+        {isHost && room && hostToken && (
+          <div className="mt-4">
+            <EditGamePanel
+              lines={room.lines}
+              yearCount={room.yearCount}
+              startingYear={room.startingYear}
+              firstEditable={room.currentYear}
+              settings={{ developmentLevels: room.developmentLevels ?? {}, developmentLevelsByYear: room.developmentLevelsByYear, shocks: room.shocks }}
+              lockedTeams={teams.filter(t => t.locked).map(teamLabel)}
+              history={room.editHistory ?? []}
+              onApply={async (years: Record<string, YearSettings>) => {
+                try {
+                  await sessionTransport().editGame({ code, token: hostToken, years });
+                  refresh();
+                } catch (e) {
+                  throw new Error(isSessionError(e) ? e.message : String(e));
+                }
+              }}
+            />
           </div>
         )}
       </div>

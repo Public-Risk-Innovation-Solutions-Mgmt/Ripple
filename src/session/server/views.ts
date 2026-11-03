@@ -26,7 +26,7 @@
 // ============================================================================
 
 import type {
-  CallerRole, CallerView, JsonValue, PriorDevelopment, DevelopmentLevels, RoomMarketShares, RoomStatus, RoomView,
+  CallerRole, CallerView, GameEdit, JsonValue, PriorDevelopment, DevelopmentLevels, RoomMarketShares, RoomStatus, RoomView,
   ScheduledShockSpec, TeamView, TeamYearSummary,
 } from '../contract';
 import { teamNumbers } from '../contract';
@@ -113,6 +113,10 @@ export interface RoomHeader {
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
   developmentLevels?: DevelopmentLevels;
+  /** Mid-game edits (EditGameRequest). Absent on a header never edited. */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
+  shocksOn?: boolean;
+  editHistory?: GameEdit[];
   /** Taken off the lobby by the host. Absent reads as false. */
   hidden?: boolean;
   currentYear: number;
@@ -256,6 +260,9 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     lines: [...(header.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(header.priorDevelopment ?? {}) },
     ...(header.developmentLevels ? { developmentLevels: { ...header.developmentLevels } } : {}),
+    ...(header.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(header.developmentLevelsByYear)) } : {}),
+    ...(header.shocksOn !== undefined ? { shocksOn: header.shocksOn } : {}),
+    ...(role === 'host' && header.editHistory ? { editHistory: header.editHistory.map(e => ({ ...e })) } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),

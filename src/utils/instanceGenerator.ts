@@ -148,6 +148,15 @@ export function scenarioInstance(id: string, scheduledShocks: readonly Scheduled
 // agree too, and the room record needs no new field. Each entry has its own
 // labelled stream (event, year, ordinal among the same event that year), so
 // one entry's region never moves another's. A region already given is kept.
+/**
+ * A schedule with every regional event's region resolved — the rule
+ * generateGameInstance applies, exported for a Test player game edited mid-way
+ * (utils/soloGameEdit.ts). An entry that already carries a region keeps it; a
+ * new one draws on its own (event, year, ordinal) stream, so adding or removing
+ * one event never moves another's region.
+ */
+export const scheduleWithRegions = (seed: number, schedule: readonly ScheduledShock[]): ScheduledShock[] => withRegions(seed, schedule);
+
 function withRegions(seed: number, schedule: readonly ScheduledShock[]): ScheduledShock[] {
   const ordinals = new Map<string, number>();
   return schedule.map(s => {

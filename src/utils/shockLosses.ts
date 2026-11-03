@@ -489,10 +489,14 @@ export const shockTimingOf = (setup: { shockTiming?: 'host' | 'solo' }): ShockTi
 // draw. At the catalogue's odds a ten-year game draws no event about one time
 // in fifteen; read off the schedule, that game would hide the covers and its
 // shock expectation — telling the player nothing will fire.
+// ⚠ `shocksOn`, WHERE SET, IS THE SWITCH PINNED AT SETUP (wip/mid-game-edits):
+// a game edited mid-way reads it in place of the schedule's length, so a shock
+// added to — or the last removed from — a game cannot flip pricing for every
+// year on replay. Absent on every game never edited.
 export const gameShocksOn = (
-  setup: { shockTiming?: 'host' | 'solo' }, instance: { scheduledShocks?: readonly unknown[] },
+  setup: { shockTiming?: 'host' | 'solo'; shocksOn?: boolean }, instance: { scheduledShocks?: readonly unknown[] },
 ): boolean => shockTimingOf(setup) === 'catalogue' || (setup.shockTiming === 'solo' && SOLO_SHOCKS.enabled)
-  || (instance.scheduledShocks?.length ?? 0) > 0;
+  || (setup.shocksOn !== undefined ? setup.shocksOn : (instance.scheduledShocks?.length ?? 0) > 0);
 
 /**
  * MEMBER WITHDRAWAL: 25% of the line's exposure leaves at this renewal.
