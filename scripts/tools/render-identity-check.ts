@@ -369,6 +369,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   static: the pre-game re-rolled twice under it and it did not notice.
 //
 //   18 HELD, and they are the screens with no number and no document on them.
+// v123: MID-GAME EDITS (pr/mid-game-edits, from aws 4b0683a; numbered past
+// every render baseline on any branch — v122 is taken). Games that never edit
+// render as before. The control: the same tree built with the save key put
+// back to v45 reproduces v121, 174 of 174. With it at v47, 26 of 174 move, all
+// Year Walkthrough; their text (RENDER_TEXT_DIR), with the save key
+// normalized, is identical on both sides — the only change is
+// "riskpool_gamestate_v45" -> "riskpool_gamestate_v47". No key added or removed.
 const BASELINE = process.env.RENDER_BASELINE
 //
 // ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
@@ -1757,7 +1764,7 @@ const BASELINE = process.env.RENDER_BASELINE
 // move, all Year Walkthrough, and only in "riskpool_gamestate_v44" ->
 // "riskpool_gamestate_v45". Every configuration plays scenario 7, whose seed
 // is kept, so no figure moved. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v121.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v123.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

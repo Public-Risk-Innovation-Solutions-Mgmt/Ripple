@@ -12,7 +12,9 @@ Liability, Property). Events ("shocks") are drawn automatically; there is no adv
 Locking a year plays it at once. Decisions carry into the next year; the game saves in the browser.
 
 **Test player** (also on `/solo`). Single player on the host's setup form: the person sets the shock schedule and
-an adverse-development level per line, and the Year Walkthrough shows the scenario's seed. No sign-in.
+an adverse-development level per line, and the Year Walkthrough shows the scenario's seed. No sign-in. During the
+game an "Edit game" button opens the host's mid-game panel (section 2), with the same rules; the history reads
+"Test player". Single player has no such panel.
 
 Both show: Introduction · Rate Indication · Annual Statement · Decisions · Decision History · Year Walkthrough.
 
@@ -68,6 +70,14 @@ until the host's first advance; after that only rejoins and viewers.
 4. After the advance each team's browser notices within seconds, plays the year, and posts a results summary.
    The opening position (year 0) is posted when a team first loads.
 
+**Mid-game edits.** The host's Game Setup tab has an "Edit game" panel listing the current year and every
+later year: each year's shock events (add or remove) and each line's adverse development level (None / Low / Mid /
+High; a level set in a year applies from that year onward). Played years are not listed and cannot be changed.
+If any team has already locked the current year, the host is told which and can apply anyway; their decisions
+stand and the year plays on the new settings. Every team gets the same change. Teams are not told: a development
+change shows only in their results, and a shock through the news banner in its year, as any shock does. The room
+records each change (who, what, which year, when), shown to the host only.
+
 **A team that never locks** is still played, on its most recent locked decisions (or the defaults if it never
 locked). It posts only while its browser is open; until then its row reads "[year] not reported yet". Loans are
 always declined in hosted games.
@@ -82,12 +92,15 @@ stores settings, decisions and posted summaries, moves the year, and works out m
 
 **Rebuilt, not saved.** On every load, on any device, a hosted team's browser rebuilds the game from the room's
 scenario, lines, shocks and development levels, then replays each played year on that year's stored decisions
-(`buildTeamGame`, `replayTeamYears`), so a new device lands in the same place. Single player saves decisions and averaged results in the browser and replays them on reload.
+(`buildTeamGame`, `replayTeamYears`), so a new device lands in the same place. Each year replays on the settings
+in force in it — the shock schedule is kept by year, and a mid-game edit stores levels by year
+(`developmentLevelsByYear`) — so an edit never changes a played year. A room never edited reads its setup
+settings for every year. Single player saves decisions and averaged results in the browser and replays them on reload.
 
 **100 worlds.** Each year runs in 100 worlds sharing decisions, the rate and the events, differing in loss luck
 and investment returns. Screens show averages and a surplus range.
 
-**Stored per room:** settings and shock schedule, the current year, the roster (name, number, lines, locked and
+**Stored per room:** settings and shock schedule (with any mid-game levels by year and the edit history), the current year, the roster (name, number, lines, locked and
 posted years, hashed credentials, viewer PIN) and market shares by year. **Per team, per year:** the locked
 decisions and a posted summary (surplus, combined ratio, premium to surplus, rate and change, admin ratio, loss
 figures, the decisions played). Full results, claims and the worlds are never stored — they are replayed.
@@ -155,6 +168,9 @@ an aggregate cover (none, 110/50, 125/50, 150/50); loan repayment while a loan i
 - **Shocks:** single player draws from a 12-event catalogue (about 0.3 a year, from year 2); hosted rooms use
   the host's schedule. An event can surge a line's normal losses, add one large claim, strengthen old reserves,
   cut investment returns, or take 25% of the book.
+  ⚠ Whether a game prices for shocks is fixed when it starts: one set up with no events and given one mid-game
+  has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
+  is pinned at the first edit so replays agree).
 - **Large claims** come only from those events.
 - **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate.
 - **Per-claim covers** pay on large claims; **the aggregate cover** pays on the year's attritional losses (normal
