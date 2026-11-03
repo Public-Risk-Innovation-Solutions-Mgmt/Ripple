@@ -244,6 +244,8 @@ const FAST: string[] = [
   'admin-share-check',               //  30s   admin exactly 20% of premium every year; pure premium unchanged by it
                                      //         (2027), priced and booked alike, pre-game included;
                                      //         three controls
+  'mid-game-edit-check',             //  40s   a host's edit to the current or a later year leaves every played year
+                                     //         byte-identical on a rebuild, and takes in its own year; three controls
   'decision-figures-check',          //   8s   the Decisions page's dollar figures are the engine's: the
                                      //         premium turned away and the new business let in match
                                      //         processYear's own movement, the risk control cost is the

@@ -646,6 +646,23 @@ export interface GameSetupSettings {
    */
   developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
   /**
+   * THE LEVELS IN FORCE BY YEAR, where an edit made mid-game changed them
+   * (wip/mid-game-edits; utils/gameEdits.ts): year (a string, as JSON keys
+   * are) -> each line's level. A year with no entry, or a line absent from its
+   * entry, reads `developmentLevels`. Absent on every game never edited.
+   */
+  developmentLevelsByYear?: Record<string, Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>>;
+  /**
+   * THE SHOCK SWITCH, PINNED AS IT STOOD AT SETUP (wip/mid-game-edits): read by
+   * gameShocksOn in place of "is the schedule non-empty", so adding a shock to a
+   * game set up without any — or removing the last — cannot flip pricing for
+   * every year on replay. Set the first time a game is edited; absent on every
+   * game never edited, which reads the schedule as before.
+   */
+  shocksOn?: boolean;
+  /** A Test player game's change history (utils/gameEdits.ts GameEdit). Absent until it is edited. */
+  gameEdits?: { at: number; by: string; yearNumber: number; kind: 'shock-added' | 'shock-removed' | 'development'; shockId?: string; line?: CoverageLine; from?: 'Low' | 'Mid' | 'High' | 'Off'; to?: 'Low' | 'Mid' | 'High' | 'Off' }[];
+  /**
    * A TEST PLAYER GAME (the host's setup played solo). Read by the display
    * alone — the Year Walkthrough shows the scenario's fixed seed in a Test
    * player game and never in single player. Nothing in the engine reads it;

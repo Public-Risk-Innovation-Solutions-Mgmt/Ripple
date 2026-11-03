@@ -581,7 +581,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     const rng = memberLuckRng(inst.seed, s.y, l);
     return mean(Array.from({ length: UNDERWRITING_MEMBERS }, () => drawOrdinaryFactor(rng, MEMBER_LUCK_CV)));
   });
-  const level = ADVERSE_DEVELOPMENT.enabled ? developmentLevelOf(s.gs.setup, l) : null;
+  const level = ADVERSE_DEVELOPMENT.enabled ? developmentLevelOf(s.gs.setup, l, s.y) : null;
   const openAys = (p?.reserveSplitByYear ?? []).map(x => x.yearNumber).filter(x => x < s.y);
   const schedule = (s.gs.instance.scheduledShocks ?? []).filter(x => x.yearNumber === s.y);
   const drawRows: WalkRow[] = [

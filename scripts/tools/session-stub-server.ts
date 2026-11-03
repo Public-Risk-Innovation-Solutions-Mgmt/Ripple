@@ -110,10 +110,10 @@ const STATUS: Record<SessionErrorCode, number> = {
 
 type Endpoint =
   | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'submit' | 'advance' | 'read'
-  | 'listEvents' | 'setEventHidden';
+  | 'listEvents' | 'setEventHidden' | 'editGame';
 const ENDPOINTS: Endpoint[] = [
   'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'submit', 'advance', 'read',
-  'listEvents', 'setEventHidden',
+  'listEvents', 'setEventHidden', 'editGame',
 ];
 
 function send(res: ServerResponse, status: number, body: unknown): void {

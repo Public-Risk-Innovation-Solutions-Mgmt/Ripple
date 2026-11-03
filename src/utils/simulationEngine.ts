@@ -3716,7 +3716,7 @@ export function processYear(
         : gameState.setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
       // Played years only; the pre-game never reaches processYear.
       developmentLevel: ADVERSE_DEVELOPMENT.enabled && yearNumber >= 1
-        ? developmentLevelOf(gameState.setup, line) : null,
+        ? developmentLevelOf(gameState.setup, line, yearNumber) : null,
       allMarketMembers: currentAllMarketMembers,
       membershipHistory,
       // Ends at yearNumber - 1 — see the field's note on LineYearContext.

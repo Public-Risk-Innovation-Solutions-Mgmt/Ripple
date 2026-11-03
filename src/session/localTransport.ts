@@ -47,6 +47,7 @@ import type {
   EventStatus,
   ListEventsResponse, LobbyEvent,
   SetEventHiddenRequest, SetEventHiddenResponse,
+  EditGameRequest, EditGameResponse, GameEdit,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
@@ -68,6 +69,7 @@ import { Faults } from './faults';
 import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
 import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
+import { applyGameEdit, GameEditError } from '../utils/gameEdits';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
 // /health used to report `store.length` as the room count, which was true while
@@ -351,6 +353,10 @@ interface RoomRecord {
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
   developmentLevels?: DevelopmentLevels;
+  /** Mid-game edits (EditGameRequest): the levels in force by year, the pinned switch, the history. Absent until edited. */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
+  shocksOn?: boolean;
+  editHistory?: GameEdit[];
   /** Taken off the lobby by the host. Absent reads as false — see the contract. */
   hidden?: boolean;
   currentYear: number;
@@ -550,6 +556,9 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     lines: [...(room.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(room.priorDevelopment ?? {}) },
     ...(room.developmentLevels ? { developmentLevels: { ...room.developmentLevels } } : {}),
+    ...(room.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(room.developmentLevelsByYear)) } : {}),
+    ...(room.shocksOn !== undefined ? { shocksOn: room.shocksOn } : {}),
+    ...(role === 'host' && room.editHistory ? { editHistory: room.editHistory.map(e => ({ ...e })) } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
     poolName: room.poolName || room.eventName,
@@ -1276,6 +1285,38 @@ export class LocalSessionTransport implements SessionTransport {
       // rebuild, and `listEvents` filters on it.
       updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
       return { room: roomView(room) };
+    }, true);
+  }
+
+  editGame(req: EditGameRequest): Promise<EditGameResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') throw new SessionError('NOT_HOST', 'Only the host may change the game.');
+      if (room.currentYear > room.yearCount) throw new SessionError('GAME_COMPLETE', 'The game is over: no year is left to change.');
+      if (!req.years || typeof req.years !== 'object') throw new SessionError('INVALID_REQUEST', 'years must be an object of year settings.');
+      const lines = room.lines ?? LINE_ORDER;
+      let out;
+      try {
+        out = applyGameEdit(
+          { developmentLevels: room.developmentLevels ?? {}, developmentLevelsByYear: room.developmentLevelsByYear, shocks: room.shocks },
+          req.years,
+          { firstEditable: room.currentYear, yearCount: room.yearCount, lines, by: 'Host', now: Date.now() },
+        );
+      } catch (e) {
+        if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+        throw e;
+      }
+      const lockedTeams = room.teams.filter(t => t.lockedYear === room.currentYear).map(t => t.name);
+      if (out.edits.length > 0) {
+        // The switch is pinned from the schedule AS IT STOOD before the first edit.
+        if (room.shocksOn === undefined) room.shocksOn = room.shocks.length > 0;
+        room.shocks = out.settings.shocks;
+        if (out.settings.developmentLevelsByYear) room.developmentLevelsByYear = out.settings.developmentLevelsByYear;
+        room.editHistory = [...(room.editHistory ?? []), ...out.edits];
+        saveRoom(room);
+      }
+      return { room: roomView(room, 'host'), edits: out.edits, lockedTeams };
     }, true);
   }
 
