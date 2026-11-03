@@ -1,5 +1,15 @@
 # AWS session handler — handoff
 
+## ⚠ ONE MORE ROUTE: POST /editGame (mid-game edits)
+
+The host's "Edit game" panel (wip/mid-game-edits) calls a new endpoint,
+`POST /editGame`, host token in the body like `setEventHidden`. It is in
+`infra/ripple-backend.yaml` (`EditGameRoute`); a gateway without it 404s and the
+panel reports the change failed. The room header gains three optional
+attributes — `developmentLevelsByYear`, `shocksOn`, `editHistory` — written only
+by an edit; a room never edited carries none and reads exactly as before. Deploy
+the handler first, then the front end, as below.
+
 ## ⚠ TWO NEW ROUTES MIKE MUST ADD
 
 The lobby added two endpoints to the seven-endpoint handler. API Gateway routes

@@ -68,6 +68,8 @@
 // ============================================================================
 
 import type { CoverageLine } from '../types/simulation';
+import type { GameEdit, YearSettings } from '../utils/gameEdits';
+export type { GameEdit, YearSettings } from '../utils/gameEdits';
 
 // ---------------------------------------------------------------- json
 
@@ -749,6 +751,40 @@ export interface SetEventHiddenResponse {
   room: RoomView;
 }
 
+/**
+ * ⚠ THE HOST CHANGES THE GAME MID-WAY (wip/mid-game-edits): the shock schedule
+ * and each line's adverse development level, for the CURRENT year and any
+ * later year. A played year is refused (INVALID_REQUEST) — and it has to be,
+ * because every replay (a reload, a rejoin on another device, a viewer) builds
+ * each year from the room's settings for THAT year, so changing a played one
+ * would change numbers a team already saw. The rules are utils/gameEdits.ts's
+ * applyGameEdit, the one implementation every transport calls.
+ *
+ * `years` carries the WANTED settings for some editable years, each in full
+ * (the year's events and every played line's level); a year absent is left as
+ * it is. An edit that changes nothing writes nothing to the history.
+ *
+ * ⚠ A TEAM THAT HAS ALREADY LOCKED THE CURRENT YEAR IS NOT A REFUSAL. The host
+ * is warned (EditGameResponse.lockedTeams, and the panel names them before the
+ * host confirms), and the change is made: the team's decisions stand and its
+ * year is processed on the new settings when the host advances, like every
+ * other team's. Teams are not told (wip/mid-game-edits rule 4).
+ */
+export interface EditGameRequest {
+  code: string;
+  /** Host token only. */
+  token: string;
+  years: Record<string, YearSettings>;
+}
+
+export interface EditGameResponse {
+  room: RoomView;
+  /** What this call changed, as the history records it — empty when nothing did. */
+  edits: GameEdit[];
+  /** Teams that had already locked the current year when the change was made. */
+  lockedTeams: string[];
+}
+
 // What a team looks like to anyone allowed to see the table.
 //
 // ⚠ PRESENCE AND PROGRESS ONLY — NEVER ANOTHER TEAM'S DECISIONS. The host runs
@@ -895,6 +931,21 @@ export interface RoomView {
   priorDevelopment: PriorDevelopment;
   /** Per-line adverse development level, set by the host. See DevelopmentLevels. */
   developmentLevels?: DevelopmentLevels;
+  /**
+   * THE LEVELS IN FORCE BY YEAR, where the host changed them mid-game
+   * (EditGameRequest): year -> each line's level. A year absent reads
+   * `developmentLevels` — every year, on a room never edited or written before
+   * this existed. Every caller gets it: every team builds its game from it.
+   */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
+  /**
+   * THE SHOCK SWITCH PINNED AT SETUP — written the first time the room is
+   * edited, from the schedule as it stood (see utils/gameEdits.ts). Absent on a
+   * room never edited, which reads its schedule as before.
+   */
+  shocksOn?: boolean;
+  /** THE CHANGE HISTORY (who, what, which year, when) — HOST ONLY; absent for every other caller. */
+  editHistory?: GameEdit[];
   /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
    * existed, which reads as false — not hidden, which is what those rooms were.
@@ -1329,6 +1380,9 @@ export interface SessionTransport {
   // host-only endpoint rather than a flag smuggled onto a call that exists.
   listEvents(req: ListEventsRequest): Promise<ListEventsResponse>;
   setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse>;
+  // ⚠ HOST-ONLY, AND ITS OWN ENDPOINT for the reason setEventHidden is: a write
+  // that is neither a year's advance nor a team's submit. See EditGameRequest.
+  editGame(req: EditGameRequest): Promise<EditGameResponse>;
 }
 
 // ---------------------------------------------------------------- faults

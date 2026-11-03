@@ -76,7 +76,8 @@ import type { SessionTransport } from '../../src/session/contract';
 import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
 import type { CoverageLine } from '../../src/types/simulation';
 import { decisionsForYear, governingYear } from '../../src/session/client/decisions';
-import { buildTeamGame } from '../../src/session/client/buildGame';
+import { buildTeamGame, replayTeamYears } from '../../src/session/client/buildGame';
+import { SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { developmentLevelOf } from '../../src/utils/adverseDevelopment';
 import type {
   RoomView, TeamLineDecisions, TeamYearFigures, TeamYearSummary,
@@ -1538,6 +1539,85 @@ async function main(): Promise<void> {
     eq(retried.rejoined, true, 'retrying a hand-off claim with the same new token is idempotent');
     eq(retried.teamToken, newDeviceToken, 'and hands back the same token, not a failure');
     ok(retried.recoveryCode === undefined, 'and does NOT reissue a second fresh code on the idempotent retry');
+  }
+
+  // ---- MID-GAME EDITS (wip/mid-game-edits) --------------------------------
+  // The host changes the shock schedule and each line's development level for
+  // the current year and later ones. Authority, the rules, the lock warning,
+  // the history (host only), a team reading every year's settings, and the
+  // point of it all: a team rejoining on ANOTHER DEVICE rebuilds from the room
+  // and replays its played years byte-identical, while the edited year plays
+  // on the new settings. A room never edited reads its setup for every year.
+  {
+    const t = transport();
+    const [A, B] = [SHOCK_EVENTS[1].id, SHOCK_EVENTS[4].id];
+    const host = newSessionToken();
+    const made = await t.createRoom({
+      hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: 'Edits', expectedTeams: 2,
+      lines: ['WC', 'GL'], developmentLevels: { WC: 'Low', GL: 'Low' }, shocks: [{ shockId: A, yearNumber: 2 }],
+    });
+    const code = made.code;
+    const alpha = await t.join({ code, teamName: 'Alpha', role: 'player' });
+    const beta = await t.join({ code, teamName: 'Beta', role: 'player' });
+
+    // A ROOM NEVER EDITED — what an older room is — reads its setup for every year.
+    const r0 = await t.read({ code, token: host });
+    eq(r0.room.developmentLevelsByYear === undefined && r0.room.shocksOn === undefined && (r0.room.editHistory ?? []).length === 0, true,
+      'a room never edited carries no settings by year, no pinned switch and no history');
+    const oldBuild = buildTeamGame((await t.read({ code, token: beta.teamToken })).room, beta.lines);
+    eq(oldBuild.gameState.setup.developmentLevelsByYear === undefined && oldBuild.gameState.setup.shocksOn === undefined, true,
+      'a team\'s game from an unedited room reads its setup for every year');
+    const json = (x: unknown) => JSON.stringify(x);
+    const firstPlay = replayTeamYears(oldBuild.gameState, 3, undefined);
+    const playedBefore = [json(oldBuild.opening?.result), ...firstPlay.produced.map(p => json(p.result))];
+
+    await step(t, code, host);
+    await step(t, code, host);
+    // Alpha locks the current year (3) before the host's change.
+    await t.submit({ code, token: alpha.teamToken, yearNumber: 3, decisions: decisionsFor(3, 'a3') });
+
+    const y3 = { developmentLevels: { WC: 'High' as const, GL: 'Low' as const }, shocks: [B] };
+    const y4 = { developmentLevels: { WC: 'High' as const, GL: 'Mid' as const }, shocks: [A, B] };
+    await rejects(t.editGame({ code, token: alpha.teamToken, years: { '3': y3 } }), 'NOT_HOST', 'a team cannot change the game');
+    await rejects(t.editGame({ code, token: host, years: { '2': y3 } }), 'INVALID_REQUEST', 'a played year cannot be changed');
+    await rejects(t.editGame({ code, token: host, years: { '5': y3 } }), 'INVALID_REQUEST', 'a year past the game cannot be changed');
+    await rejects(t.editGame({ code, token: host, years: { '3': { ...y3, shocks: ['no-such-event'] } } }), 'INVALID_REQUEST',
+      'an unknown shock event is refused');
+
+    const edit = await t.editGame({ code, token: host, years: { '3': y3, '4': y4 } });
+    eq(edit.lockedTeams.join(','), 'Alpha', 'the change is made and names the team that had already locked the current year');
+    eq(edit.edits.length, 6, 'the six changes are recorded (WC in 3 and 4, GL in 4, a shock in 3, two in 4)');
+    eq((await t.editGame({ code, token: host, years: { '3': y3, '4': y4 } })).edits.length, 0, 'an edit that changes nothing records nothing');
+
+    const hostView = await t.read({ code, token: host });
+    eq(hostView.room.editHistory?.length, 6, 'the host reads the change history');
+    eq((hostView.room.editHistory ?? []).every(e => e.by === 'Host' && typeof e.at === 'number' && e.yearNumber >= 3), true,
+      'every history entry says who, when, and a current or later year');
+    const betaView = await t.read({ code, token: beta.teamToken });
+    eq(betaView.room.editHistory, undefined, 'a team is not told: its view carries no history');
+    eq(json(betaView.room.developmentLevelsByYear), json({ '3': { WC: 'High' }, '4': { WC: 'High', GL: 'Mid' } }),
+      'every team reads each year\'s levels');
+    eq(betaView.room.shocksOn, true, 'the shock switch is pinned as it stood at setup');
+    eq(json(betaView.room.shocks.filter(s => s.yearNumber === 2)), json([{ shockId: A, yearNumber: 2 }]), 'the played year\'s shock is untouched');
+
+    // ANOTHER DEVICE: Beta rejoins with its token, rebuilds from the room and replays.
+    const again = await t.join({ code, teamName: 'Beta', role: 'player', token: beta.teamToken });
+    eq(again.rejoined, true, 'Beta rejoins on a second device');
+    const dev2 = buildTeamGame(again.room, again.lines);
+    const replay2 = replayTeamYears(dev2.gameState, 3, undefined);
+    const playedAfter = [json(dev2.opening?.result), ...replay2.produced.map(p => json(p.result))];
+    eq(playedAfter.length === playedBefore.length && playedAfter.every((r, i) => r === playedBefore[i]), true,
+      'a second device replays the opening and every played year byte-identical after the edit');
+    const third = buildTeamGame((await t.read({ code, token: beta.teamToken })).room, beta.lines);
+    const y3a = replayTeamYears(replay2.state, 4, undefined).produced[0];
+    const y3b = replayTeamYears(replayTeamYears(third.gameState, 3, undefined).state, 4, undefined).produced[0];
+    eq(json(y3a?.result) === json(y3b?.result), true, 'two devices play the edited year identically');
+    eq(json(y3a?.result) !== json(replayTeamYears(firstPlay.state, 4, undefined).produced[0]?.result), true,
+      'and the edited year plays on the new settings, not the old');
+
+    await step(t, code, host);
+    await step(t, code, host);
+    await rejects(t.editGame({ code, token: host, years: { '4': y4 } }), 'GAME_COMPLETE', 'a finished game cannot be changed');
   }
 
   // ---- TEAM NUMBERS ------------------------------------------------------

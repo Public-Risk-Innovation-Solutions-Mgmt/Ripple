@@ -89,13 +89,16 @@ export function useSessionGame(
   //
   // ⚠ AND THE LINE SET IS PART OF THE BUILD KEY. Two different subsets are two
   // different games, so a key that omitted them would let a rebuild reuse a game
-  // assembled for a different book. So is the shock schedule, for the same
-  // reason: it is fixed at room creation and never edited, so the key never
-  // moves on it in play — it is in the key so that nothing could reuse a game
-  // built for a different schedule if that ever stopped being true.
+  // assembled for a different book. So are the shock schedule, the levels by
+  // year and the pinned switch — and since the host may now EDIT them mid-game
+  // (wip/mid-game-edits), the key does move in play: an open tab rebuilds from
+  // the room and replays, exactly as a reload would, so it plays the next year
+  // on the new settings. Every played year replays byte-identical (only the
+  // current and later years can change), so the rebuild re-posts what it posted.
   const myLines = you?.lines;
   const buildKey = room && myLines && myLines.length > 0
     ? `${room.seed}|${room.yearCount}|${room.startingYear}|${myLines.join(',')}|${room.eventName}|${room.poolName}|${JSON.stringify(room.shocks)}`
+      + `|${JSON.stringify(room.developmentLevelsByYear ?? null)}|${room.shocksOn ?? ''}`
     : null;
   const builtKey = useRef<string | null>(null);
 

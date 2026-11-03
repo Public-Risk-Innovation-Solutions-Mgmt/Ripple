@@ -21,6 +21,9 @@ import SetupPage from './pages/SetupPage';
 // processes the year immediately. The session player screen is the second
 // caller and owns a different advance. Neither owns a copy of the game.
 import GameShell from './game/GameShell';
+import { EditGamePanel } from './components/EditGamePanel';
+import { editSoloGame } from './utils/soloGameEdit';
+import type { YearSettings } from './utils/gameEdits';
 import { openingRoster } from './game/openingRoster';
 
 export default function App() {
@@ -29,6 +32,8 @@ export default function App() {
   const [startingFinancials, setStartingFinancials] = useState<StartingFinancials | null>(null);
   const [initialMembers, setInitialMembers] = useState<Member[]>([]);
   const [currentDecisions, setCurrentDecisions] = useState<DecisionSet>(defaultDecisionSet(1));
+  // Test player's "Edit game" panel, open or closed (wip/mid-game-edits).
+  const [editOpen, setEditOpen] = useState(false);
   // A year that has been processed but is awaiting the player's loan decisions
   // before it can be committed (see handleAdvanceYear / handleResolveLoans).
   const [pendingYear, setPendingYear] = useState<WorldsYear | null>(null);
@@ -278,6 +283,16 @@ export default function App() {
     commitYear(gameState, settled);
   }, [gameState, pendingYear, commitYear]);
 
+  // ⚠ TEST PLAYER'S MID-GAME EDIT (wip/mid-game-edits): the host's rules
+  // (editSoloGame -> applyGameEdit) on this game's own setup and instance, then
+  // saved at once, so a reload replays each year on what was in force in it.
+  const handleEditGame = useCallback(async (years: Record<string, YearSettings>) => {
+    if (!gameState || !startingFinancials) return;
+    const { gameState: next } = editSoloGame(gameState, years, Date.now());
+    setGameState(next);
+    persistState(next, startingFinancials, initialMembers, currentDecisions);
+  }, [gameState, startingFinancials, initialMembers, currentDecisions]);
+
   const handleNewGame = useCallback(() => {
     setGameState(null);
     setStartingFinancials(null);
@@ -339,6 +354,32 @@ export default function App() {
       onAdvanceYear={handleAdvanceYear}
       canAdvance={isStarted && !gameState?.isComplete}
       showSeed={gameState?.setup.testPlayer === true}
+      statusStrip={gameState?.setup.testPlayer === true && gameState.isStarted && !gameState.isComplete ? (
+        <div data-testid="test-edit-strip" className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+          <button type="button" data-testid="test-edit-toggle" onClick={() => setEditOpen(o => !o)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">
+            {editOpen ? 'Close Edit game' : 'Edit game'}
+          </button>
+          {editOpen && (
+            <div className="mt-2">
+              <EditGamePanel
+                lines={gameState.setup.activeLines}
+                yearCount={gameState.setup.gameLength}
+                startingYear={gameState.setup.startingYear}
+                firstEditable={gameState.currentYearNumber}
+                settings={{
+                  developmentLevels: gameState.setup.developmentLevels ?? {},
+                  developmentLevelsByYear: gameState.setup.developmentLevelsByYear,
+                  shocks: (gameState.instance.scheduledShocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
+                }}
+                lockedTeams={[]}
+                history={gameState.setup.gameEdits ?? []}
+                onApply={handleEditGame}
+              />
+            </div>
+          )}
+        </div>
+      ) : undefined}
       setupPage={<SetupPage onStart={handleStartGame} />}
       loanPrompt={pendingYear
         ? <LoanPromptModal offers={pendingYear.loanOffers} onResolve={handleResolveLoans} />

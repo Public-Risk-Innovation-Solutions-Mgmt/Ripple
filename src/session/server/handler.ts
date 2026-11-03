@@ -86,10 +86,10 @@ const STATUS: Record<SessionErrorCode, number> = {
 // docs/AWS_HANDOFF.md.
 type Endpoint =
   | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'submit' | 'advance' | 'read'
-  | 'listEvents' | 'setEventHidden';
+  | 'listEvents' | 'setEventHidden' | 'editGame';
 const ENDPOINTS: readonly Endpoint[] = [
   'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'submit', 'advance', 'read',
-  'listEvents', 'setEventHidden',
+  'listEvents', 'setEventHidden', 'editGame',
 ];
 
 function json(status: number, body: unknown): APIGatewayProxyStructuredResultV2 {
