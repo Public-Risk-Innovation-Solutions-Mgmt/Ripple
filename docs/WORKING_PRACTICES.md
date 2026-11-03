@@ -26,6 +26,7 @@ risk-control work was merged forward, after a search of the repository found no 
 - **Anything that changes figures, pricing, the engine, saves, sessions or the handler:** the full checks
   as today (the list in the section above).
 - **When unsure which applies, say so in the report and run the full checks.**
+- **Any change to how the game works must update docs/HOW_THE_GAME_WORKS.md in the same pull request.**
 
 ## Verification
 - **`npm run gates` is the sweep, and the sweep is the complete set.** There used to be no sweep — just a
