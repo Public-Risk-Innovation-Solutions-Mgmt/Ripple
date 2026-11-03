@@ -42,7 +42,7 @@
 
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { Smartphone, Loader2 } from 'lucide-react';
+import { Smartphone, Loader2, Copy } from 'lucide-react';
 import StandingsTable from './StandingsTable';
 import { sessionTransport, isSessionError, type RoomView } from '../index';
 
@@ -69,6 +69,7 @@ function HandoffModal({ code, hostToken, teamName, onClose }: {
   const [expiresAtSec, setExpiresAtSec] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,9 +124,20 @@ function HandoffModal({ code, hostToken, teamName, onClose }: {
             <div className="mt-4 flex justify-center">
               <img src={qr} alt={`QR code to claim ${teamName}`} width={220} height={220} />
             </div>
-            <p data-testid="handoff-link" className="mt-3 break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center font-mono text-xs text-slate-700">
-              {link}
-            </p>
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p data-testid="handoff-link" className="flex-1 break-all font-mono text-xs text-slate-700">
+                {link}
+              </p>
+              <button
+                type="button"
+                onClick={() => { void navigator.clipboard?.writeText(link).then(() => setCopied(true)); }}
+                className="shrink-0 text-slate-600 hover:text-slate-700"
+                aria-label="Copy hand-off link"
+              >
+                <Copy size={16} />
+              </button>
+            </div>
+            {copied && <p className="mt-1.5 text-center text-xs text-emerald-600">Copied.</p>}
             {secondsLeft !== null && (
               <p className="mt-1.5 text-center text-xs text-slate-500">
                 {secondsLeft > 0 ? `Expires in ${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}` : 'Expired — close and try again for a new link.'}
