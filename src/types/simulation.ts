@@ -735,7 +735,7 @@ export interface LineDecisionSet {
   /**
    * "NON-RENEWAL": the share of this line's book at the start of the year the
    * pool does not renew (bookUnderwriting.ts) — exposure falls by it, and this
-   * year's ordinary loss per unit falls by NON_RENEWAL_LOSS_RELIEF x it. 0–0.05
+   * year's ordinary loss per unit falls by NON_RENEWAL_LOSS_RELIEF x it. 0–0.10
    * in 0.01 steps, default 0 (NON_RENEWAL_SLIDER). Absent reads as 0.
    *
    * ⚠ REPLACES renewalsDeclined (0–10%, worst loss ratio first on units).
@@ -744,7 +744,7 @@ export interface LineDecisionSet {
   /**
    * "NEW MEMBERS": the share of the book at the start of the year added as new
    * members — exposure rises by it, and that exposure's ordinary losses carry
-   * NEW_BUSINESS_PENALTY this year. 0–0.05 in 0.01 steps, default 0
+   * NEW_BUSINESS_PENALTY this year. 0–0.10 in 0.01 steps, default 0
    * (NEW_MEMBERS_SLIDER). Absent reads as 0.
    *
    * ⚠ REPLACES newBusinessRejection: there is no rejection rate, and no

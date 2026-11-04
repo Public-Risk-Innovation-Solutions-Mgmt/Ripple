@@ -1753,11 +1753,18 @@ export const FULL_MARKET_EXPOSURE: PerLine<number> = scaled({
  */
 export const UNDERWRITING_MEMBERS = 100;
 
-/** "Non-renewal": 0–5% of the book at the start of the year, in 1% steps, default 0%. */
-export const NON_RENEWAL_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } as const;
+/**
+ * "Non-renewal": 0–10% of the book at the start of the year, in 1% steps,
+ * default 0%. Widened from 0–5% (pr/wider-underwriting-sliders); the formula
+ * is unchanged, and a share above the top is read as the top (bookUnderwriting.ts).
+ */
+export const NON_RENEWAL_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
 
-/** "New members": 0–5% of the book at the start of the year added, in 1% steps, default 0%. */
-export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } as const;
+/**
+ * "New members": 0–10% of the book at the start of the year added, in 1% steps,
+ * default 0%. Widened from 0–5% with non-renewal; the formula is unchanged.
+ */
+export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
 
 /**
  * NON-RENEWAL'S LOSS RELIEF — CHOSEN, 0.5: this year's ordinary loss per unit

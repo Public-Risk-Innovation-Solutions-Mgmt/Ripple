@@ -132,7 +132,7 @@ size.
 **Member risk.** Inside the loss draw the book is split into 100 notional members with random risk scores (30%
 spread), redrawn yearly. They only shape the year's randomness; nothing selects on them.
 
-**The sliders** (per line, 0–5% in 1% steps, default 0%): *Non-Renewal Assumption* and *New Members: Growth
+**The sliders** (per line, 0–10% in 1% steps, default 0%): *Non-Renewal Assumption* and *New Members: Growth
 Assumption*.
 
 **The formula** (`bookUnderwriting.ts`), with book E, non-renewal a1, new business a2:

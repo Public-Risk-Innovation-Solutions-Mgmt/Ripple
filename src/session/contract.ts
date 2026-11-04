@@ -436,7 +436,7 @@ export interface TeamLineDecisions {
    * written before carries the old names and the host reads 0% for both.
    */
   nonRenewal: number;
-  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.05. */
+  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.10. */
   newMembers: number;
   /**
    * The line's Risk Control slider, a FRACTION 0–0.05 (LineDecisionSet
