@@ -48,7 +48,10 @@
 
 // THE MEMBER PATH — first, before anything reads a switch. It tests code the member
 // path keeps: see engine-mode/member-level.ts.
-import { NEW_MEMBERS_SLIDER } from '../../src/data/pricingParameters';
+// ⚠ 5%, NOT THE NEW-MEMBERS SLIDER'S TOP: this gate's thresholds were calibrated
+// on a book growing 5% a year, the slider's top until it widened to 0-10%
+// (pr/wider-underwriting-sliders). Pinned so the gate tests what it always did.
+const GROWING_BOOK = 0.05;
 import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -114,8 +117,8 @@ function decisionsFor(y: number) {
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
       // Simple underwriting: the book grows only when the team adds members —
-      // the open arm adds the most the slider allows.
-      d.byLine[l].newMembers = NEW_MEMBERS_SLIDER.max;
+      // the open arm adds 5% a year (GROWING_BOOK).
+      d.byLine[l].newMembers = GROWING_BOOK;
     }
   }
   return d;

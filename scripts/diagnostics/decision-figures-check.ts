@@ -113,7 +113,9 @@ const games = Array.from({ length: GAMES }, (_, g) => openGame(g));
 
 // --------------------------------------------------------------------------
 console.log('--- 1. UNDERWRITING: THE EXPOSURE MOVEMENT IS THE ENGINE\'S, THE RATE IS THE ENGINE\'S ---');
-const UW_SETTINGS: Array<[number, number]> = [[0, 0], [0.05, 0], [0, 0.05], [0.03, 0.02], [0.05, 0.05]];
+const UW_SETTINGS: Array<[number, number]> = [[0, 0], [0.05, 0], [0, 0.05], [0.03, 0.02], [0.05, 0.05],
+  // The sliders' top since they widened to 0-10%: each alone and both.
+  [0.10, 0], [0, 0.10], [0.10, 0.10]];
 let uwChecked = 0, worstExposure = 0;
 for (const gs of games) {
   for (const line of LINES) {

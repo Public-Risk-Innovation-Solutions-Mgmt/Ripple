@@ -6,11 +6,14 @@
 //
 // WHAT IT ASSERTS, in order:
 //
+//   0. THE RANGE. Each slider is 0-10% in 1% steps, default 0% (widened from
+//      0-5%): eleven positions, and a share above 10% is read as 10%, one
+//      below 0 as 0 — the clamp follows the slider, so 10% is played as 10%.
 //   1. THE FORMULA. For every non-renewal a1 and new-members a2 the sliders
-//      offer (0-5% in 1% steps), moveBook's exposure is E(1 − a1 + a2) and
+//      offer (0-10% in 1% steps), moveBook's exposure is E(1 − a1 + a2) and
 //      after x lossFactor is E x [(1 − a1)(1 − 0.5 a1) + 1.2 a2], to float
 //      precision. Then THROUGH THE ENGINE: year 1 of played games at four
-//      settings, each line's ordinary realised against the same game at 0/0 —
+//      settings (seven since the 10% top), each line's ordinary realised against the same game at 0/0 —
 //      the same streams, so the ratio IS the bracket — and ordinary expected
 //      against E x (1 − a1 + a2), the bracket kept out of it.
 //   2. ONE YEAR ONLY. The same games, sliders used in year 1 and back to 0 in
@@ -37,7 +40,7 @@ import {
   MEMBER_LEVEL, MEMBER_LUCK_CV, MEMBER_RISK_CV, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
   OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS, UNDERWRITING_MEMBERS,
 } from '../../src/data/pricingParameters';
-import { moveBook } from '../../src/utils/bookUnderwriting';
+import { moveBook, newMembersShare, nonRenewalShare } from '../../src/utils/bookUnderwriting';
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { worldInstance } from '../../src/utils/worlds';
@@ -59,7 +62,20 @@ const steps = (r: { min: number; max: number; step: number }) =>
   Array.from({ length: Math.round((r.max - r.min) / r.step) + 1 }, (_, i) => r.min + i * r.step);
 
 // --------------------------------------------------------------------------
-console.log('--- 1. THE FORMULA ---');
+console.log('--- 0. THE RANGE ---');
+{
+  for (const [name, r, read] of [['non-renewal', NON_RENEWAL_SLIDER, nonRenewalShare], ['new members', NEW_MEMBERS_SLIDER, newMembersShare]] as const) {
+    const pos = steps(r);
+    check(r.min === 0 && r.max === 0.10 && r.step === 0.01 && r.default === 0,
+      `${name}: the slider is 0–10% in 1% steps, default 0%`, `${r.min}–${r.max} step ${r.step} default ${r.default}`);
+    check(pos.length === 11 && Math.abs(pos[10] - 0.10) < 1e-12, `${name}: eleven positions, 0% to 10%`, `${pos.length}, top ${pos.at(-1)}`);
+    check(read(0.10) === 0.10 && Math.abs(read(0.07) - 0.07) < 1e-15, `${name}: 10% (and 7%) are played as set, not clipped at the old 5%`, `${read(0.10)} / ${read(0.07)}`);
+    check(read(0.15) === 0.10 && read(-0.01) === 0 && read(undefined) === 0, `${name}: above 10% reads as 10%, below 0 or absent as 0`, `${read(0.15)} / ${read(-0.01)} / ${read(undefined)}`);
+  }
+}
+
+// --------------------------------------------------------------------------
+console.log('\n--- 1. THE FORMULA ---');
 {
   let worst = 0, worstExp = 0, cases = 0;
   for (const line of LINES) {
@@ -96,7 +112,7 @@ const decide = (y: number, a1: number, a2: number): DecisionSet => {
   for (const l of LINES) { d.byLine[l].nonRenewal = a1; d.byLine[l].newMembers = a2; }
   return d;
 };
-const SETTINGS: Array<[number, number]> = [[0, 0], [0.05, 0], [0, 0.05], [0.05, 0.05]];
+const SETTINGS: Array<[number, number]> = [[0, 0], [0.05, 0], [0, 0.05], [0.05, 0.05], [0.10, 0], [0, 0.10], [0.10, 0.10]];
 
 // Year 1 and year 2 of each game at each setting (year 2 always at 0/0).
 const runs = games.map(g => SETTINGS.map(([a1, a2]) => {
@@ -121,7 +137,7 @@ console.log('\n--- 1b. THROUGH THE ENGINE, year 1 against 0/0 ---');
     }
   }
   check(worstRatio < 1e-9, 'year-1 ordinary realised over the 0/0 game IS the bracket, on every line',
-    `worst ${worstRatio.toExponential(2)} over ${games.length} games x 3 settings x 3 lines`);
+    `worst ${worstRatio.toExponential(2)} over ${games.length} games x ${SETTINGS.length - 1} settings x 3 lines`);
   check(worstExpected < 1e-9, 'and ordinary EXPECTED moves with exposure only: the bracket is not in it',
     `worst ${worstExpected.toExponential(2)}`);
 }
@@ -250,5 +266,9 @@ console.log(`\n${failed.length === 0 ? 'ALL OK' : `${failed.length} FAILED`}`);
 //      year: EXIT 1 — 3b's "redrawn every year" fails.
 //   7. MEMBER RISK AT 20%: the draw at a CV of 0.20, not MEMBER_RISK_CV: EXIT 1
 //      — 3b's spread check fails (CV 0.2001).
+//   8. THE OLD 5% LIMIT: both sliders' max back at 0.05 (the range before it
+//      widened to 0-10%): EXIT 1, 10 FAILED — every section-0 range check on
+//      both sliders, and 1b's engine ratio and expected (worst 8.33e-2 and
+//      5.56e-2): a 10% setting clipped to 5% is not the formula at 10%.
 // ============================================================================
 process.exit(failed.length === 0 ? 0 : 1);

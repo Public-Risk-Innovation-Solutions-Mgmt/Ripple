@@ -109,9 +109,11 @@ const lineDecisions = (): TeamLineDecisions => ({
   // Not the default cover, so a transport that substituted the default
   // would fail the read-back below.
   reinsuranceOption: 'working',
-  // Not the defaults (0 and 0), so a transport that substituted one fails.
-  nonRenewal: 0.03,
-  newMembers: 0.04,
+  // Not the defaults (0 and 0), so a transport that substituted one fails —
+  // and above the sliders' old 5% top (0-10% since they widened), so a
+  // transport that clipped to the old range fails too.
+  nonRenewal: 0.10,
+  newMembers: 0.08,
   riskControlPct: 0.03,
   dividendAmount: 2_000_000,
   assessmentAmount: 0,
@@ -733,8 +735,8 @@ async function main(): Promise<void> {
     eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
-    eq(seen?.nonRenewal, 0.03, 'and the non-renewal share');
-    eq(seen?.newMembers, 0.04, 'and the new members share');
+    eq(seen?.nonRenewal, 0.10, 'and the non-renewal share (10%, the new top)');
+    eq(seen?.newMembers, 0.08, 'and the new members share (8%, above the old 5% top)');
     ok(seen !== undefined && !('renewalCut' in seen) && !('intakeLevel' in seen),
        'and nothing of the retired renewal cut or intake position (uw-hybrid)');
     eq(seen?.dividendAmount, 2_000_000, 'and the dividend, in dollars');
