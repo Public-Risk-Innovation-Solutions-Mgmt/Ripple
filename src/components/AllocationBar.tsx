@@ -18,6 +18,14 @@ const SEGMENT_COLOR = {
   equities: 'bg-amber-500',
 } as const;
 
+// The label's text colors, matched to SEGMENT_COLOR's hues — a shade darker
+// than the bar's own fill so each word has enough contrast against white.
+const SEGMENT_TEXT_COLOR = {
+  cash: 'text-emerald-600',
+  bonds: 'text-blue-600',
+  equities: 'text-amber-600',
+} as const;
+
 export default function AllocationBar({ value, onChange, disabled = false }: AllocationBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<1 | 2 | null>(null);
@@ -69,7 +77,11 @@ export default function AllocationBar({ value, onChange, disabled = false }: All
   return (
     <div className="flex flex-col gap-2">
       <div className="text-sm font-semibold text-gray-800">
-        Cash {cashPct.toFixed(0)}% / Bonds {bondsPct.toFixed(0)}% / Equities {equitiesPct.toFixed(0)}%
+        <span className={SEGMENT_TEXT_COLOR.cash}>Cash {cashPct.toFixed(0)}%</span>
+        {' / '}
+        <span className={SEGMENT_TEXT_COLOR.bonds}>Bonds {bondsPct.toFixed(0)}%</span>
+        {' / '}
+        <span className={SEGMENT_TEXT_COLOR.equities}>Equities {equitiesPct.toFixed(0)}%</span>
       </div>
       <div
         ref={barRef}

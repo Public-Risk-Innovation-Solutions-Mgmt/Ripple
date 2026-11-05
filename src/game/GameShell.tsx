@@ -32,7 +32,7 @@
 // ============================================================================
 
 import React from 'react';
-import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
+import { Layers, HardHat, Scale, Building2, ChevronRight } from 'lucide-react';
 
 import type {
   CoverageLine, DecisionSet, GameState, LineView, Member, StartingFinancials,
@@ -142,6 +142,17 @@ export interface GameShellProps {
    * MarketSurveyTab); the tab is hidden without `multiplayer` (tabs.ts).
    */
   marketSurvey?: React.ReactNode;
+  /**
+   * ⚠ A FIRST SLICE, NOT THE FINISHED RULE — per-tab "has this tab had
+   * activity", driving the Decisions sub-menu's "n of N" badge, keyed by
+   * LineView so Pool ('pool') and each line share one map. Today a caller
+   * sets a line from one signal (its reinsurance choice differing from
+   * carry-forward) and Pool from one of its own (investment allocation
+   * differing from carry-forward); more can OR into either side later.
+   * `undefined` (the default) renders no badge at all, which is what a
+   * caller that has not wired this up yet — solo, today — gets.
+   */
+  lineActivity?: Partial<Record<LineView, boolean>>;
 }
 
 export default function GameShell({
@@ -149,9 +160,15 @@ export default function GameShell({
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
   setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey,
+  lineActivity,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
+  // The sub-menu's "n of N" badge — Pool plus each active line.
+  const lineActivityTotal = activeLines.length + 1;
+  const lineActivityDone = lineActivity
+    ? (lineActivity.pool ? 1 : 0) + activeLines.filter(l => lineActivity[l]).length
+    : 0;
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
@@ -240,6 +257,17 @@ export default function GameShell({
           onSelect={onSelectLineView}
           stickyTop={108}
           zIndex={20}
+          showArrows
+          trailing={lineActivity && (
+            <span
+              data-testid="line-activity-badge"
+              className={`ml-2 shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                lineActivityDone === lineActivityTotal ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {lineActivityDone} of {lineActivityTotal}
+            </span>
+          )}
         />
       )}
 
@@ -332,6 +360,31 @@ export default function GameShell({
             underwriting={d.underwriting}
             riskControlCost={d.riskControlCost}
           />
+        )}
+
+        {/* ⚠ A SECOND LOCK BUTTON, NOT A DIFFERENT ONE — same openLockConfirm
+            as the header's, so a long line screen (reinsurance, aggregate
+            cover, dividend/assessment) doesn't need a scroll back to the top
+            to lock. POOL ONLY HAS NONE OF THOSE, so it stays header-only. */}
+        {shownTab === 'decisions' && gameState && !gameState.isComplete && lineView !== 'pool' && onAdvanceYear && (
+          // ⚠ SAME WRAPPER AS DecisionsPage's OWN (max-w-screen-2xl mx-auto
+          // px-4) AND THE HEADER'S — this is a sibling of DecisionsPage
+          // inside <main>, which has no padding of its own, so without this
+          // the button sits at the true viewport edge instead of the same
+          // inset every card and the header button already share.
+          <div className="max-w-screen-2xl mx-auto px-4">
+            <div className="mt-6 mb-6 flex justify-end">
+              <button
+                type="button"
+                onClick={openLockConfirm}
+                disabled={!canAdvance}
+                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {advanceLabel ?? `Lock Program Year ${lockYear}`}
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
         )}
 
         {shownTab === 'decisionHistory' && gameState && (

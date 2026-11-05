@@ -219,6 +219,12 @@ export default function PlayScreen({ code, role }: Props) {
   // shown beside the status strip's locked/open indicator.
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const lastSavedDecisions = useRef<string | null>(null);
+  // ⚠ ALWAYS CARRY-FORWARD, EVEN WHEN A DRAFT IS WHAT'S SHOWN — the sub-menu's
+  // per-line activity indicator asks "has this line changed from what happens
+  // if nothing is touched this year", not "does it differ from the draft",
+  // so the baseline is the same decisionsForYear() seed regardless of which
+  // one actually populates the form. Set once per year, beside seededYear.
+  const baselineDecisions = useRef<DecisionSet | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('decisions');
   const [lineView, setLineView] = useState<LineView>('pool');
@@ -260,6 +266,13 @@ export default function PlayScreen({ code, role }: Props) {
     if (!room || you?.role !== role) return;
     if (seededYear.current === room.currentYear) return;
     seededYear.current = room.currentYear;
+    // Seeding the editable set is the same question the replay asks: what was
+    // this team playing in this year? For an unlocked year that is the most
+    // recent lock before it — carry-forward, unchanged in meaning.
+    // The room's shocks: a host-scheduled room fires its schedule, so its
+    // switch is whether anything is scheduled (shockLosses.gameShocksOn).
+    const carryForward = decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0);
+    baselineDecisions.current = carryForward;
     // ⚠ A SAVED DRAFT WINS OVER CARRY-FORWARD, THE FIRST TIME THIS YEAR IS
     // SEEDED. This runs exactly once per year transition, before anything is
     // held locally for that year yet, so the draft (if any) is always "newer
@@ -273,13 +286,27 @@ export default function PlayScreen({ code, role }: Props) {
       lastSavedDecisions.current = JSON.stringify(restored);
       return;
     }
-    // Seeding the editable set is the same question the replay asks: what was
-    // this team playing in this year? For an unlocked year that is the most
-    // recent lock before it — carry-forward, unchanged in meaning.
-    // The room's shocks: a host-scheduled room fires its schedule, so its
-    // switch is whether anything is scheduled (shockLosses.gameShocksOn).
-    setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0));
+    setDecisions(carryForward);
   }, [room, you, role]);
+
+  // ---- per-tab activity, for the Decisions sub-menu's indicator -----------
+  //
+  // ⚠ TWO SIGNALS SO FAR, EACH KEYED TO ITS OWN TAB: a line's reinsurance
+  // selection (WC/GL/Property) and Pool's investment allocation — both
+  // compared against carry-forward, not against each other. More signals can
+  // OR into either side later; this is deliberately a first slice, not the
+  // finished rule. `undefined` while there is no baseline yet (still
+  // loading) — GameShell renders nothing in that case rather than a
+  // misleading "0 of N".
+  const lineActivity: Partial<Record<LineView, boolean>> | undefined = decisions && baselineDecisions.current
+    ? {
+        pool: JSON.stringify(decisions.assetAllocation) !== JSON.stringify(baselineDecisions.current.assetAllocation),
+        ...Object.fromEntries((you?.lines ?? []).map(line => [
+          line,
+          decisions.byLine[line]?.reinsuranceOption !== baselineDecisions.current!.byLine[line]?.reinsuranceOption,
+        ])),
+      }
+    : undefined;
 
   // ---- auto-save the current year's draft (Mike's guide, Step 5) ----------
   //
@@ -655,6 +682,7 @@ export default function PlayScreen({ code, role }: Props) {
       startingFinancials={game.startingFinancials}
       initialMembers={game.initialMembers}
       currentDecisions={decisions}
+      lineActivity={lineActivity}
       onDecisionsChange={isViewer ? () => {} : setDecisions}
       activeTab={activeTab}
       onSelectTab={setActiveTab}

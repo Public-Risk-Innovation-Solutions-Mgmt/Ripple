@@ -277,7 +277,20 @@ function seriesFor(team: TeamView, color: string, view: LineView, years: number[
 
 // ---------------------------------------------------------------- scales
 
-/** A domain on 1/2/5 steps, so the axis labels are numbers a person would say. */
+/**
+ * A domain on 1/2/5 steps, so the axis labels are numbers a person would say.
+ *
+ * ⚠ ANCHORED CHARTS ROUND OUTWARD; AN UNANCHORED ONE STOPS EXACTLY AT THE
+ * DATA. Anchoring is about the zero line being a round number to sit on, not
+ * about hugging the series — so surplus and the loss charts keep expanding
+ * lo/hi to the nearest nice step, unchanged. A chart with no zero line to
+ * defend (today, Active exposure) has nothing a round number buys it: its
+ * axis should start at the series' own lowest value and end at its highest,
+ * full stop, so the drawn range is exactly the range of what is plotted.
+ * Intermediate gridlines still land on nice numbers for readability; lo/hi
+ * are always included as ticks too; even when that is not a round number,
+ * because they are the one thing the axis is now making a claim about.
+ */
 function niceScale(min: number, max: number, anchorZero: boolean): { lo: number; hi: number; ticks: number[] } {
   let lo = anchorZero ? Math.min(0, min) : min;
   let hi = anchorZero ? Math.max(0, max) : max;
@@ -293,6 +306,16 @@ function niceScale(min: number, max: number, anchorZero: boolean): { lo: number;
   const raw = (hi - lo) / 4;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) ?? 10 * mag;
+
+  if (!anchorZero) {
+    const ticks: number[] = [Number(lo.toFixed(6))];
+    for (let v = Math.ceil(lo / step) * step; v < hi - step / 1e6; v += step) {
+      if (v > lo) ticks.push(Number(v.toFixed(6)));
+    }
+    ticks.push(Number(hi.toFixed(6)));
+    return { lo, hi, ticks };
+  }
+
   lo = Math.floor(lo / step) * step;
   hi = Math.ceil(hi / step) * step;
   const ticks: number[] = [];
