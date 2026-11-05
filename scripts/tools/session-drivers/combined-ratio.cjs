@@ -2,8 +2,9 @@
 //
 // The header's one combined-ratio chip reads "Combined ratio <year>" and shows
 // the Annual Statement's Combined Ratio for its NEWEST column — the latest
-// played year, or before year 1 the last history year (2026) — for the view on
-// screen (resultsStatement.newestCombinedRatio). It was the cumulative since
+// played year, or before year 1 the last history year (2026) — the pool's on
+// every tab, a line's on Decisions with that line selected
+// (resultsStatement.newestCombinedRatio). It was the cumulative since
 // game start (the statement's Total), which is on no column; restated at
 // wip/newest-year-combined-ratio. This drives a solo game on scenario 7, three
 // lines, through the real setup screen and, on the Annual Statement tab, for
@@ -63,11 +64,33 @@ const ok = (cond, label, detail = '') => {
     ok(!/Loss Ratio \(prem \+ admin\)/.test(head), `${phase}: the old loss-ratio chip is gone from the header`);
     ok(!/Cumulative/.test(head) && (head.match(/Combined ratio/gi) || []).length === 1, `${phase}: the header carries one combined ratio and no "Cumulative"`);
     const apart = [];
+    let poolChip = null;
+    // ⚠ THE TOP BAR READS THE POOL BUT FOR A LINE ON DECISIONS (it used to follow the
+    // line view onto every tab). A view's chip is read on Decisions with that view
+    // selected; on the statement itself the chip is the pool's on every view.
+    const readChip = async () => ({
+      chip: (await page.textContent('[data-testid="header-combined-ratio"]') || '').trim(),
+      label: (await page.locator('[data-testid="header-combined-ratio"]').locator('xpath=../span[1]').innerText()).trim(),
+    });
+    const chipOnDecisions = async view => {
+      await page.getByRole('button', { name: /^Decisions$/ }).first().click();
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: view, exact: true }).first().click();
+      await page.waitForTimeout(300);
+      const c = await readChip();
+      await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
+      await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
+      await page.getByRole('button', { name: view, exact: true }).first().click();
+      await page.waitForTimeout(400);
+      return c;
+    };
     for (const view of VIEWS) {
       await page.getByRole('button', { name: view, exact: true }).first().click();
       await page.waitForTimeout(400);
-      const chip = (await page.textContent('[data-testid="header-combined-ratio"]') || '').trim();
-      const chipLabel = (await page.locator('[data-testid="header-combined-ratio"]').locator('xpath=../span[1]').innerText()).trim();
+      const onStatement = await readChip();
+      if (view === 'Pool') poolChip = onStatement.chip;
+      ok(onStatement.chip === poolChip, `${phase}, Annual Statement on ${view}: the bar reads the pool's combined ratio`, `${onStatement.chip} vs pool ${poolChip}`);
+      const { chip, label: chipLabel } = await chipOnDecisions(view);
       const rows = await page.locator('[data-testid="annual-statement"] tr[data-row-label]').evaluateAll(els => els.map(e => e.getAttribute('data-row-label')));
       const named = rows.filter(l => /combined ratio/i.test(l || ''));
       ok(named.length === 1 && named[0] === ROW, `${phase}, ${view}: the statement has one combined ratio`, named.join(' | '));
@@ -78,7 +101,7 @@ const ok = (cond, label, detail = '') => {
       const newestYear = heads.at(-2);
       ok(/^\d{4}$/.test(newestYear) && newestYear === String(2026 + playedYears) && chipLabel === `Combined ratio ${newestYear}`,
         `${phase}, ${view}: the chip is labelled with the statement's newest year`, `"${chipLabel}" · newest column ${newestYear}`);
-      ok(cr.at(-2) === chip && cr.at(-1) === '', `${phase}, ${view}: the chip is the newest column's Combined Ratio`, `chip ${chip} · ${newestYear} ${cr.at(-2)}`);
+      ok(cr.at(-2) === chip && cr.at(-1) === '', `${phase}, ${view}: on Decisions the chip is the newest column's Combined Ratio`, `chip ${chip} · ${newestYear} ${cr.at(-2)}`);
       if (playedYears === 2) {
         // A row's figure cells, by section: [C, five years, I] in thousands — C and I blank on the Net Income Statement.
         const fig = async (sel, label) => (await page.locator(`${sel} tr[data-row-label="${label}"] td`).allInnerTexts()).slice(1).map(thousandsOf);

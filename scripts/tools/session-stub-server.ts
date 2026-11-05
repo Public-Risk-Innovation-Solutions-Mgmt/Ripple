@@ -99,6 +99,7 @@ const STATUS: Record<SessionErrorCode, number> = {
   // A late team is a state refusal, not an authorisation one — same shape as
   // WRONG_YEAR. See the handler's own map.
   EVENT_IN_PROGRESS: 409,
+  ALREADY_LOCKED: 409,
   // LINES_LOCKED is gone from the contract — no server can emit it.
   TRANSPORT_FAILURE: 500,
   // Same two codes, same mapping, as handler.ts's own STATUS table.

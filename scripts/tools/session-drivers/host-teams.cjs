@@ -26,7 +26,9 @@ const readPairs = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   rows.map(r => [...r.children].slice(0, 2).map(c => c.textContent.trim())));
 // The combined ratio is headed with the year the table shows — read here after the second advance, 2028
 // (wip/newest-year-combined-ratio: the year's own, as on the team's statement and top bar).
-const COLUMNS = ['Team number', 'Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Hand Off'];
+// The room is created at the default, Market competition Medium, so the host's table carries the
+// market's two host-only columns (pr/market-competition) after Market share and before Hand Off.
+const COLUMNS = ['Team number', 'Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Exposure moved', 'Book risk', 'Hand Off'];
 // Hand Off (7fc44f9, the host hand-off) is the host's action column, after the figures.
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
@@ -225,7 +227,8 @@ function rankProblems(rows, want = wantRanks(rows)) {
       ok(PCT.test(admin), `WC view: the year's admin expense as a share of premium ("${admin}")`);
       ok(await host.$('[data-testid^="funding-"]') === null, 'WC view: no Funding column');
       const cells = (await readTable(host))['Harbour Mutual'];
-      ok(cells.at(-2) === (await host.textContent('[data-testid="share-Harbour Mutual"]')).trim(), 'WC view: market share is the last figure column, before Hand Off');
+      ok(cells.at(-4) === (await host.textContent('[data-testid="share-Harbour Mutual"]')).trim(), 'WC view: market share is the last of the posted figures, before the market\'s two columns and Hand Off');
+      ok(/^\d\.\d{3}$/.test((await host.textContent('[data-testid="bookrisk-Harbour Mutual"]')).trim()), 'WC view: the host sees the team\'s book risk');
     }
     if (label !== 'Pool') {
       const lr = Object.fromEntries((await readRanks(host)).map(r => [r.name, r.rank]));

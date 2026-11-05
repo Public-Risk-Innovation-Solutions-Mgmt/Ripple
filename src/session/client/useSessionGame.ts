@@ -30,6 +30,7 @@ import type { CoverageLine, GameState, Member, ResultSet, StartingFinancials } f
 import { sessionTransport, type CallerView, type RoomView } from '../index';
 import { summarize } from './results';
 import { buildTeamGame, replayTeamYears } from './buildGame';
+import { marketByYearForEngine } from '../market';
 
 export type GamePhase = 'idle' | 'building' | 'ready' | 'processing' | 'failed';
 
@@ -75,6 +76,14 @@ export function useSessionGame(
   const [startingFinancials, setStartingFinancials] = useState<StartingFinancials | null>(null);
   const [initialMembers, setInitialMembers] = useState<Member[]>([]);
   const busy = useRef(false);
+  // ⚠ A REBUILD WHILE A REPLAY IS RUNNING (a mid-game edit, or two in quick
+  // succession) MUST WIN. The replay yields between years and finishes on the
+  // game it started from; written back after the rebuild, it would put the
+  // pre-edit game in its place and the tab would play the next year on the old
+  // settings. Each build bumps the generation; a replay that started on an older
+  // one is discarded, and `retry` re-runs the effect on the rebuilt game.
+  const buildGeneration = useRef(0);
+  const [retry, setRetry] = useState(0);
   // ⚠ HELD SO THE OPENING POST CAN BE RETRIED, WHICH A FIRE-ONCE POST AT BUILD
   // CANNOT BE. The build effect runs once per room identity; if its post does
   // not land — a transport blip, or a token that had not resolved at that
@@ -120,12 +129,18 @@ export function useSessionGame(
   // ---- build once per room identity ---------------------------------------
   useEffect(() => {
     if (!room || !buildKey || builtKey.current === buildKey) return;
-    builtKey.current = buildKey;
+    buildGeneration.current += 1;
     setPhase('building');
     setError(null);
     // Yielding first keeps the pre-game simulation off the paint that reveals
     // the screen — runPriorHistory plays three years through the real engine.
     const id = window.setTimeout(() => {
+      // ⚠ THE KEY IS MARKED BUILT WHEN THE BUILD RUNS, NOT WHEN IT IS SCHEDULED.
+      // A poll that hands over a new room object before this timeout fires
+      // re-runs the effect, whose cleanup cancels it; marked at scheduling, the
+      // re-run would find the key "built" and return, and a mid-game edit would
+      // never reach the tab's game (seen: the second of two quick edits lost).
+      builtKey.current = buildKey;
       try {
         const built = build(room, myLines!);
         setPhase('ready');
@@ -166,11 +181,19 @@ export function useSessionGame(
     const plays = you?.role === 'player' || you?.role === 'viewer';
     if (!room || !token || !plays) return;
 
+    // ⚠ NOT WHILE A REBUILD IS PENDING. A poll that brings a mid-game edit and
+    // the host's advance together schedules the rebuild AND re-runs this effect
+    // in one render, on the old game; played here, the year would run on the
+    // settings before the edit (seen: a team locked before an edit posted the
+    // pre-edit year). The rebuild marks its key when it runs and replaces the
+    // game, which re-runs this effect on the new one.
+    if (builtKey.current !== buildKey) return;
     const gs = gameState;
     if (!gs || gs.isComplete) return;
     if (gs.currentYearNumber >= room.currentYear) return;
 
     busy.current = true;
+    const generation = buildGeneration.current;
     setPhase('processing');
 
     // Kept synchronous through the engine calls, then awaited once to post.
@@ -188,12 +211,19 @@ export function useSessionGame(
         while (state.currentYearNumber < room.currentYear && !state.isComplete) {
           if (of - gs.currentYearNumber > 0) setProgress({ year: state.currentYearNumber, of });
           await new Promise<void>(resolve => window.setTimeout(resolve, 0));
-          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear);
+          // MARKET COMPETITION: the team's stored market results ride on the setup; the
+          // year's own is in the same read that moved the room's year (written atomically).
+          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear, marketByYearForEngine(you.marketByYear));
           state = step.state;
           produced.push(...step.produced);
         }
         setProgress(null);
 
+        // Rebuilt meanwhile: this replay is of the old game — drop it and replay the new one.
+        if (generation !== buildGeneration.current) {
+          setRetry(n => n + 1);
+          return;
+        }
         setGameState(state);
 
         if (produced.length > 0) {
@@ -242,7 +272,7 @@ export function useSessionGame(
         busy.current = false;
       }
     })();
-  }, [phase, room, you, token, code, gameState]);
+  }, [phase, room, you, token, code, gameState, retry, buildKey]);
 
   return { phase, gameState, startingFinancials, initialMembers, processedYear, lastResult, error, progress };
 }

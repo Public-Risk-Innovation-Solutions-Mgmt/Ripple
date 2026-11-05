@@ -1393,7 +1393,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // reproduce the control bit for bit — no baselined game repeats an event in
 // force, cedes Property cat or prices the dormant stop.
 // v85: THE SIMPLE UNDERWRITING LANDING (100 equal members, each with a yearly
-// risk score; non-renewal and new members, 0-5%, one year each; every game on
+// risk score; non-renewal and new members (0-10% since the sliders widened; these games at 5%), one year each; every game on
 // the standard opening book; the audit's retained catastrophe). The control ran
 // first: multiplayer ee1ea6c, in its own worktree, reproduced v84 39,600 of
 // 39,600 (and export v92 24 of 24). 25,272 of 39,600 values differ at head,

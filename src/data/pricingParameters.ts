@@ -1753,11 +1753,18 @@ export const FULL_MARKET_EXPOSURE: PerLine<number> = scaled({
  */
 export const UNDERWRITING_MEMBERS = 100;
 
-/** "Non-renewal": 0–5% of the book at the start of the year, in 1% steps, default 0%. */
-export const NON_RENEWAL_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } as const;
+/**
+ * "Non-renewal": 0–10% of the book at the start of the year, in 1% steps,
+ * default 0%. Widened from 0–5% (pr/wider-underwriting-sliders); the formula
+ * is unchanged, and a share above the top is read as the top (bookUnderwriting.ts).
+ */
+export const NON_RENEWAL_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
 
-/** "New members": 0–5% of the book at the start of the year added, in 1% steps, default 0%. */
-export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } as const;
+/**
+ * "New members": 0–10% of the book at the start of the year added, in 1% steps,
+ * default 0%. Widened from 0–5% with non-renewal; the formula is unchanged.
+ */
+export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
 
 /**
  * NON-RENEWAL'S LOSS RELIEF — CHOSEN, 0.5: this year's ordinary loss per unit
@@ -2513,6 +2520,127 @@ const rLevels = (l: { Low: readonly number[]; Mid: readonly number[]; High: read
 export const SESSION_POLL_INTERVAL_MS = 3_000;
 
 // ============================================================================
+// MARKET COMPETITION (hosted games, pr/market-competition)
+//
+// Members move between the teams of a room by price, BY FORMULA — there are no
+// individual members; whole "notional members" (1% of a book each) are only the
+// grain the draws are made in. The server runs the step once a year, when the
+// host advances past a year, from the rates teams posted with their locks; each
+// team's game then reads its stored result (src/utils/market/marketStep.ts).
+//
+// ⚠ EVERY VALUE BELOW WAS MEASURED, read-only, on scratch copies of the game
+// with the market applied outside the engine (the market-measurement chat,
+// November 2026: five-year games on fixed-seed scenarios 7 and 12, five and
+// sixteen teams spread from 30% to 90% funding, shocks on, all three lines,
+// CONTROL = funding held and rule 4 = cut a step on lost share / raise a step on
+// a combined ratio over 105%). The figures quoted in the notes are from those
+// runs.
+// ============================================================================
+
+/** The host's setting. 'off' plays exactly as a game without the market. */
+export type MarketLevel = 'off' | 'low' | 'medium' | 'high';
+export const MARKET_LEVELS: readonly MarketLevel[] = ['off', 'low', 'medium', 'high'];
+/** New rooms default to Medium; a room stored before the setting existed reads Off. */
+export const MARKET_DEFAULT_LEVEL: MarketLevel = 'medium';
+
+/**
+ * k, PER LINE AND LEVEL — the strength of a pair's pull: a pricier team loses
+ * k × (pair gap − 1%)² of its book to each cheaper rival, the pulls averaged
+ * over its N − 1 rivals and × 4 (MARKET_RIVAL_SCALE).
+ *
+ * ⚠ CALIBRATED ON THE FUNDING TABLES LIVE ON aws (3bdb85a: the BaselineCV tables,
+ * NOT #72's stretched tables). The behaviour was first measured and agreed on the
+ * stretched tables (#72, wip/clf-stretch: k = WC 0.600 / GL 0.618 / Property 0.617
+ * at Medium). On aws's tables the year-1 rate gaps are narrower by a different
+ * factor per line (the stretch is k = 2.871 / 1.436 / 1.800), so k was rescaled
+ * per line to keep each line's pull on the room's dearest team at its starting
+ * gaps the same: k_aws = k_stretched × (the dearest's pull sum, stretched ÷ aws),
+ * from the five-team room (30 / 50 / Expected / 70 / 90%) on scenarios 7 and 12
+ * (identical gaps). Checked over five years, Medium, scenario 7: the dearest
+ * team's share 17.6 → 10.2 (stretched 17.6 → 10.5), the cheapest's 21.7 → 27.6
+ * (21.9 → 28.0), book risk 0.985 / 1.052 (0.983 / 1.051); rule 4 within 0.2 of a
+ * point. Low is half of Medium and High double, as on the stretched tables.
+ *
+ * ⚠ RECALIBRATE IF #72's STRETCHED TABLES LAND: on them these k are about 10×
+ * too strong on WC. The stretched values are the ones in brackets above.
+ */
+export const MARKET_K: Readonly<Record<Exclude<MarketLevel, 'off'>, PerLine<number>>> = {
+  low: { WC: 3.080, GL: 0.682, Property: 1.121 },
+  medium: { WC: 6.159, GL: 1.364, Property: 2.242 },
+  high: { WC: 12.318, GL: 2.728, Property: 4.484 },
+};
+
+/**
+ * THE PAIRWISE PULLS ARE AVERAGED OVER A TEAM'S N − 1 RIVALS, × 4. Summed, a
+ * team's leaving grew with the room: at sixteen teams the dearest would have lost
+ * 41% of its WC book where five teams lose 14%, two to six teams sat at the cap
+ * each year and it blurred the 85% and 90% teams together. Averaged and × 4 (the
+ * five-team room's four rivals, where k was calibrated), the dearest loses 11.9 /
+ * 9.5 / 9.2 / 7.6% of its book in year 1 at 5 / 10 / 16 / 25 teams (Medium).
+ */
+export const MARKET_RIVAL_SCALE = 4;
+/** No pull below a 1% pair gap. */
+export const MARKET_MIN_GAP = 0.01;
+/** A team's willing leavers are capped at this share of its book a year. */
+export const MARKET_LEAVER_CAP = 0.15;
+/**
+ * ±20% ON HOW MANY ARE WILLING TO LEAVE, drawn evenly, seeded by the room, team,
+ * line and year. Measured: ±20% varies the dearest's leaving about ±10% a year
+ * and never moved a five-year share by more than about half a point; ±40%
+ * doubled the jitter for no change in outcome and made the cap one-sided at High.
+ */
+export const MARKET_COUNT_SPREAD = 0.20;
+/** The grain of the draws: a book is 100 notional members, so one member is 1% of it. */
+export const MARKET_MEMBERS_PER_BOOK = 100;
+
+/**
+ * LEAVERS' QUALITY: five risk buckets relative to the leaving team's book, each
+ * divided by 1.02 so the even mix (5 / 20 / 50 / 20 / 5%) averages exactly 1.00.
+ * As the pair gap grows the mix tilts (exponentially) towards the best buckets,
+ * reaching each level's skew at a 10%+ gap, where the average leaver is
+ * MARKET_FULL_SKEW_MEAN (Low 0.90 / Medium 0.80 / High 0.70). Between a 1% and a
+ * 10% gap the tilt grows in proportion.
+ */
+export const MARKET_BUCKETS_RAW = [0.60, 0.80, 1.00, 1.25, 1.60] as const;
+export const MARKET_BUCKET_BASE_MIX = [0.05, 0.20, 0.50, 0.20, 0.05] as const;
+export const MARKET_FULL_SKEW_GAP = 0.10;
+export const MARKET_FULL_SKEW_MEAN: Readonly<Record<Exclude<MarketLevel, 'off'>, number>> = { low: 0.90, medium: 0.80, high: 0.70 };
+
+/**
+ * THE BOOK RISK FACTOR multiplies a team's ordinary losses; each year, before
+ * the new moves, it moves this share of the way back to 1.00. Measured: 0% let a
+ * team that never cut its rate ratchet to 1.35 with its gap widening every year;
+ * 100% made losing good members cost almost nothing; 25% took about six years to
+ * clear after a cut (past a five-year game); 50% clears in 2–3 years.
+ */
+export const MARKET_BOOK_RISK_FADE = 0.50;
+
+/**
+ * OUTSIDE SUPPLY — genuinely new members each year, 2% of the room's book on
+ * the line PLUS the dropped members nobody took the year before, at about
+ * average risk (the even mix), offered only to teams priced at or below the
+ * room's average rate, cheapest first. Measured: a closed room left 47–76% of
+ * appetite unfilled, and with 5% non-renewal 50–69% of intake was other teams'
+ * dropped members; 2% filled most of the gap, 3% let supply reach the dearest
+ * team (its share back up 1.3 points) and weakened the price signal; offering it
+ * only at or below average keeps it from rescuing a dear team. The refill keeps
+ * cheap teams that grow hard off dropped members (their dropped intake 15–43% →
+ * 1–7%).
+ */
+export const MARKET_OUTSIDE_SUPPLY = 0.02;
+
+/**
+ * NON-RENEWED MEMBERS LEAVE THE MARKET. The dropping team keeps today's relief
+ * (its remaining book's losses × (1 − ½ × the share dropped)), which implies the
+ * dropped members average 1.5 − ½ × the share times its book's risk (≈ 1.475 at
+ * 5%). NO TEAM TAKES THEM: the "Accept non-renewed members" switch is gone and
+ * the behaviour is fixed at what its default was, No (measured: a team that took
+ * them filled its appetite at 1.4–1.6× risk). Every dropped member is refilled as
+ * outside supply the next year (MARKET_OUTSIDE_SUPPLY's refill). The relief is
+ * NON_RENEWAL_LOSS_RELIEF (½), unchanged.
+ */
+
+// ============================================================================
 // THE REGISTRY — what the page is generated from.
 //
 // ⚠ IT IS A SECOND DESCRIPTION OF THE CONSTANTS ABOVE AND THAT IS THE ONE PLACE
@@ -2765,6 +2893,69 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the teams that locked in that year; fixed until the next set. A team that did not lock in a year counts '
           + 'as stopped: nobody waits for it and its last reported figures stay in the totals. Each player sees its '
           + 'own team\'s; the host sees every team\'s. Single player keeps the share of the full market.',
+      }],
+    ],
+  },
+  {
+    // MARKET COMPETITION (pr/market-competition) — hosted rooms only. Every value
+    // is the measured one; the block above each constant carries the measurements.
+    title: 'Market competition (hosted rooms)',
+    entries: [
+      ['Market competition setting', {
+        value: `Off / Low / Medium / High, default ${MARKET_DEFAULT_LEVEL[0].toUpperCase() + MARKET_DEFAULT_LEVEL.slice(1)}`,
+        unit: 'the host\'s setting at room setup',
+        what: 'Whether members move between the room\'s teams on price, and how readily. Off plays as a game '
+          + 'without it; a room created before the setting reads Off. Single player and Test player have no market.',
+        basis: 'CHOSEN',
+      }],
+      ['Pair gap', {
+        value: 'the pricier team\'s whole rate ÷ the cheaper team\'s − 1',
+        unit: 'per pair of teams, per line',
+        what: 'The whole rate each team locked with — risk control and reinsurance included — compared pair by pair.',
+        basis: 'CHOSEN',
+      }],
+      ['Willing leavers (k)', {
+        value: `Low ${perLine(MARKET_K.low, 3)} · Medium ${perLine(MARKET_K.medium, 3)} · High ${perLine(MARKET_K.high, 3)}`,
+        unit: 'k in k × (pair gap − 1%)², per pair',
+        what: `Each cheaper rival pulls k × (pair gap − ${MARKET_MIN_GAP * 100}%)² of the dearer team's book; the pulls are `
+          + `averaged over the N − 1 rivals and × ${MARKET_RIVAL_SCALE}, drawn ±${MARKET_COUNT_SPREAD * 100}% and capped at `
+          + `${MARKET_LEAVER_CAP * 100}% of the book a year.`,
+        basis: 'CHOSEN',
+        note: 'Calibrated on the funding tables live on aws to match the behaviour measured on #72\'s stretched tables '
+          + '(five teams, Medium, scenario 7: the dearest team\'s share 17.6 → 10.2 over five years, stretched 10.5). '
+          + 'Must be recalibrated if #72\'s tables land.',
+      }],
+      ['Leaver quality', {
+        value: `buckets ${MARKET_BUCKETS_RAW.map(b => b.toFixed(2)).join(' / ')} ÷ 1.02; full skew at a ${MARKET_FULL_SKEW_GAP * 100}%+ gap: `
+          + `Low ${MARKET_FULL_SKEW_MEAN.low} · Medium ${MARKET_FULL_SKEW_MEAN.medium} · High ${MARKET_FULL_SKEW_MEAN.high}`,
+        unit: 'risk against the leaving team\'s book (1.00 = average)',
+        what: 'Who leaves: the mix tilts towards the best risks as the pair gap grows. Dropped (non-renewed) members average '
+          + 'about 1.5×; no team takes them — they leave the market.',
+        basis: 'CHOSEN',
+      }],
+      ['Outside supply', {
+        value: `${MARKET_OUTSIDE_SUPPLY * 100}% of the room's book + last year's untaken dropped members`,
+        unit: 'per line, per year',
+        what: 'New members from outside the room, at about average risk, offered only to teams at or below the room\'s '
+          + 'average rate, cheapest first.',
+        basis: 'CHOSEN',
+        note: 'Measured: a closed room left 47–76% of appetite unfilled; 3% let supply reach the dearest team.',
+      }],
+      ['Book risk fade', {
+        value: `${MARKET_BOOK_RISK_FADE * 100}% towards 1.00 a year`,
+        unit: 'before the year\'s moves',
+        what: 'The book risk factor multiplies a team\'s losses; each year it moves halfway back to 1.00 before new moves.',
+        basis: 'CHOSEN',
+        note: 'Measured: 0% ratcheted to 1.35; 25% took about six years to clear; 50% clears in 2–3.',
+      }],
+      ['Non-renewed members', {
+        value: 'leave the market; refilled as outside supply the next year',
+        unit: 'every room with the market on',
+        what: 'No team takes another team\'s non-renewed members. They leave the market, and next year\'s outside supply '
+          + 'adds them back at about average risk.',
+        basis: 'CHOSEN',
+        note: 'Fixed at No (the former "Accept non-renewed members" switch, whose default was No): measured, a team that '
+          + 'took them filled its appetite at 1.4–1.6× risk.',
       }],
     ],
   },

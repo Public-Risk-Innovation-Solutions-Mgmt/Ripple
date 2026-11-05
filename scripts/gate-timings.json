@@ -93,6 +93,7 @@
     "t-cover-layers-check": 20,
     "rate-indication-years-check": 15,
     "carry-decisions-check": 35,
+    "market-step-check": 31,
     "newest-combined-ratio-check": 10,
     "large-claims-from-events-check": 35,
     "aggregate-cover-check": 60,

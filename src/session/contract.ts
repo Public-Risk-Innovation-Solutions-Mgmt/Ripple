@@ -69,6 +69,9 @@
 
 import type { CoverageLine } from '../types/simulation';
 import type { GameEdit, YearSettings } from '../utils/gameEdits';
+import type { MarketLevel } from '../data/pricingParameters';
+import type { MarketTeamLineResult } from '../utils/market/marketStep';
+export type { MarketLevel, MarketTeamLineResult };
 export type { GameEdit, YearSettings } from '../utils/gameEdits';
 
 // ---------------------------------------------------------------- json
@@ -146,6 +149,12 @@ export type SessionErrorCode =
   // here fails identically until the window closes — the fix is to wait, not
   // to resend.
   | 'TOO_MANY_ATTEMPTS'
+  // ⚠ REAL LOCKING (pr/market-competition). A team that has locked the current
+  // year cannot send a different decision set for it; the host must unlock it
+  // first (undoLock). A retry of the SAME set is not this — it succeeds, so a
+  // client that lost the first response can resend safely. 409, like
+  // WRONG_YEAR: the request is well formed but the room's state refuses it.
+  | 'ALREADY_LOCKED'
   | 'TRANSPORT_FAILURE';
 
 // ⚠ ONE ERROR TYPE FOR EVERY IMPLEMENTATION, and `code` is what callers branch
@@ -436,7 +445,7 @@ export interface TeamLineDecisions {
    * written before carries the old names and the host reads 0% for both.
    */
   nonRenewal: number;
-  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.05. */
+  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.10. */
   newMembers: number;
   /**
    * The line's Risk Control slider, a FRACTION 0–0.05 (LineDecisionSet
@@ -947,6 +956,20 @@ export interface RoomView {
   /** THE CHANGE HISTORY (who, what, which year, when) — HOST ONLY; absent for every other caller. */
   editHistory?: GameEdit[];
   /**
+   * MARKET COMPETITION (pr/market-competition): Off / Low / Medium / High, set
+   * at creation. ABSENT ON A ROOM STORED BEFORE THE SETTING EXISTED, WHICH READS
+   * 'off' — those rooms play exactly as they did. Every caller sees it (the
+   * Decisions page shows the market's controls only when it is on).
+   */
+  market?: MarketLevel;
+  /**
+   * EVERY YEAR'S STORED MARKET STEP — HOST ONLY (the Teams columns, the Charts
+   * line, the stale-rate flags): year (a string) -> the inputs used and every
+   * team's result. A player or viewer reads only its own team's, on
+   * CallerView.marketByYear. Absent with the market off.
+   */
+  marketByYear?: Record<string, StoredMarketYear>;
+  /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
    * existed, which reads as false — not hidden, which is what those rooms were.
    * See SetEventHiddenRequest for why this changes only whether the event is
@@ -1042,6 +1065,62 @@ export interface CallerView {
    * clobbers what was actually submitted.
    */
   draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
+  /**
+   * THIS CALLER'S TEAM'S MARKET RESULT BY YEAR (market competition): year (a
+   * string) -> each line's stored result. The team's game reads it when it plays
+   * and replays every year (client/buildGame.ts), so a player and a viewer of it
+   * get the same one. Absent with the market off and before the first advance.
+   */
+  marketByYear?: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>>;
+}
+
+// ---------------------------------------------------------------- market
+
+/**
+ * WHAT A TEAM SENDS WITH ITS LOCK WHEN THE MARKET IS ON — the one part of a
+ * lock the server reads (the decisions stay opaque). Per line: the year's whole
+ * rate as the team's game struck it (worlds.ts strikeRates), the book at the
+ * start of the year, and the three market decisions. The server's market step
+ * uses it when the host advances past the year.
+ */
+export interface MarketLockLine {
+  /** The whole rate per $100 (risk control and reinsurance in). */
+  rate: number;
+  /** The book at the start of the year (base-year exposure, $M). */
+  book: number;
+  /** New Members: the most to take in this year, share of the book (0–0.10). */
+  newMembers: number;
+  /** Non-Renewal: the share of the book dropped this year (0–0.10). Dropped members leave the market. */
+  nonRenewal: number;
+}
+export interface MarketLockInput {
+  byLine: Partial<Record<CoverageLine, MarketLockLine>>;
+}
+
+/** One team's input to one year's market step, as the server used it. */
+export interface StoredMarketTeamInput {
+  teamNumber: number;
+  /** The year whose lock supplied the figures. */
+  fromYear: number;
+  /**
+   * ⚠ STALE: the team had not locked this year, so it counts at its last locked
+   * rate and decisions, on its book carried forward — flagged to the host.
+   */
+  stale: boolean;
+  byLine: Partial<Record<CoverageLine, MarketLockLine>>;
+}
+
+/** One year's market step, stored once when the host advanced past the year. */
+export interface StoredMarketYear {
+  year: number;
+  level: Exclude<MarketLevel, 'off'>;
+  /** Per team name. A team that never locked any year is absent here and in `result`, and named in `missing`. */
+  inputs: Record<string, StoredMarketTeamInput>;
+  missing: string[];
+  /** Per team name, per line. */
+  result: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>>;
+  /** Non-renewed members nobody took, per line — refilled as outside supply next year. */
+  untakenDropped: Partial<Record<CoverageLine, number>>;
 }
 
 // ---------------------------------------------------------------- requests
@@ -1083,6 +1162,8 @@ export interface CreateRoomRequest {
   /** Per-line adverse development level (DevelopmentLevels); entries for lines not played are dropped. */
   developmentLevels?: DevelopmentLevels;
   shocks: ScheduledShockSpec[];
+  /** Market competition (RoomView.market). Omitted reads 'off'; the setup form sends the host's choice, Medium by default. */
+  market?: MarketLevel;
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE
    * IDEMPOTENCY KEY. A retried createRoom used to make a SECOND room and the
@@ -1335,6 +1416,12 @@ export interface SubmitRequest {
   /** Opaque by design — see TeamYearSummary's note on why results are not. */
   decisions?: JsonValue;
   result?: TeamYearSummary;
+  /**
+   * WITH A LOCK (`decisions`) IN A ROOM WITH THE MARKET ON: the year's rate,
+   * book and market decisions per line (MarketLockInput). Ignored without
+   * `decisions`, and in a room with the market off.
+   */
+  market?: MarketLockInput;
 }
 
 export interface SubmitResponse {

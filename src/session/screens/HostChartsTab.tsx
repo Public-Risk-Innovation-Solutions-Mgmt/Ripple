@@ -82,6 +82,7 @@ import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import { teamLabel, type RoomView, type TeamYearFigures, type TeamView } from '../index';
+import type { StoredMarketYear } from '../contract';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -126,7 +127,7 @@ interface Metric {
   title: string;
   note: string;
   /** Where the value comes from: a year's own figures, or the developed column. */
-  source: 'figures' | 'developed';
+  source: 'figures' | 'developed' | 'market';
   pick: (f: TeamYearFigures) => number;
   format: (v: number) => string;
   /** Money quantities anchor at zero; a member count does not. */
@@ -207,6 +208,25 @@ const METRICS: Metric[] = [
   },
 ];
 
+/**
+ * MARKET COMPETITION — THE HOST'S BOOK RISK LINE (RoomView.marketByYear, host
+ * only). The factor each year played at: it multiplies the team's losses. Not a
+ * posted figure — the server's own market step. On the pool view, the lines'
+ * factors weighted by their books after the moves. Shown only in a room with the
+ * market on.
+ */
+const BOOK_RISK_METRIC: Metric = {
+  id: 'bookRisk',
+  title: 'Book risk',
+  note: 'market step · bookRisk',
+  subtitle: 'How risky each book is against an average one (1.00), after members moved. It multiplies the year\'s losses and fades halfway back each year.',
+  source: 'market',
+  pick: () => 1,   // unused on this source
+  format: v => v.toFixed(3),
+  anchorZero: false,
+  zeroRule: false,
+};
+
 // ---------------------------------------------------------------- series
 
 type TeamState =
@@ -227,6 +247,8 @@ interface TeamSeries {
    * the frozen series and draw the as-booked chart twice.
    */
   developed: Map<number, number>;
+  /** MARKET COMPETITION: year -> the book risk the year played at. Empty with the market off. */
+  market: Map<number, number>;
 }
 
 /**
@@ -237,9 +259,21 @@ interface TeamSeries {
 // (utils/knownYears: the year just completed, the room's current year less one;
 // every year once the event is over). Nothing later is posted, and the developed
 // column is the one posted AT that year: every post is kept, never rewritten.
-function seriesFor(team: TeamView, color: string, view: LineView, years: number[], lastShown: number): TeamSeries {
+function seriesFor(
+  team: TeamView, color: string, view: LineView, years: number[], lastShown: number,
+  marketByYear?: Record<string, StoredMarketYear>,
+): TeamSeries {
   if (view !== 'pool' && !team.lines.includes(view)) {
-    return { team, color, state: { kind: 'absent' }, byYear: new Map(), developed: new Map() };
+    return { team, color, state: { kind: 'absent' }, byYear: new Map(), developed: new Map(), market: new Map() };
+  }
+  const market = new Map<number, number>();
+  for (const y of years) {
+    if (y < 1 || y > lastShown) continue;
+    const r = marketByYear?.[String(y)]?.result[team.name];
+    if (!r) continue;
+    const lines = (view === 'pool' ? team.lines : [view]).filter(l => r[l]);
+    const w = lines.reduce((t, l) => t + r[l]!.bookAfter, 0);
+    if (lines.length > 0 && w > 0) market.set(y, lines.reduce((t, l) => t + r[l]!.bookRisk * r[l]!.bookAfter, 0) / w);
   }
   const byYear = new Map<number, TeamYearFigures>();
   for (const y of years) {
@@ -272,6 +306,7 @@ function seriesFor(team: TeamView, color: string, view: LineView, years: number[
     state: drawn.length === 0 ? { kind: 'silent' } : { kind: 'drawn', years: drawn },
     byYear,
     developed,
+    market,
   };
 }
 
@@ -336,6 +371,7 @@ const PLOT_H = H - M.top - M.bottom;
  */
 function pointsOf(metric: Metric, s: TeamSeries): Map<number, number> {
   if (metric.source === 'developed') return s.developed;
+  if (metric.source === 'market') return s.market;
   const out = new Map<number, number>();
   for (const [yr, f] of s.byYear) out.set(yr, metric.pick(f));
   return out;
@@ -586,7 +622,9 @@ export default function HostChartsTab({ room }: Props) {
     );
   }
 
-  const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years, lastPlayable));
+  const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years, lastPlayable, room.marketByYear));
+  // The book risk line joins the charts in a room with the market on.
+  const metrics = (room.market ?? 'off') !== 'off' ? [...METRICS, BOOK_RISK_METRIC] : METRICS;
   const directLabels = series.filter(s => s.state.kind === 'drawn').length <= 4;
 
   // ⚠ ONE DOMAIN ACROSS A SCALE GROUP, COMPUTED BEFORE ANY OF ITS CHARTS DRAWS.
@@ -604,7 +642,7 @@ export default function HostChartsTab({ room }: Props) {
     sharedDomains[group] = niceScale(Math.min(...values), Math.max(...values), members[0].anchorZero);
   }
 
-  const expandedMetric = METRICS.find(m => m.id === expandedId) ?? null;
+  const expandedMetric = metrics.find(m => m.id === expandedId) ?? null;
 
   return (
     <div className="space-y-4">
@@ -658,7 +696,7 @@ export default function HostChartsTab({ room }: Props) {
         ))}
       </div>
 
-      {METRICS.map(m => (
+      {metrics.map(m => (
         <div key={m.id} className="relative">
           <button
             type="button"

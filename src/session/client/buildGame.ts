@@ -27,7 +27,7 @@ import { scenarioInstance } from '../../utils/instanceGenerator';
 import { runPriorHistory } from '../../utils/priorHistoryEngine';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, surplusRange, type SurplusRange } from '../../utils/worlds';
 import { defaultDecisionSet } from '../../utils/decisionDefaults';
-import type { CoverageLine, GameSetupSettings, GameState, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
+import type { CoverageLine, GameSetupSettings, GameState, MarketLineInput, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
 import { gameShocksOn } from '../../utils/shockLosses';
@@ -130,8 +130,12 @@ export function replayTeamYears(
   start: GameState,
   targetYear: number,
   decisionsByYear: Record<string, JsonValue> | undefined,
+  market?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>,
 ): { state: GameState; produced: ProducedYear[] } {
-  let state = start;
+  // MARKET COMPETITION: the team's stored market results, every year's, on the
+  // setup the engine reads (setup.marketByYear; bookUnderwriting.ts). Each year
+  // reads only its own entry, so the whole map is set once, whatever the year.
+  let state = market ? { ...start, setup: { ...start.setup, marketByYear: market } } : start;
   const produced: ProducedYear[] = [];
 
   // ⚠ EVERY YEAR THE LOOP PRODUCES, NOT THE LAST ONE, each with its own pool

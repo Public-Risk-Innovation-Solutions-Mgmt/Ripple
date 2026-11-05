@@ -3,9 +3,12 @@
 // In a hosted game a team's market share is its share of the ROOM: per line,
 // its exposure over every team's exposure on the line; on the pool, its premium
 // over the room's (RoomMarketShares, contract.ts). Each team plays different
-// underwriting (Harbour Mutual at the defaults, Cedar Valley not renewing 5%
-// of its book, Tri-County adding 5% new members, on every line — the most each
-// slider allows since simple underwriting). Checked:
+// underwriting (Harbour Mutual at the defaults, Cedar Valley not renewing 10%
+// of its book, Tri-County adding 10% new members, on every line — the most each
+// slider allows since the sliders widened to 0-10%; 5% before). Checked:
+//
+//   - each slider stops at 10%: twelve presses of the arrow key read 10%;
+//   - the host's Decisions table shows the 10% each team set, after year 1;
 //
 //   - before year 1, every team reads one third on every line and the pool;
 //   - nothing changes until the host advances, even after every team locks in;
@@ -157,6 +160,9 @@ function expectedShares(rec, year) {
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', '3');
+  // Market competition Off: this driver plays the underwriting sliders as they work without the market
+  // (New Members as growth, Non-Renewal as an assumption). A market room is market-competition.cjs's.
+  await host.selectOption('[data-testid="market-level"]', 'off');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -171,14 +177,15 @@ function expectedShares(rec, year) {
   // Different underwriting, every line.
   for (const v of LINES) {
     // The sliders' on-screen names since simple underwriting: nonRenewal and
-    // newMembers underneath, each 0-5% in 1% steps.
-    for (const [t, label, presses] of [['Cedar Valley', 'Existing Book: Non-Renewal Assumption', 5], ['Tri-County', 'New Members: Growth Assumption', 5]]) {
+    // newMembers underneath, each 0-10% in 1% steps (0-5% before they widened).
+    // TWELVE PRESSES, TWO PAST THE TOP: the slider must stop at 10%.
+    for (const [t, label, presses] of [['Cedar Valley', 'Existing Book: Non-Renewal Assumption', 12], ['Tri-County', 'New Members: Growth Assumption', 12]]) {
       const p = players[t];
       await decisionsTab(p);
       await p.getByRole('button', { name: VIEW[v], exact: true }).first().click();
       await p.waitForTimeout(250);
       const got = await nudge(p, label, presses);
-      const want = (presses / 100).toFixed(2);
+      const want = (Math.min(presses, 10) / 100).toFixed(2);
       if (!TIMING) ok(got !== null && Number(got).toFixed(2) === want, `${t} sets ${label} on ${v}`, `slider at ${got}`);
     }
   }
@@ -328,6 +335,23 @@ function expectedShares(rec, year) {
           `WC ${pct(stored.byTeam[STOPPER].byLine.WC)}, pool ${pct(stored.byTeam[STOPPER].pool)}`);
       }
     }
+    // THE HOST'S DECISIONS TABLE, after year 1: the 10% each team set reached
+    // the server and reads as 10% — Non-renewal (5th cell), New members (6th).
+    if (!TIMING && y === 1) {
+      await host.click('[data-testid="host-tab-decisions"]');
+      await host.waitForFunction(n => {
+        const rs = [...document.querySelectorAll('[data-testid^="decisions-row-"]')];
+        return rs.length >= n && rs.every(r => r.children.length === 9);
+      }, TEAMS.length, { timeout: 60000 }).catch(() => {});
+      const cells = {};
+      for (const t of TEAMS) cells[t] = await host.$$eval(`[data-testid="decisions-row-${t}"] > td`, tds => tds.map(c => c.textContent.trim())).catch(() => []);
+      ok(cells['Cedar Valley'][4] === '10%' && cells['Cedar Valley'][5] === '0%',
+        "the host's Decisions table: Cedar Valley's non-renewal 10%, new members 0%", (cells['Cedar Valley'] || []).join(' | '));
+      ok(cells['Tri-County'][4] === '0%' && cells['Tri-County'][5] === '10%',
+        "the host's Decisions table: Tri-County's non-renewal 0%, new members 10%", (cells['Tri-County'] || []).join(' | '));
+      ok(cells['Harbour Mutual'][4] === '0%' && cells['Harbour Mutual'][5] === '0%',
+        "the host's Decisions table: Harbour Mutual at the defaults, 0% and 0%", (cells['Harbour Mutual'] || []).join(' | '));
+    }
     // ⚠ THE TEAM STOPS PLAYING: its browser goes, so it locks and posts nothing more.
     if (STOP && y === 1) { await players[STOPPER].close(); console.log(`  ${STOPPER} stops playing after year 1`); }
   }
@@ -336,6 +360,38 @@ function expectedShares(rec, year) {
   for (const r of table) console.log('    ' + r);
   console.log('\n  --- advance timings (ms) ---');
   for (const t of timings) console.log(`    year ${t.y}: advance ${t.tAdvance}, results ${t.tResults}, shares ${t.tShares ?? '—'}`);
+
+  // EVERY MODE: the same sliders, the same 0-10%, in Single player and Test
+  // player — twelve presses on each line the game plays stop at 10%.
+  if (!STOP && !TIMING) {
+    for (const mode of ['Single player', 'Test player']) {
+      const page = await (await browser.newContext({ baseURL: BASE })).newPage();
+      page.on('pageerror', e => errs.push(`${mode}: ${e.message}`));
+      await page.goto('/solo');
+      await page.evaluate(() => localStorage.clear());
+      await page.reload();
+      await page.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
+      await page.getByRole('button', { name: mode, exact: true }).click();
+      if (mode === 'Test player') {
+        await page.waitForSelector('[data-testid="test-player-setup"]', { timeout: 20000 });
+        await page.click('[data-testid="start-test-player"]');
+      }
+      await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
+      await decisionsTab(page);
+      const got = [];
+      for (const v of LINES) {
+        const tab = page.getByRole('button', { name: VIEW[v], exact: true }).first();
+        if (await tab.count() === 0) continue;
+        await tab.click();
+        await page.waitForTimeout(250);
+        for (const label of ['Existing Book: Non-Renewal Assumption', 'New Members: Growth Assumption']) {
+          got.push(`${v} ${label.split(':')[0]} ${await nudge(page, label, 12)}`);
+        }
+      }
+      ok(got.length >= 2 && got.every(g => g.endsWith(' 0.1')), `${mode}: each underwriting slider stops at 10% on every line the game plays (WC alone by default)`, got.join(', '));
+      await page.context().close();
+    }
+  }
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');

@@ -620,6 +620,18 @@ export interface NewLossEngineRecord {
   events: { id: string; name: string; firedYear: number; region?: Region; uplift: number; rRate: number }[];
 }
 
+/**
+ * ONE LINE OF A TEAM'S MARKET RESULT FOR A YEAR, as the engine reads it
+ * (hosted market competition; bookUnderwriting.ts moveBook, which documents each
+ * field). A subset of the server's stored result (utils/market/marketStep.ts).
+ */
+export interface MarketLineInput {
+  readonly leftShare: number;
+  readonly intake: number;
+  readonly engineNonRenewal: number;
+  readonly bookRisk: number;
+}
+
 export interface GameSetupSettings {
   poolName: string;
   gameLength: number;     // number of years
@@ -652,6 +664,15 @@ export interface GameSetupSettings {
    * entry, reads `developmentLevels`. Absent on every game never edited.
    */
   developmentLevelsByYear?: Record<string, Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>>;
+  /**
+   * THIS TEAM'S MARKET RESULT BY YEAR (hosted games with market competition,
+   * pr/market-competition): year (a string) -> each line's MarketLineInput, as
+   * the server stored it when the host advanced past the year. Read by moveBook
+   * (bookUnderwriting.ts) in place of the sliders. Absent everywhere else —
+   * single player, Test player, a room with the market Off — and nothing moves
+   * differently.
+   */
+  marketByYear?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>;
   /**
    * THE SHOCK SWITCH, PINNED AS IT STOOD AT SETUP (wip/mid-game-edits): read by
    * gameShocksOn in place of "is the schedule non-empty", so adding a shock to a
@@ -735,7 +756,7 @@ export interface LineDecisionSet {
   /**
    * "NON-RENEWAL": the share of this line's book at the start of the year the
    * pool does not renew (bookUnderwriting.ts) — exposure falls by it, and this
-   * year's ordinary loss per unit falls by NON_RENEWAL_LOSS_RELIEF x it. 0–0.05
+   * year's ordinary loss per unit falls by NON_RENEWAL_LOSS_RELIEF x it. 0–0.10
    * in 0.01 steps, default 0 (NON_RENEWAL_SLIDER). Absent reads as 0.
    *
    * ⚠ REPLACES renewalsDeclined (0–10%, worst loss ratio first on units).
@@ -744,11 +765,18 @@ export interface LineDecisionSet {
   /**
    * "NEW MEMBERS": the share of the book at the start of the year added as new
    * members — exposure rises by it, and that exposure's ordinary losses carry
-   * NEW_BUSINESS_PENALTY this year. 0–0.05 in 0.01 steps, default 0
+   * NEW_BUSINESS_PENALTY this year. 0–0.10 in 0.01 steps, default 0
    * (NEW_MEMBERS_SLIDER). Absent reads as 0.
    *
    * ⚠ REPLACES newBusinessRejection: there is no rejection rate, and no
    * applicants arrive unless the team adds them.
+   *
+   * ⚠ IN A HOSTED ROOM WITH MARKET COMPETITION IT IS THE TEAM'S APPETITE: the
+   * most it takes in this year, from pricier teams' leavers, the outside supply
+   * and (if accepted) other teams' non-renewed members — the server's market
+   * step decides how much actually comes (src/session/market.ts). The engine
+   * grows nothing from it there, and the newcomers bring their own quality, no
+   * NEW_BUSINESS_PENALTY.
    */
   newMembers?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted

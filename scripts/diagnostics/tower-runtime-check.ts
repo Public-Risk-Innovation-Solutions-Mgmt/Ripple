@@ -88,7 +88,7 @@
 // ============================================================================
 
 import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../../src/data/reinsuranceTower';
-import { MEMBER_LEVEL, NEW_MEMBERS_SLIDER, POOL_LIMIT_PER_OCCURRENCE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, POOL_LIMIT_PER_OCCURRENCE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { layerRiskMoments, resetTowerMomentCache } from '../../src/utils/towerMoments';
 import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
 import { occurrenceProgramCost, occurrenceTotals } from '../../src/utils/reinsuranceTower';
@@ -100,6 +100,11 @@ import { placementFor, reinsuranceOptionIds, tCoverPrice, tLayerExpectedCost } f
 import { shockCostFactor } from '../../src/utils/shockCost';
 import type { Claim, CoverageLine, GameState, Occurrence, ResultSet } from '../../src/types/simulation';
 
+// ⚠ 5%, NOT THE NEW-MEMBERS SLIDER'S TOP: this gate's thresholds were calibrated
+// on a book growing 5% a year, the slider's top until it widened to 0-10%
+// (pr/wider-underwriting-sliders). Pinned so the gate tests what it always did.
+const GROWING_BOOK = 0.05;
+
 const LINES: TowerLine[] = ['WC', 'GL', 'Property'];
 const failed: string[] = [];
 const RULE = '='.repeat(72);
@@ -109,11 +114,11 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const seedOf = (id: string) => { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; };
 
-// `grow`: every line adds NEW_MEMBERS_SLIDER.max of new members a year (simple
+// `grow`: every line adds GROWING_BOOK (5%) of new members a year (simple
 // underwriting's defaults add none).
 const decide = (y: number, grow: boolean) => {
   const d = defaultDecisionSet(y);
-  if (grow) for (const l of LINES as CoverageLine[]) d.byLine[l].newMembers = NEW_MEMBERS_SLIDER.max;
+  if (grow) for (const l of LINES as CoverageLine[]) d.byLine[l].newMembers = GROWING_BOOK;
   return d;
 };
 function play(id: string, years: number, grow = false): { rows: ResultSet[]; gs: GameState } {

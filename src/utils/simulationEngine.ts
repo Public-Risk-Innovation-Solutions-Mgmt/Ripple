@@ -3,7 +3,7 @@
 
 import { alaeRatioFor } from './alaeRatio';
 import { adminOverrunFor } from './adminOverrun';
-import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, AttritionalCoverRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
+import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, AttritionalCoverRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, MarketLineInput } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
 // THE NEW LOSS ENGINE'S FIRINGS, IN THE RECORD SHAPE THE RESULTS PAGES READ.
@@ -631,6 +631,12 @@ interface LineYearContext {
    */
   flatPreGame: boolean;
   /**
+   * THIS LINE'S MARKET RESULT FOR THE YEAR (hosted market competition): the
+   * server's stored moves, read from setup.marketByYear. Absent everywhere
+   * without the market, and the book moves exactly as before. bookUnderwriting.ts.
+   */
+  market?: MarketLineInput;
+  /**
    * THE HOST'S DEVELOPMENT % FOR THIS LINE — signed, positive is adverse.
    * Resolved once in processYear from the setup, falling back per line to
    * PRIOR_DEVELOPMENT_DEFAULTS, so every read site sees one number and no
@@ -1220,7 +1226,7 @@ export function processLineYear(
   // ordinary draw (ordinaryLossFromMembers), never into expected loss.
   const bookMovement = bookMode
     ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership,
-      yearNumber)
+      yearNumber, ctx.market)
     : null;
   // ⚠ RETIRED AS A LINE-WIDE FACTOR (simple underwriting): the new-business
   // penalty is inside the book's lossFactor, in the draw. Kept at 1 for the
@@ -3693,6 +3699,7 @@ export function processYear(
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,
       flatPreGame,
+      market: yearNumber >= 1 ? gameState.setup.marketByYear?.[String(yearNumber)]?.[line] : undefined,
       struckRate: overrides?.struckRates?.[line],
       // ⚠ A LINE ABSENT FROM THE RECORD TAKES ITS DEFAULT, NOT ZERO. A host who
       // edited WC and left GL alone meant GL's default; an old room record,

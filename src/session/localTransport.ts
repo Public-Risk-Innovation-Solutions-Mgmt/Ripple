@@ -51,6 +51,7 @@ import type {
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
+  MarketLevel, MarketLockInput, StoredMarketYear,
   PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
   ReclaimTeamRequest, ReclaimTeamResponse,
@@ -72,6 +73,7 @@ import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } fro
 import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
 import { applyGameEdit, GameEditError } from '../utils/gameEdits';
+import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, teamMarketByYear, validMarketLockInput } from './market';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
 // /health used to report `store.length` as the room count, which was true while
@@ -350,6 +352,12 @@ interface TeamRecord {
   draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
   // Year number (as a string key, per JSON) -> that year's posted summary.
   resultsByYear: Record<string, TeamYearSummary>;
+  /**
+   * MARKET COMPETITION: the market input sent with each lock (MarketLockInput),
+   * by year. The advance's market step reads the latest at or before the year.
+   * Absent on a team that never locked with the market on.
+   */
+  marketInputByYear?: Record<string, MarketLockInput>;
 }
 
 interface ViewerRecord {
@@ -387,6 +395,10 @@ interface RoomRecord {
   viewers: ViewerRecord[];
   /** Every year's room market shares, as each year completed — see RoomMarketShares. */
   marketSharesByYear?: RoomSharesByYear;
+  /** Market competition's level. ⚠ Absent on a room written before it existed: reads 'off'. */
+  market?: MarketLevel;
+  /** Every year's market step, stored once by advance (StoredMarketYear). */
+  marketByYear?: Record<string, StoredMarketYear>;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -579,6 +591,9 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     ...(room.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(room.developmentLevelsByYear)) } : {}),
     ...(room.shocksOn !== undefined ? { shocksOn: room.shocksOn } : {}),
     ...(role === 'host' && room.editHistory ? { editHistory: room.editHistory.map(e => ({ ...e })) } : {}),
+    // Market competition: absent on an older room, which reads 'off' — shown as off, not omitted.
+    market: marketLevelOf(room.market),
+    ...(role === 'host' && room.marketByYear ? { marketByYear: JSON.parse(JSON.stringify(room.marketByYear)) } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
     poolName: room.poolName || room.eventName,
@@ -650,6 +665,9 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
   if (role === 'player' && room && team.draft && team.draft.yearNumber === room.currentYear) {
     view.draft = { ...team.draft };
   }
+  // The team's own market results — a player's and its viewers' — for its game to play and replay.
+  const market = teamMarketByYear(room?.marketByYear, team.name);
+  if (market) view.marketByYear = JSON.parse(JSON.stringify(market));
   const postedYears = Object.keys(team.resultsByYear)
     .map(Number)
     .filter(Number.isFinite)
@@ -669,6 +687,19 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
     view.lastResultYear = played;
   }
   return view;
+}
+
+// ---------------------------------------------------------------- market competition
+
+/** The team's latest locked market input at or before `year` (the market counts a team that did not lock at its last lock). */
+function latestMarketInput(t: TeamRecord, year: number): { year: number; input: MarketLockInput } | undefined {
+  for (let y = year; y >= 1; y--) {
+    const k = String(y);
+    const locked = t.lockedYears ? t.lockedYears[k] === true : t.decisionsByYear[k] !== undefined;
+    const input = t.marketInputByYear?.[k];
+    if (locked && input) return { year: y, input };
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------- market share
@@ -796,6 +827,9 @@ export class LocalSessionTransport implements SessionTransport {
         const v = req.developmentLevels?.[l];
         if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
       }
+      // Market competition: absent reads 'off' (the form always sends the host's choice).
+      const market = requestedMarketLevel(req.market);
+      if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
 
       const store = storage();
 
@@ -830,6 +864,7 @@ export class LocalSessionTransport implements SessionTransport {
         lines: roomLines,
         priorDevelopment: roomPriorDev,
           developmentLevels: roomDevLevels,
+        ...(market !== 'off' ? { market } : {}),
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
@@ -1187,10 +1222,31 @@ export class LocalSessionTransport implements SessionTransport {
             `The room is on year ${room.currentYear}; those decisions are for year ${req.yearNumber}.`,
           );
         }
+        // ⚠ REAL LOCKING (pr/market-competition). A team locked for the year may
+        // not send a different set; the host unlocks it first (undoLock). The
+        // SAME set again is a retry of a lost response and succeeds unchanged.
+        const y = String(req.yearNumber);
+        const lockedNow = team.lockedYears ? team.lockedYears[y] === true : team.lockedYear === req.yearNumber;
+        const market = marketLevelOf(room.market) !== 'off'
+          ? validMarketLockInput(req.market, room.lines ?? LINE_ORDER) : undefined;
+        if (market === null) {
+          throw new SessionError('INVALID_REQUEST', 'A lock in a room with market competition needs its rates and book.');
+        }
+        if (lockedNow) {
+          const same = JSON.stringify(team.decisionsByYear[y]) === JSON.stringify(req.decisions)
+            && JSON.stringify(team.marketInputByYear?.[y]) === JSON.stringify(market);
+          if (!same) {
+            throw new SessionError('ALREADY_LOCKED', `${team.name} has already locked year ${req.yearNumber}; the host must unlock it first.`);
+          }
+        }
         // ⚠ RECORDED AGAINST ITS YEAR, NOT INTO A SLOT. Re-submitting the same
         // year overwrites that year and leaves every other year alone, which is
         // what makes a reload able to replay what was actually played.
         team.decisionsByYear[String(req.yearNumber)] = req.decisions;
+        if (market) {
+          if (!team.marketInputByYear) team.marketInputByYear = {};
+          team.marketInputByYear[y] = market;
+        }
         team.lockedYear = req.yearNumber;
         if (!team.lockedYears) team.lockedYears = {};
         team.lockedYears[String(req.yearNumber)] = true;
@@ -1449,6 +1505,29 @@ export class LocalSessionTransport implements SessionTransport {
         );
       }
 
+      // ⚠ A TEAM UNLOCKED AND NOT RE-LOCKED PLAYS ITS PREVIOUS LOCKED DECISIONS
+      // (real locking). undoLock keeps the set it had sent so its form reopens on
+      // it; if the team never locks it again, it never counted — drop it, so the
+      // replay (decisionsForYear) and the market both read the last lock.
+      const y = String(room.currentYear);
+      for (const t of room.teams) {
+        if (t.lockedYears?.[y] === false) {
+          delete t.decisionsByYear[y];
+          if (t.marketInputByYear) delete t.marketInputByYear[y];
+        }
+      }
+      // MARKET COMPETITION: the year's market step, stored once, with the advance.
+      const level = marketLevelOf(room.market);
+      if (level !== 'off') {
+        const stored = marketYearForAdvance({
+          code: room.code, seed: room.seed, level, lines: room.lines ?? LINE_ORDER, year: room.currentYear,
+          roster: room.teams.filter(t => t.joined).map(t => ({
+            name: t.name, teamNumber: t.teamNumber ?? 0, latest: latestMarketInput(t, room.currentYear),
+          })),
+          previous: room.marketByYear?.[String(room.currentYear - 1)],
+        });
+        room.marketByYear = { ...(room.marketByYear ?? {}), [y]: stored };
+      }
       room.currentYear += 1;
       saveRoom(room);
       // START and FINISH, the second and third of the four moments. Both are

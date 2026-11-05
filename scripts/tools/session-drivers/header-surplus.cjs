@@ -4,11 +4,16 @@
 // The header's "Surplus" chip is the Annual Statement's balance-sheet Net Worth
 // (the builder's Ending Surplus, resultsStatement.topSurplus, laid out as the
 // template's "Net Worth") for the latest year: the opening before
-// year 1, each played year's year-end after it, for the view on screen. This
-// drives a solo game, three lines, through the real setup screen on scenarios
-// 1, 7 and 12 and, on the Annual Statement tab, for the pool and every line,
-// before year 1 and after years 1 and 2, checks the chip against the
-// statement's latest-year Net Worth.
+// year 1, each played year's year-end after it. This drives a solo game, three
+// lines, through the real setup screen on scenarios 1, 7 and 12, before year 1
+// and after years 1 and 2.
+//
+// ⚠ THE TOP BAR READS THE POOL ON EVERY TAB BUT A LINE ON DECISIONS (it used
+// to follow the last line picked onto every tab). Checked: on the Annual
+// Statement, whatever line view is selected, the chip is the POOL's latest Net
+// Worth and the "Showing" chip says Pool; on Decisions with a line selected, the
+// chip is that line's Net Worth and "Showing" names the line; and with a line
+// left selected, every other tab reads the pool (surplus and combined ratio).
 //
 // ⚠ AND NO "Market Share" CHIP AT ALL, ON ANY VIEW: single player has no room
 // to share. (In a hosted game the chip is the team's share of the room —
@@ -69,20 +74,57 @@ const ok = (cond, label, detail = '') => {
     await page.getByRole('button', { name: 'Single player', exact: true }).click();
     await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
+    const SHORT = { Pool: 'Pool', "Workers' Compensation": 'WC', 'General Liability': 'GL', Property: 'Property' };
+    const bar = async () => {
+      const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
+      return {
+        surplus: (head.match(/Surplus\s+(-?\$[-\d,.]+[MKB]?)/) || [])[1],
+        cr: (await page.locator('[data-testid="header-combined-ratio"]').innerText().catch(() => '')).trim(),
+        scope: (await page.locator('[data-testid="header-scope"]').innerText().catch(() => '')).trim(),
+      };
+    };
     async function compare(phase) {
+      // 1. The statement's latest Net Worth on every view; the bar reads the POOL on every one.
       await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
       await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
+      const worth = {};
+      let poolBar = null;
       for (const view of VIEWS) {
         await page.getByRole('button', { name: view, exact: true }).first().click();
         await page.waitForTimeout(400);
-        const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
-        const chip = (head.match(/Surplus\s+(-?\$[-\d,.]+[MKB]?)/) || [])[1];
         const cells = await page.locator(`[data-testid="statement-balance"] tr[data-row-label="${ROW}"] td`).allInnerTexts();
-        const latest = cells[cells.length - 2];   // C and I blank on the balance sheet: the newest year is the cell before I
-        const a = chipM(chip), b = thousandsM(latest);
-        ok(a !== null && b !== null && Math.abs(a - b) <= TOLERANCE_M,
-          `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Net Worth`,
-          `chip ${chip} · statement ${latest} (thousands)`);
+        worth[view] = cells[cells.length - 2];   // C and I blank on the balance sheet: the newest year is the cell before I
+        const b = await bar();
+        if (view === 'Pool') poolBar = b;
+        const a = chipM(b.surplus), w = thousandsM(worth.Pool ?? worth[view]);
+        ok(a !== null && w !== null && Math.abs(a - w) <= TOLERANCE_M && b.scope === 'Pool',
+          `scenario ${scenario}, ${phase}, Annual Statement on ${view}: the bar reads the POOL's latest Net Worth and says so`,
+          `chip ${b.surplus} · pool ${worth.Pool} (thousands) · showing ${b.scope}`);
+      }
+      // 2. Decisions: a line selected is that line's figures, named; the pool view is the pool's.
+      await page.getByRole('button', { name: /^Decisions$/ }).first().click();
+      await page.waitForTimeout(500);
+      for (const view of VIEWS) {
+        await page.getByRole('button', { name: view, exact: true }).first().click();
+        await page.waitForTimeout(400);
+        const b = await bar();
+        const a = chipM(b.surplus), w = thousandsM(worth[view]);
+        ok(a !== null && w !== null && Math.abs(a - w) <= TOLERANCE_M && b.scope === SHORT[view],
+          `scenario ${scenario}, ${phase}, Decisions on ${view}: the bar reads ${view === 'Pool' ? 'the pool' : 'that line'} and names it`,
+          `chip ${b.surplus} · statement ${worth[view]} (thousands) · showing ${b.scope}`);
+      }
+      // 3. A line left selected (General Liability, from Decisions): every other tab reads the pool.
+      await page.getByRole('button', { name: 'General Liability', exact: true }).first().click();
+      await page.waitForTimeout(300);
+      for (const tab of ['Introduction', 'Rate Indication', 'Annual Statement', 'Decision History', 'Year Walkthrough']) {
+        const btn = page.getByRole('button', { name: new RegExp(`^${tab}$`) }).first();
+        if (await btn.count() === 0) continue;
+        await btn.click();
+        await page.waitForTimeout(500);
+        const b = await bar();
+        ok(b.scope === 'Pool' && b.surplus === poolBar.surplus && b.cr === poolBar.cr,
+          `scenario ${scenario}, ${phase}, ${tab} with General Liability selected: the bar reads the pool`,
+          `showing ${b.scope} · surplus ${b.surplus} vs ${poolBar.surplus} · CR ${b.cr} vs ${poolBar.cr}`);
       }
       await page.getByRole('button', { name: /^Year Walkthrough$/ }).first().click();
       await page.waitForTimeout(800);
