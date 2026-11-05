@@ -272,7 +272,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     ...(header.shocksOn !== undefined ? { shocksOn: header.shocksOn } : {}),
     ...(role === 'host' && header.editHistory ? { editHistory: header.editHistory.map(e => ({ ...e })) } : {}),
     market: marketLevelOf(header.market),
-    ...(role === 'host' && fetched.marketYears ? { marketByYear: fetched.marketYears } : {}),
+    ...(role === 'host' && fetched.marketYears && Object.keys(fetched.marketYears).length > 0 ? { marketByYear: fetched.marketYears } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
