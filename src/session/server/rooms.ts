@@ -138,6 +138,7 @@ import type {
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
   UndoLockRequest, UndoLockResponse,
+  MarketLockInput, StoredMarketYear,
 } from '../contract';
 import {
   SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
@@ -147,10 +148,12 @@ import { Faults } from '../faults';
 import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import { applyGameEdit, GameEditError } from '../../utils/gameEdits';
+import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, validMarketLockInput } from '../market';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
   attemptSk, createPk, decisionPrefix, decisionSk, draftSk, handoffSk, lobbyEventPath, nameSk, pinPk,
   resultPrefix, resultSk, roomPk, tokenSk, viewerSk,
+  MARKET_YEAR_PREFIX, marketTeamPrefix, marketTeamSk, marketYearSk,
 } from './keys';
 import { standingsYear } from '../standings';
 import {
@@ -436,9 +439,24 @@ export class DynamoSessionTransport implements SessionTransport {
     const pk = roomPk(header.code);
     const fetched: Fetched = { results: new Map(), decisions: new Map() };
     const resultItems: YearItem[] = [];
+    const marketOn = marketLevelOf(header.market) !== 'off';
     if (role === 'host') {
       resultItems.push(...await this.queryPrefix(pk, RESULT_PREFIX));
+      // MARKET COMPETITION: every year's whole step — the host's columns, chart and flags.
+      if (marketOn) {
+        fetched.marketYears = {};
+        for (const item of await this.queryPrefix(pk, MARKET_YEAR_PREFIX)) {
+          fetched.marketYears[String(item.year)] = JSON.parse(item.body) as StoredMarketYear;
+        }
+      }
     } else if ((role === 'player' || role === 'viewer') && teamId) {
+      // MARKET COMPETITION: the team's own slice of each year's step, for its game to play and replay.
+      if (marketOn) {
+        fetched.marketTeam = {};
+        for (const item of await this.queryPrefix(pk, marketTeamPrefix(teamId))) {
+          fetched.marketTeam[String(item.year)] = JSON.parse(item.body);
+        }
+      }
       for (const item of await this.queryPrefix(pk, decisionPrefix(teamId))) {
         const held = fetched.decisions.get(item.teamId) ?? {};
         held[String(item.year)] = JSON.parse(item.body) as JsonValue;
@@ -563,6 +581,9 @@ export class DynamoSessionTransport implements SessionTransport {
         const v = req.developmentLevels?.[l];
         if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
       }
+      // Market competition: absent reads 'off' (the form always sends the host's choice).
+      const market = requestedMarketLevel(req.market);
+      if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
       if (!Array.isArray(req.shocks)) throw new SessionError('INVALID_REQUEST', 'shocks must be a list.');
       const shocks = req.shocks.map(s => ({
         shockId: requireString(s?.shockId, 'shockId'),
@@ -616,6 +637,7 @@ export class DynamoSessionTransport implements SessionTransport {
           lines: roomLines,
           priorDevelopment: roomPriorDev,
           developmentLevels: roomDevLevels,
+          ...(market !== 'off' ? { market } : {}),
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
@@ -1294,6 +1316,32 @@ export class DynamoSessionTransport implements SessionTransport {
             `The room is on year ${header.currentYear}; those decisions are for year ${y}.`,
           );
         }
+        // MARKET COMPETITION: a lock carries the year's rates and book (MarketLockInput).
+        const market = req.decisions !== undefined && marketLevelOf(header.market) !== 'off'
+          ? validMarketLockInput(req.market, header.lines ?? LINE_ORDER) : undefined;
+        if (market === null) {
+          throw new SessionError('INVALID_REQUEST', 'A lock in a room with market competition needs its rates and book.');
+        }
+        // ⚠ REAL LOCKING (pr/market-competition), as localTransport: a team locked
+        // for the year may not send a different set until the host unlocks it; the
+        // SAME set again is a retry of a lost response and succeeds unchanged.
+        let decisions = req.decisions;
+        const entry = header.roster[teamId];
+        const lockedNow = entry?.lockedYears ? entry.lockedYears[String(y)] === true : entry?.lockedYear === y;
+        if (decisions !== undefined && lockedNow) {
+          const held = await this.db.doc.send(new GetCommand({
+            TableName: this.db.table, Key: { pk: roomPk(code), sk: decisionSk(teamId, y) }, ConsistentRead: true,
+          }));
+          const item = held.Item as { body?: string; market?: string } | undefined;
+          const same = item?.body === JSON.stringify(decisions)
+            && (item?.market ?? undefined) === (market ? JSON.stringify(market) : undefined);
+          if (!same) {
+            throw new SessionError('ALREADY_LOCKED', `${entry?.name ?? 'That team'} has already locked year ${y}; the host must unlock it first.`);
+          }
+          // The retry: nothing to write for the decisions.
+          decisions = undefined;
+          if (req.result === undefined) return this.freshView(code, 'player', teamId);
+        }
         if (req.result !== undefined) {
           if (y > header.currentYear) {
             throw new SessionError(
@@ -1314,7 +1362,7 @@ export class DynamoSessionTransport implements SessionTransport {
         const names: Record<string, string> = { '#tid': teamId };
         const values: Record<string, unknown> = { ':now': Date.now(), ':one': 1, ':y': y };
         const items: TransactItem[] = [];
-        if (req.decisions !== undefined) {
+        if (decisions !== undefined) {
           sets.push('roster.#tid.lockedYear = :y');
           // The per-year record the room market share reads. An entry written
           // before it existed has no map to set into; it keeps lockedYear alone.
@@ -1327,7 +1375,8 @@ export class DynamoSessionTransport implements SessionTransport {
             TableName: this.db.table,
             Item: {
               pk, sk: decisionSk(teamId, y), teamId, year: y,
-              body: JSON.stringify(req.decisions), expiresAtSec: header.expiresAtSec,
+              body: JSON.stringify(decisions), expiresAtSec: header.expiresAtSec,
+              ...(market ? { market: JSON.stringify(market) } : {}),
             },
           } });
           // ⚠ THE DRAFT DIES WITH THE LOCK, ATOMICALLY. A locked year always
@@ -1355,8 +1404,10 @@ export class DynamoSessionTransport implements SessionTransport {
         // above was against a room that no longer exists. Decisions need the
         // year to be EXACTLY this one (keys.ts: a year-3 decision landing after
         // year 3 was processed is the slot-history bug by another door).
-        let condition = 'attribute_exists(roster.#tid) AND currentYear = :y';
-        if (req.decisions === undefined) {
+        // ⚠ AND NOT ALREADY LOCKED FOR IT (real locking): a second lock racing the
+        // first fails here, re-reads, and is refused above unless it is the same set.
+        let condition = 'attribute_exists(roster.#tid) AND currentYear = :y AND roster.#tid.lockedYear <> :y';
+        if (decisions === undefined) {
           condition = 'attribute_exists(roster.#tid) AND currentYear >= :y AND :y >= :zero';
           values[':zero'] = 0;
         }
@@ -1759,6 +1810,36 @@ export class DynamoSessionTransport implements SessionTransport {
       const e = req.expectedYear;
       const h = hashToken(req.token);
 
+      // ⚠ WHAT RIDES WITH THE YEAR CHANGE, in ONE transaction with it (so a team's
+      // browser, which plays the year the moment currentYear moves, always finds
+      // it): (1) real locking — a team unlocked for the year and never re-locked
+      // plays its previous locked decisions, so its unlocked set is deleted; (2)
+      // market competition — the year's market step, stored once.
+      const extra = header.currentYear === e && e <= header.yearCount ? await this.advanceExtras(header, e) : [];
+      if (extra.length > 0) {
+        const pk = roomPk(code);
+        const tx = await this.transact([{ Update: {
+          TableName: this.db.table,
+          Key: { pk, sk: ROOM_HEADER_SK },
+          UpdateExpression: 'SET currentYear = :next, updatedAt = :now ADD rev :one',
+          ConditionExpression: 'currentYear = :e AND currentYear <= yearCount AND hostTokenHash = :h',
+          ExpressionAttributeValues: { ':e': e, ':next': e + 1, ':now': Date.now(), ':one': 1, ':h': h },
+        } }, ...extra]);
+        if (!tx.ok) {
+          const old = await this.getHeader(code);
+          if (old.hostTokenHash !== h) throw new SessionError('NOT_HOST', 'Only the host may advance the year.');
+          if (old.currentYear === e + 1) {
+            const view = await this.freshView(code, 'host', null);
+            return { room: view.room, currentYear: old.currentYear, advanced: false };
+          }
+          if (old.currentYear > old.yearCount) throw new SessionError('GAME_COMPLETE', 'The game is already complete.');
+          throw new SessionError('WRONG_YEAR', `The room is on year ${old.currentYear}; that request expected year ${e}.`);
+        }
+        await this.writeLobbyRow(await this.getHeader(code));
+        const view = await this.freshView(code, 'host', null);
+        return { room: view.room, currentYear: e + 1, advanced: true };
+      }
+
       try {
         await this.db.doc.send(new UpdateCommand({
           TableName: this.db.table,
@@ -1799,6 +1880,61 @@ export class DynamoSessionTransport implements SessionTransport {
       const view = await this.freshView(code, 'host', null);
       return { room: view.room, currentYear: e + 1, advanced: true };
     });
+  }
+
+  /**
+   * The writes that ride with advancing past year `y` (see advance): the
+   * unlocked-and-not-relocked decision items to delete, and with the market on
+   * the year's market step — MKY#<y> whole and each team's MKT#<teamId>#<y> slice.
+   */
+  private async advanceExtras(header: RoomHeader, y: number): Promise<TransactItem[]> {
+    const pk = roomPk(header.code);
+    const items: TransactItem[] = [];
+    const roster = Object.entries(header.roster ?? {});
+    for (const [teamId, entry] of roster) {
+      if (entry.lockedYears?.[String(y)] === false) {
+        items.push({ Delete: { TableName: this.db.table, Key: { pk, sk: decisionSk(teamId, y) } } });
+      }
+    }
+    const level = marketLevelOf(header.market);
+    if (level === 'off') return items;
+    // Each joined team's latest LOCKED year at or before y, and its lock's market input.
+    const latestYear = (entry: RosterEntry): number | null => {
+      if (entry.lockedYears) {
+        const ys = Object.entries(entry.lockedYears).filter(([k, v]) => v === true && Number(k) <= y).map(([k]) => Number(k));
+        return ys.length ? Math.max(...ys) : null;
+      }
+      return entry.lockedYear !== null && entry.lockedYear <= y ? entry.lockedYear : null;
+    };
+    const wanted = roster.filter(([, e]) => e.joined).map(([teamId, e]) => ({ teamId, e, year: latestYear(e) }));
+    const got = await this.getItems(wanted.filter(w => w.year !== null).map(w => ({ pk, sk: decisionSk(w.teamId, w.year!) })));
+    const inputOf = new Map<string, MarketLockInput>();
+    for (const it of got as Array<{ teamId?: string; market?: string }>) {
+      if (it.teamId && it.market) inputOf.set(it.teamId, JSON.parse(it.market) as MarketLockInput);
+    }
+    const prevItem = y > 1 ? (await this.db.doc.send(new GetCommand({
+      TableName: this.db.table, Key: { pk, sk: marketYearSk(y - 1) }, ConsistentRead: true,
+    }))).Item as { body?: string } | undefined : undefined;
+    const { byTeam } = rosterNumbers(header);
+    const stored = marketYearForAdvance({
+      code: header.code, seed: header.seed, level, lines: header.lines ?? LINE_ORDER, year: y,
+      roster: wanted.map(w => ({
+        name: w.e.name, teamNumber: byTeam.get(w.teamId) ?? w.e.teamNumber ?? 0,
+        latest: w.year !== null && inputOf.has(w.teamId) ? { year: w.year, input: inputOf.get(w.teamId)! } : undefined,
+      })),
+      previous: prevItem?.body ? JSON.parse(prevItem.body) as StoredMarketYear : undefined,
+    });
+    items.push({ Put: { TableName: this.db.table, Item: {
+      pk, sk: marketYearSk(y), year: y, body: JSON.stringify(stored), expiresAtSec: header.expiresAtSec,
+    } } });
+    for (const w of wanted) {
+      const slice = stored.result[w.e.name];
+      if (!slice) continue;
+      items.push({ Put: { TableName: this.db.table, Item: {
+        pk, sk: marketTeamSk(w.teamId, y), teamId: w.teamId, year: y, body: JSON.stringify(slice), expiresAtSec: header.expiresAtSec,
+      } } });
+    }
+    return items;
   }
 
   // ---- read ------------------------------------------------------------

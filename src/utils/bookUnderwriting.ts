@@ -36,7 +36,7 @@ import {
   FULL_MARKET_EXPOSURE, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
   OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS, R_MODEL,
 } from '../data/pricingParameters';
-import type { CoverageLine } from '../types/simulation';
+import type { CoverageLine, MarketLineInput } from '../types/simulation';
 import type { MemberMovementResult } from './membershipEngine';
 
 export interface BookMovement {
@@ -70,6 +70,26 @@ export const newMembersShare = (v: number | undefined) => clampTo(v, NEW_MEMBERS
 
 type UwDecisions = { nonRenewal?: number; newMembers?: number };
 
+/**
+ * THE YEAR'S MARKET RESULT FOR ONE LINE (hosted games with market competition;
+ * the server's stored result, src/utils/market/marketStep.ts). Absent — single
+ * player, Test player, a room with the market Off, the pre-game — and the book
+ * moves exactly as it always has.
+ *
+ * With it, the book moves by the market instead of the sliders:
+ *   - `leftShare` of the book at the start of the year left for cheaper teams;
+ *   - `intake` came in (good leavers, outside supply, other teams' non-renewed
+ *     members), bringing its own quality — inside `bookRisk`, never the flat
+ *     NEW_BUSINESS_PENALTY;
+ *   - `engineNonRenewal` of the moved book is this year's non-renewal, dropped
+ *     here with today's relief (NON_RENEWAL_LOSS_RELIEF) on what remains;
+ *   - `bookRisk` multiplies the year's ordinary loss per unit (lossFactor), so
+ *     pricing learns it only through the experience.
+ * The New Members slider grows nothing itself: in a market it is the appetite
+ * the server already used.
+ */
+export type { MarketLineInput };
+
 /** The first pre-game year's number (2021): the pre-game runs to year 0. */
 const FIRST_PRE_GAME_YEAR = 1 - PRIOR_HISTORY_YEARS;
 
@@ -87,7 +107,9 @@ export function moveBook(
   withdrawal: boolean,
   frozen: boolean,
   yearNumber: number,
+  market?: MarketLineInput,
 ): BookMovement {
+  if (market && !frozen) return moveBookByMarket(before, market, withdrawal);
   // THE PRE-GAME GROWS INTO THE OPENING BOOK (PRE_GAME_BOOK_GROWTH), its growth new exposure at the penalty.
   if (frozen && yearNumber <= 0) {
     const after = preGameBook(line, yearNumber);
@@ -110,6 +132,26 @@ export function moveBook(
   return {
     before, renewedOff, withdrawn, written, after, newShare: after > 0 ? written / after : 0,
     lossFactor: lossFactorOf(renewing, NON_RENEWAL_LOSS_RELIEF * a1, written, after),
+  };
+}
+
+/**
+ * THE BOOK MOVED BY THE MARKET (MarketLineInput). `renewedOff` is everything
+ * that left — to cheaper teams and as non-renewal — and `written` everything that
+ * came in, so before − renewedOff − withdrawn + written = after still holds.
+ */
+function moveBookByMarket(before: number, m: MarketLineInput, withdrawal: boolean): BookMovement {
+  const moved = before * (1 - m.leftShare) + m.intake;
+  const a1 = Math.max(0, m.engineNonRenewal);
+  const dropped = moved * a1;
+  const kept = moved - dropped;
+  const withdrawn = withdrawal ? kept * R_MODEL.memberWithdrawalReduction : 0;
+  const after = kept - withdrawn;
+  const written = m.intake;
+  return {
+    before, renewedOff: before * m.leftShare + dropped, withdrawn, written, after,
+    newShare: after > 0 ? Math.min(1, written / after) : 0,
+    lossFactor: after > 0 ? m.bookRisk * (1 - NON_RENEWAL_LOSS_RELIEF * a1) : 1,
   };
 }
 

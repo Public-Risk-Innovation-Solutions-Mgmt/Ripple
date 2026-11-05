@@ -30,6 +30,7 @@ import type { CoverageLine, GameState, Member, ResultSet, StartingFinancials } f
 import { sessionTransport, type CallerView, type RoomView } from '../index';
 import { summarize } from './results';
 import { buildTeamGame, replayTeamYears } from './buildGame';
+import { marketByYearForEngine } from '../market';
 
 export type GamePhase = 'idle' | 'building' | 'ready' | 'processing' | 'failed';
 
@@ -188,7 +189,9 @@ export function useSessionGame(
         while (state.currentYearNumber < room.currentYear && !state.isComplete) {
           if (of - gs.currentYearNumber > 0) setProgress({ year: state.currentYearNumber, of });
           await new Promise<void>(resolve => window.setTimeout(resolve, 0));
-          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear);
+          // MARKET COMPETITION: the team's stored market results ride on the setup; the
+          // year's own is in the same read that moved the room's year (written atomically).
+          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear, marketByYearForEngine(you.marketByYear));
           state = step.state;
           produced.push(...step.produced);
         }

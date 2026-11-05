@@ -30,6 +30,8 @@ import type {
   ScheduledShockSpec, TeamView, TeamYearSummary,
 } from '../contract';
 import { teamNumbers } from '../contract';
+import type { MarketLevel, MarketTeamLineResult, StoredMarketYear } from '../contract';
+import { marketLevelOf } from '../market';
 import type { CoverageLine } from '../../types/simulation';
 import { shownShares, type RoomSharesByYear } from '../marketShares';
 import { buildStandings } from '../standings';
@@ -126,6 +128,8 @@ export interface RoomHeader {
   nextTeamNumber?: number;
   /** Every year's room market shares, as each year completed — see RoomMarketShares. */
   marketSharesByYear?: RoomSharesByYear;
+  /** Market competition's level. ⚠ Absent on a header written before it existed: reads 'off'. */
+  market?: MarketLevel;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -162,6 +166,10 @@ export interface Fetched {
    * draft saved.
    */
   draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
+  /** MARKET COMPETITION, HOST ONLY: every year's whole step (MKY# items). */
+  marketYears?: Record<string, StoredMarketYear>;
+  /** MARKET COMPETITION, A PLAYER'S OR VIEWER'S: its own team's slice by year (MKT#<teamId># items). */
+  marketTeam?: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>>;
 }
 
 export function statusOf(header: RoomHeader): RoomStatus {
@@ -263,6 +271,8 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     ...(header.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(header.developmentLevelsByYear)) } : {}),
     ...(header.shocksOn !== undefined ? { shocksOn: header.shocksOn } : {}),
     ...(role === 'host' && header.editHistory ? { editHistory: header.editHistory.map(e => ({ ...e })) } : {}),
+    market: marketLevelOf(header.market),
+    ...(role === 'host' && fetched.marketYears ? { marketByYear: fetched.marketYears } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
@@ -322,6 +332,7 @@ export function buildCallerView(
   // viewer's call (which reaches this same function, for the team it watches)
   // never has one to attach.
   if (fetched.draft) view.draft = { ...fetched.draft };
+  if (fetched.marketTeam && Object.keys(fetched.marketTeam).length > 0) view.marketByYear = fetched.marketTeam;
 
   const postedYears = Object.keys(entry.posted ?? {})
     .map(Number)

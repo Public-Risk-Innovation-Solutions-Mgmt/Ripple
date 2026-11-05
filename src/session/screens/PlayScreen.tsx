@@ -53,6 +53,7 @@ import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
 import { decisionsForYear, decisionsFromJson, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
+import { marketLockInputFor } from '../client/marketLock';
 import MarketSurveyTab from './MarketSurveyTab';
 import GameShell from '../../game/GameShell';
 import type { TabId } from '../../components/TabNav';
@@ -372,9 +373,14 @@ export default function PlayScreen({ code, role }: Props) {
     setSubmitting(true);
     setActionError(null);
     try {
+      // MARKET COMPETITION: the lock carries the year's struck rate, book and market decisions.
+      const marketOn = (room.market ?? 'off') !== 'off';
+      const market = marketOn && game.gameState ? marketLockInputFor(game.gameState, decisions, room.currentYear) : undefined;
+      if (marketOn && !market) throw new Error('The year is still being worked out — try again in a moment.');
       await sessionTransport().submit({
         code, token, yearNumber: room.currentYear,
         decisions: decisionsToJson(decisions),
+        ...(market ? { market } : {}),
       });
       refresh();
     } catch (e) {
