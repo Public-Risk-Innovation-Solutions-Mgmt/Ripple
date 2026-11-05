@@ -65,7 +65,7 @@ until the host's first advance; after that only rejoins and viewers.
 
 1. Each team sets its decisions and presses **Lock Program Year YYYY**, then confirms. The server stores the
    decisions and marks the team locked. With market competition on, the lock also carries the team's whole rate
-   per line (as its game will charge it), its book, and its three market decisions.
+   per line (as its game will charge it), its book, and its two market decisions.
 2. **Locking is real.** The server refuses a different decision set from a team that has locked the year
    (`ALREADY_LOCKED`); sending the same set again (a retry) is accepted. The host's Game Setup tab shows who has
    locked, who has not ("Waiting on …") and who has reported, and has an **Unlock** button beside each locked
@@ -115,7 +115,7 @@ and investment returns. Screens show averages and a surplus range.
 
 **Stored per room:** settings and shock schedule (with any mid-game levels by year and the edit history), the current year, the roster (name, number, lines, locked and
 posted years, hashed credentials, viewer PIN), market shares by year, and with the market on each year's market
-step (every team's input, who was missing or stale, every team's result, and the dropped members nobody took).
+step (every team's input, who was missing or stale, every team's result, and the members dropped that year, which the next year's outside supply refills).
 **Per team, per year:** the locked decisions (and, with the market on, the rate, book and market decisions sent
 with them), the team's own market result, and a posted summary (surplus, combined ratio, premium to surplus, rate and change, admin ratio, loss
 figures, the decisions played). Full results, claims and the worlds are never stored — they are replayed.
@@ -132,15 +132,19 @@ market share. A team's own row is highlighted.
 **Market share** is a team's exposure over the room's on a line, and its premium over the room's for the pool,
 fixed once every team that locked has posted the year. It is display only and never enters a simulation.
 
+**The top bar** (Surplus, Combined ratio and, in a hosted game, Market Share) reads the **pool** on every tab — the
+pool's market share is the team's premium share of the room, as on the Market Survey. Only on the Decisions page,
+with a line selected, does it show that line's figures. A "Showing" chip says which: Pool, WC, GL or Property.
+
 **The host also sees** each team's decisions for completed years, and charts of surplus, exposure and losses.
 With market competition on, the Teams tab adds two host-only columns — **Exposure moved** (members in less out,
 of the book at the start of the year) and **Book risk** — and the Charts tab a **Book risk** line. A team's
 Market Survey shows neither.
 
-**A team's own market results** (market on) sit on its Decisions page under the underwriting sliders, per line
-and year: members wanting to leave, members that left, how much of its appetite was filled, and from where — good
-leavers from dearer teams, new business from outside the room, members other teams did not renew — each with its
-average risk (1.00 = an average member), and the book risk the year played at. Only its own figures.
+**A team is not shown its market results** (market on): who wanted to leave, who left and how its appetite filled
+appear nowhere on a team's screens. The server stores them, the team's game plays them (its book and book risk), and
+only the host sees them, in the Teams columns and the Charts line. A team sees their effect in its own figures and
+in the Market Survey's shares.
 
 **Private:** decisions are not shown to other teams, and full statements stay the team's own. The seed is shown
 only to the host and in Test player. But a viewer sees the watched team's decisions (section 7).
@@ -177,11 +181,11 @@ Members move between the room's teams on price, by formula — there are no indi
 **Decisions change meaning** (per line, market on):
 
 - **New Members = appetite** (0–10%, default 0%): the most the team takes in this year, as a share of its book.
-  Members come only from dearer teams' leavers, outside supply, and (if accepted) other teams' dropped members.
+  Members come only from dearer teams' leavers and outside supply — never from other teams' dropped members.
   Newcomers bring their actual risk; there is no flat 20% new-business load.
 - **Non-Renewal** (0–10%, default 0%): the team keeps today's relief (its remaining book's losses × (1 − ½ × the
-  share)); the dropped members go into the market.
-- **Accept non-renewed members** (Yes / No, default No).
+  share)); the dropped members leave the market, and no team takes them. (An "Accept non-renewed members" switch,
+  default No, was removed; the behaviour is fixed at No.)
 
 **The market step**, per line, once a year, from the rates teams locked with:
 
@@ -195,10 +199,10 @@ Members move between the room's teams on price, by formula — there are no indi
    best as the gap grows; at a 10%+ gap the average leaver is 0.90 (Low), 0.80 (Medium), 0.70 (High). Dropped
    members average about 1.5×.
 5. **Matching**, never past a team's appetite: (a) good leavers go to cheaper teams, weighted by how much cheaper,
-   the cheapest picking the best first; (b) outside supply — 2% of the room's book plus last year's untaken dropped
-   members, about average risk — goes only to teams at or below the room's average rate, cheapest first; (c)
-   dropped members go to teams with appetite left and Accept = Yes. Unmatched leavers stay (and start fresh next
-   year); untaken dropped members leave the market.
+   the cheapest picking the best first; (b) outside supply — 2% of the room's book plus last year's dropped
+   members, about average risk — goes only to teams at or below the room's average rate, cheapest first. No team
+   takes another's dropped members: they leave the market and are refilled by the next year's outside supply.
+   Unmatched leavers stay (and start fresh next year).
 6. **Results.** Exposure moves with the members; the new book risk is the exposure-weighted risk of who stayed and
    who came. Book risk multiplies the team's ordinary losses for the year.
 

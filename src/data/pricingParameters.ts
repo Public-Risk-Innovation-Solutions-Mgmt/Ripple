@@ -2630,16 +2630,15 @@ export const MARKET_BOOK_RISK_FADE = 0.50;
 export const MARKET_OUTSIDE_SUPPLY = 0.02;
 
 /**
- * NON-RENEWED MEMBERS go into the market. The dropping team keeps today's
- * relief (its remaining book's losses × (1 − ½ × the share dropped)), which
- * implies the dropped members average 1.5 − ½ × the share times its book's risk
- * (≈ 1.475 at 5%); their quality is drawn from the buckets tilted towards the
- * worst with that average. Only teams with appetite left and "Accept non-renewed
- * members" on take them; whoever nobody takes leaves the market (and is refilled
- * as outside supply the next year). The relief is NON_RENEWAL_LOSS_RELIEF (½), unchanged.
+ * NON-RENEWED MEMBERS LEAVE THE MARKET. The dropping team keeps today's relief
+ * (its remaining book's losses × (1 − ½ × the share dropped)), which implies the
+ * dropped members average 1.5 − ½ × the share times its book's risk (≈ 1.475 at
+ * 5%). NO TEAM TAKES THEM: the "Accept non-renewed members" switch is gone and
+ * the behaviour is fixed at what its default was, No (measured: a team that took
+ * them filled its appetite at 1.4–1.6× risk). Every dropped member is refilled as
+ * outside supply the next year (MARKET_OUTSIDE_SUPPLY's refill). The relief is
+ * NON_RENEWAL_LOSS_RELIEF (½), unchanged.
  */
-/** "Accept non-renewed members" default: No — measured, a team that took them filled its appetite at 1.4–1.6× risk. */
-export const MARKET_ACCEPT_DROPPED_DEFAULT = false;
 
 // ============================================================================
 // THE REGISTRY — what the page is generated from.
@@ -2930,7 +2929,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `buckets ${MARKET_BUCKETS_RAW.map(b => b.toFixed(2)).join(' / ')} ÷ 1.02; full skew at a ${MARKET_FULL_SKEW_GAP * 100}%+ gap: `
           + `Low ${MARKET_FULL_SKEW_MEAN.low} · Medium ${MARKET_FULL_SKEW_MEAN.medium} · High ${MARKET_FULL_SKEW_MEAN.high}`,
         unit: 'risk against the leaving team\'s book (1.00 = average)',
-        what: 'Who leaves: the mix tilts towards the best risks as the pair gap grows. Dropped (non-renewed) members average about 1.5×.',
+        what: 'Who leaves: the mix tilts towards the best risks as the pair gap grows. Dropped (non-renewed) members average '
+          + 'about 1.5×; no team takes them — they leave the market.',
         basis: 'CHOSEN',
       }],
       ['Outside supply', {
@@ -2948,11 +2948,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Measured: 0% ratcheted to 1.35; 25% took about six years to clear; 50% clears in 2–3.',
       }],
-      ['Accept non-renewed members', {
-        value: MARKET_ACCEPT_DROPPED_DEFAULT ? 'Yes by default' : 'No by default',
-        unit: 'a team\'s switch, per line',
-        what: 'Whether a team\'s appetite left after good leavers and outside supply is filled with other teams\' dropped members.',
+      ['Non-renewed members', {
+        value: 'leave the market; refilled as outside supply the next year',
+        unit: 'every room with the market on',
+        what: 'No team takes another team\'s non-renewed members. They leave the market, and next year\'s outside supply '
+          + 'adds them back at about average risk.',
         basis: 'CHOSEN',
+        note: 'Fixed at No (the former "Accept non-renewed members" switch, whose default was No): measured, a team that '
+          + 'took them filled its appetite at 1.4–1.6× risk.',
       }],
     ],
   },

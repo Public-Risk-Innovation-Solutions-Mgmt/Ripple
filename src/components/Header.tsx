@@ -21,7 +21,7 @@ interface HeaderProps {
    *  session player who has already locked shows what it is waiting for
    *  instead. */
   advanceLabel?: string;
-  /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
+  /** Which figures the bar shows — surplus, combined ratio and market share: the pool, or a line (GameShell passes a line only on the Decisions page). Defaults to the pool. */
   lineView?: LineView;
   /**
    * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM for the latest
@@ -125,6 +125,9 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
               <Chip label="Year" value={`${yearNumber}`} />
               <Chip label="Calendar" value={`${calendarYear}`} testId="header-calendar" />
               <Chip label="Scenario" value={instanceId} mono />
+              {/* WHICH FIGURES THE NEXT CHIPS ARE: the pool's, or on Decisions the
+                  line being decided (GameShell passes the line only there). */}
+              <Chip label="Showing" value={lineView === 'pool' ? 'Pool' : lineView} testId="header-scope" />
               <Chip
                 label="Surplus"
                 value={formatCurrency(surplus, true)}

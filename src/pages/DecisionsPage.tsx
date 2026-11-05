@@ -19,9 +19,6 @@ import {
   aggregateCoverLabel, aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
 } from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
-import MarketResultsPanel from '../components/MarketResultsPanel';
-import type { MarketTeamLineResult } from '../utils/market/marketStep';
-import { MARKET_ACCEPT_DROPPED_DEFAULT } from '../data/pricingParameters';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
@@ -36,12 +33,6 @@ import {
 export interface LineLoanInfo {
   balance: number;
   dividendBlocked: boolean;
-}
-
-/** A hosted room's market mode for the Decisions page (GameShell passes it through). */
-export interface DecisionsMarket {
-  byYear: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>> | undefined;
-  startingYear: number;
 }
 
 interface DecisionsPageProps {
@@ -88,11 +79,12 @@ interface DecisionsPageProps {
   riskControlCost?: number | null;
   /**
    * MARKET COMPETITION — a hosted room with the market on. New Members is then
-   * the team's appetite, Non-Renewal sends members into the market, and the
-   * Accept switch shows; the team's own market results sit under them.
-   * Absent everywhere else (Single player, Test player, a room with it Off).
+   * the team's appetite and Non-Renewal's members leave the market. A team is not
+   * shown its market results (the host's Teams columns are); the server stores
+   * them and the team's game plays them.
+   * False everywhere else (Single player, Test player, a room with it Off).
    */
-  market?: DecisionsMarket | null;
+  market?: boolean;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -116,7 +108,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null, market = null }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null, market = false }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -237,7 +229,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
               {/* ONE BOOK PER LINE: the two sliders move the book's exposure,
                   and this year's loss per unit. See bookUnderwriting.ts. */}
               <UnderwritingSlider
-                label={market ? 'Non-Renewal: members you drop into the market' : 'Existing Book: Non-Renewal Assumption'}
+                label={market ? 'Non-Renewal: members you drop (they leave the market)' : 'Existing Book: Non-Renewal Assumption'}
                 range={NON_RENEWAL_SLIDER}
                 value={d.nonRenewal ?? NON_RENEWAL_SLIDER.default}
                 onChange={v => set('nonRenewal', v)}
@@ -257,34 +249,11 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
                 }}
               />
               {market && (
-                <>
-                  <div data-testid="accept-non-renewed" className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-gray-800">Accept non-renewed members</span>
-                      <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs">
-                        {([true, false] as const).map(v => (
-                          <button key={String(v)} type="button" disabled={disabled}
-                            data-testid={`accept-non-renewed-${v ? 'yes' : 'no'}`}
-                            aria-pressed={(d.acceptNonRenewed ?? MARKET_ACCEPT_DROPPED_DEFAULT) === v}
-                            onClick={() => set('acceptNonRenewed', v)}
-                            className={`px-3 py-1 ${(d.acceptNonRenewed ?? MARKET_ACCEPT_DROPPED_DEFAULT) === v ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'} disabled:opacity-60`}>
-                            {v ? 'Yes' : 'No'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-600">
-                      Members other teams did not renew — about one and a half times an average member&rsquo;s risk. With Yes,
-                      they fill whatever appetite is left after members leaving dearer teams and new business from outside the room.
-                    </p>
-                  </div>
-                  <p data-testid="market-mode-note" className="text-xs text-gray-600">
-                    Market competition is on: members of dearer teams may leave for cheaper ones, and you take members in
-                    only up to your appetite, each bringing their own risk. Your whole rate is compared with every other
-                    team&rsquo;s when the host advances the year.
-                  </p>
-                  <MarketResultsPanel line={selectedLine} byYear={market.byYear} startingYear={market.startingYear} />
-                </>
+                <p data-testid="market-mode-note" className="text-xs text-gray-600">
+                  Market competition is on: members of dearer teams may leave for cheaper ones, and you take members in
+                  only up to your appetite, each bringing their own risk. Your whole rate is compared with every other
+                  team&rsquo;s when the host advances the year.
+                </p>
               )}
             </>
           )}

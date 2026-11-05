@@ -6,14 +6,15 @@
 //   SCREENSHOTS=1 ... also writes docs/screenshots/market-competition/*.png
 //
 // The host's setting (Medium by default) on room setup; five teams priced from
-// 30% to 90% funding, with different appetites, non-renewal and one Accept
-// switch on; the Decisions page in market mode (the appetite label, the switch,
-// default No); REAL LOCKING — the host sees who has not locked, unlocks a team,
+// 30% to 90% funding, with different appetites and non-renewal; the Decisions
+// page in market mode (the appetite label, no Accept switch — no team takes
+// another's non-renewed members); REAL LOCKING — the host sees who has not locked, unlocks a team,
 // the team re-locks on a new appetite; the advance; members moving (the dearest
 // team's book shrinks, the cheapest's grows); the host's two Teams columns and
-// the Charts book risk line; each team's own market results; the Market Survey,
-// with no market columns, its shares moved; a rejoin on a second device that
-// shows exactly what the first did; and a team that skips a year flagged to the
+// the Charts book risk line; NO market results on a team's screens (the server
+// stores them and the team's game plays them, but only the host sees them); the
+// Market Survey, with no market columns, its shares moved; a rejoin on a second
+// device whose Annual Statement — the moves played — is exactly the first's; and a team that skips a year flagged to the
 // host as counted at its last lock.
 // ============================================================================
 const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
@@ -41,13 +42,13 @@ function startStub(port) {
   });
 }
 
-// Five teams, cheapest to dearest: [name, funding steps above 30% (null = Expected), New Members %, Non-Renewal %, Accept].
+// Five teams, cheapest to dearest: [name, funding steps above 30% (null = Expected), New Members %, Non-Renewal %].
 const TEAMS = [
-  ['Alder', 0, 10, 0, true],
-  ['Birch', 4, 5, 0, false],
-  ['Cedar', null, 3, 0, false],
-  ['Dogwood', 8, 0, 3, false],
-  ['Elm', 12, 0, 5, false],
+  ['Alder', 0, 10, 0],
+  ['Birch', 4, 5, 0],
+  ['Cedar', null, 3, 0],
+  ['Dogwood', 8, 0, 3],
+  ['Elm', 12, 0, 5],
 ];
 const WC = "Workers' Compensation";
 
@@ -128,22 +129,20 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   }
   ok(Object.values(codes).every(c => /^\d{4}$/.test(c || '')), 'five teams joined');
 
-  for (const [name, funding, nm, nr, acc] of TEAMS) {
+  for (const [name, funding, nm, nr] of TEAMS) {
     const p = pages[name];
     await toDecisionsWC(p);
     if (name === 'Alder') {
       ok(await p.locator('[data-testid="market-mode-note"]').count() === 1, 'the Decisions page is in market mode');
-      ok(await sliderBox(p, 'New Members: appetite').count() === 1 && await sliderBox(p, 'Non-Renewal: members you drop into the market').count() === 1,
-        'New Members reads as the appetite, Non-Renewal as members dropped into the market');
-      ok(await p.getAttribute('[data-testid="accept-non-renewed-no"]', 'aria-pressed') === 'true', 'Accept non-renewed members: No by default');
-      ok(await p.locator('[data-testid="market-results-empty"]').count() === 1, 'no market results before the first advance');
+      ok(await sliderBox(p, 'New Members: appetite').count() === 1 && await sliderBox(p, 'Non-Renewal: members you drop (they leave the market)').count() === 1,
+        'New Members reads as the appetite, Non-Renewal as members dropped from the market');
+      ok(await p.locator('[data-testid^="accept-non-renewed"]').count() === 0 && !/Accept non-renewed/.test(await p.textContent('body')),
+        'there is no "Accept non-renewed members" control');
     }
     if (funding !== null) await setSlider(p, /^Funding Confidence Level$/, funding);
     if (nm) await setSlider(p, 'New Members: appetite', nm);
-    if (nr) await setSlider(p, 'Non-Renewal: members you drop into the market', nr);
-    if (acc) await p.click('[data-testid="accept-non-renewed-yes"]');
+    if (nr) await setSlider(p, 'Non-Renewal: members you drop (they leave the market)', nr);
   }
-  ok(await pages.Alder.getAttribute('[data-testid="accept-non-renewed-yes"]', 'aria-pressed') === 'true', 'Alder switches Accept to Yes');
 
   // ---- locking, and the host's unlock ---------------------------------------
   for (const name of ['Alder', 'Birch', 'Cedar', 'Dogwood']) {
@@ -196,19 +195,13 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await host.waitForSelector('[data-testid="chart-bookRisk"]', { timeout: 30000 });
   ok(true, 'the Charts tab draws a Book risk chart');
 
-  // Each team's own market results.
-  await toDecisionsWC(pages.Alder);
-  await pages.Alder.waitForSelector('[data-testid="market-row-1"]', { timeout: 30000 });
-  const filled = (await pages.Alder.textContent('[data-testid="market-filled-1"]')).trim();
-  ok(/% of 10\.0%$/.test(filled) && num(filled.split(' of ')[0]) > 0, 'Alder sees its appetite filled', filled);
-  ok((await pages.Alder.textContent('[data-testid="market-good-1"]')).includes('risk'), 'with its good leavers and their average risk');
-  await shot(pages.Alder, '05-team-market-results.png', pages.Alder.locator('[data-testid="market-results"]'));
-  await toDecisionsWC(pages.Elm);
-  await pages.Elm.waitForSelector('[data-testid="market-row-1"]', { timeout: 30000 });
-  const elmWilling = num(await pages.Elm.textContent('[data-testid="market-willing-1"]'));
-  const elmLeft = (await pages.Elm.textContent('[data-testid="market-left-1"]')).trim();
-  ok(elmWilling > 0 && num(elmLeft.split(' ')[0]) > 0, 'Elm sees members wanting to leave and members that left', `${elmWilling}% / ${elmLeft}`);
-  ok(/No appetite/.test(await pages.Elm.textContent('[data-testid="market-filled-1"]')), 'Elm, with no appetite, took nobody in');
+  // A team is shown no market results — on Decisions or anywhere else.
+  for (const name of ['Alder', 'Elm']) {
+    await toDecisionsWC(pages[name]);
+    ok(await pages[name].locator('[data-testid="market-results"]').count() === 0 && !/Your market results|Wanting to leave|Appetite filled/.test(await pages[name].textContent('body')),
+      `${name} is shown no market results after the moves`);
+    ok(await pages[name].locator('[data-testid="market-mode-note"]').count() === 1, `${name} still sees the "Market competition is on" note`);
+  }
 
   // The Market Survey: no market columns; shares moved.
   const survey = pages.Birch;
@@ -226,9 +219,15 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await shot(survey, '06-market-survey-after-moves.png');
 
   // ---- a rejoin on a second device ------------------------------------------
-  await toDecisionsWC(pages.Birch);
-  await pages.Birch.waitForSelector('[data-testid="market-row-1"]', { timeout: 30000 });
-  const before = (await pages.Birch.textContent('[data-testid="market-results"]')).trim();
+  // The team's Annual Statement, pool view: what its game made of the moves.
+  const statementText = async page => {
+    await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
+    await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 30000 });
+    await page.getByRole('button', { name: 'Pool', exact: true }).first().click();
+    await page.waitForTimeout(400);
+    return (await page.locator('[data-testid="annual-statement"]').innerText()).replace(/\s+/g, ' ').trim();
+  };
+  const before = await statementText(pages.Birch);
   const ctx2 = await browser.newContext(opts);
   ctx2.on('page', p => p.on('pageerror', e => errs.push(e.message)));
   const dev2 = await ctx2.newPage();
@@ -241,10 +240,8 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await dev2.click('[data-testid="submit-reclaim"]');
   await dev2.waitForSelector('[data-testid="session-strip"]', { timeout: 240000 });
   await posted(dev2, 1);
-  await toDecisionsWC(dev2);
-  await dev2.waitForSelector('[data-testid="market-row-1"]', { timeout: 60000 });
-  const after = (await dev2.textContent('[data-testid="market-results"]')).trim();
-  ok(after === before, 'Birch rejoins on a second device and its market results are exactly what the first showed');
+  const after = await statementText(dev2);
+  ok(before.length > 200 && after === before, 'Birch rejoins on a second device and its Annual Statement — the market\'s moves played — is exactly the first\'s');
   pages.Birch = dev2;
 
   // ---- year 2: Dogwood does not lock ----------------------------------------

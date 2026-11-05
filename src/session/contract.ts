@@ -1090,10 +1090,8 @@ export interface MarketLockLine {
   book: number;
   /** New Members: the most to take in this year, share of the book (0–0.10). */
   newMembers: number;
-  /** Non-Renewal: the share of the book dropped this year (0–0.10). */
+  /** Non-Renewal: the share of the book dropped this year (0–0.10). Dropped members leave the market. */
   nonRenewal: number;
-  /** "Accept non-renewed members". */
-  acceptDropped: boolean;
 }
 export interface MarketLockInput {
   byLine: Partial<Record<CoverageLine, MarketLockLine>>;

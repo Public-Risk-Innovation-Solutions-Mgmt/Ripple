@@ -49,7 +49,7 @@ import Header from '../components/Header';
 import TabNav, { type TabId } from '../components/TabNav';
 import DashboardPage from '../pages/DashboardPage';
 import { gameShocksOn } from '../utils/shockLosses';
-import DecisionsPage, { type DecisionsMarket } from '../pages/DecisionsPage';
+import DecisionsPage from '../pages/DecisionsPage';
 import DecisionHistoryPage from '../pages/DecisionHistoryPage';
 import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
@@ -142,8 +142,8 @@ export interface GameShellProps {
    * MarketSurveyTab); the tab is hidden without `multiplayer` (tabs.ts).
    */
   marketSurvey?: React.ReactNode;
-  /** MARKET COMPETITION: a hosted room with the market on — the Decisions page's market mode and the team's own results. */
-  market?: DecisionsMarket | null;
+  /** MARKET COMPETITION: a hosted room with the market on — the Decisions page's market mode (the appetite labels and the note). */
+  market?: boolean;
 }
 
 export default function GameShell({
@@ -220,7 +220,11 @@ export default function GameShell({
         onAdvanceYear={onAdvanceYear ? openLockConfirm : undefined}
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
-        lineView={lineView}
+        // ⚠ THE TOP BAR READS THE POOL EVERYWHERE BUT A LINE ON DECISIONS. The
+        // line view outlives the tab it was picked on, so the bar used to keep a
+        // line's figures on every other tab; only the Decisions page, where a
+        // line is being decided, shows that line's. The bar names which it shows.
+        lineView={shownTab === 'decisions' ? lineView : 'pool'}
         roomMarketShare={roomMarketShare}
       />
 

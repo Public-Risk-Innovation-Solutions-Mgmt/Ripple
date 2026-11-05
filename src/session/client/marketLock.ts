@@ -5,10 +5,9 @@
 // Per line: the year's whole rate exactly as the team's game will charge it
 // (worlds.ts strikeRates — the same call playWorldsYear makes, on the same
 // book, so the rate the market compares is the rate the year plays at), the
-// book at the start of the year, and the three market decisions.
+// book at the start of the year, and the two market decisions.
 // ============================================================================
 
-import { MARKET_ACCEPT_DROPPED_DEFAULT } from '../../data/pricingParameters';
 import type { DecisionSet, GameState } from '../../types/simulation';
 import { newMembersShare, nonRenewalShare } from '../../utils/bookUnderwriting';
 import { strikeRates } from '../../utils/worlds';
@@ -29,7 +28,6 @@ export function marketLockInputFor(gs: GameState, decisions: DecisionSet, yearNu
       book,
       newMembers: newMembersShare(d.newMembers),
       nonRenewal: nonRenewalShare(d.nonRenewal),
-      acceptDropped: d.acceptNonRenewed ?? MARKET_ACCEPT_DROPPED_DEFAULT,
     };
   }
   return { byLine };
