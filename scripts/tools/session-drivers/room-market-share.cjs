@@ -160,6 +160,9 @@ function expectedShares(rec, year) {
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', '3');
+  // Market competition Off: this driver plays the underwriting sliders as they work without the market
+  // (New Members as growth, Non-Renewal as an assumption). A market room is market-competition.cjs's.
+  await host.selectOption('[data-testid="market-level"]', 'off');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();

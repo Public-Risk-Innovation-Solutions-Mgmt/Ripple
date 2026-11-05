@@ -67,6 +67,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // different books any more, so the room declares the set and all three teams
   // play it. Property is unticked; WC and GL stay.
   await host.uncheck('[data-testid="line-Property"]');
+  // Market competition Off: this driver plays the underwriting sliders as they work without the market
+  // (New Members as growth, Non-Renewal as an assumption). A market room is market-competition.cjs's.
+  await host.selectOption('[data-testid="market-level"]', 'off');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
