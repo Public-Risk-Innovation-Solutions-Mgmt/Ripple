@@ -372,8 +372,15 @@ export default function GameShell({
         {/* ⚠ A SECOND LOCK BUTTON, NOT A DIFFERENT ONE — same openLockConfirm
             as the header's, so a long line screen (reinsurance, aggregate
             cover, dividend/assessment) doesn't need a scroll back to the top
-            to lock. POOL ONLY HAS NONE OF THOSE, so it stays header-only. */}
-        {shownTab === 'decisions' && gameState && !gameState.isComplete && lineView !== 'pool' && onAdvanceYear && (
+            to lock. ⚠ THE LAST TAB ONLY, NOT EVERY LINE — the sub-menu's
+            final tab (whichever line that is: Property if the room plays
+            all three, General Liability if it doesn't, and so on), so a
+            team reviewing WC then GL then Property sees it exactly once,
+            at the end of the review, rather than repeated on every line.
+            Pool is never the last tab (it's always first), so it stays
+            header-only along with every line before the last one. */}
+        {shownTab === 'decisions' && gameState && !gameState.isComplete
+          && lineView === activeLines[activeLines.length - 1] && onAdvanceYear && (
           // ⚠ SAME WRAPPER AS DecisionsPage's OWN (max-w-screen-2xl mx-auto
           // px-4) AND THE HEADER'S — this is a sibling of DecisionsPage
           // inside <main>, which has no padding of its own, so without this
