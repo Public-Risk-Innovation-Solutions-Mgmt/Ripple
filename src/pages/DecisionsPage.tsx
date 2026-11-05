@@ -19,8 +19,6 @@ import {
   aggregateCoverLabel, aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
 } from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
-import MarketResultsPanel from '../components/MarketResultsPanel';
-import type { MarketTeamLineResult } from '../utils/market/marketStep';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
@@ -35,12 +33,6 @@ import {
 export interface LineLoanInfo {
   balance: number;
   dividendBlocked: boolean;
-}
-
-/** A hosted room's market mode for the Decisions page (GameShell passes it through). */
-export interface DecisionsMarket {
-  byYear: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>> | undefined;
-  startingYear: number;
 }
 
 interface DecisionsPageProps {
@@ -87,11 +79,12 @@ interface DecisionsPageProps {
   riskControlCost?: number | null;
   /**
    * MARKET COMPETITION — a hosted room with the market on. New Members is then
-   * the team's appetite and Non-Renewal's members leave the market; the team's
-   * own market results sit under them.
-   * Absent everywhere else (Single player, Test player, a room with it Off).
+   * the team's appetite and Non-Renewal's members leave the market. A team is not
+   * shown its market results (the host's Teams columns are); the server stores
+   * them and the team's game plays them.
+   * False everywhere else (Single player, Test player, a room with it Off).
    */
-  market?: DecisionsMarket | null;
+  market?: boolean;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -115,7 +108,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null, market = null }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null, market = false }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -256,14 +249,11 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
                 }}
               />
               {market && (
-                <>
-                  <p data-testid="market-mode-note" className="text-xs text-gray-600">
-                    Market competition is on: members of dearer teams may leave for cheaper ones, and you take members in
-                    only up to your appetite, each bringing their own risk. Your whole rate is compared with every other
-                    team&rsquo;s when the host advances the year.
-                  </p>
-                  <MarketResultsPanel line={selectedLine} byYear={market.byYear} startingYear={market.startingYear} />
-                </>
+                <p data-testid="market-mode-note" className="text-xs text-gray-600">
+                  Market competition is on: members of dearer teams may leave for cheaper ones, and you take members in
+                  only up to your appetite, each bringing their own risk. Your whole rate is compared with every other
+                  team&rsquo;s when the host advances the year.
+                </p>
               )}
             </>
           )}

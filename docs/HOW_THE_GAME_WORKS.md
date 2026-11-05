@@ -141,10 +141,10 @@ With market competition on, the Teams tab adds two host-only columns — **Expos
 of the book at the start of the year) and **Book risk** — and the Charts tab a **Book risk** line. A team's
 Market Survey shows neither.
 
-**A team's own market results** (market on) sit on its Decisions page under the underwriting sliders, per line
-and year: members wanting to leave, members that left, how much of its appetite was filled, and from where — good
-leavers from dearer teams and new business from outside the room — each with its
-average risk (1.00 = an average member), and the book risk the year played at. Only its own figures.
+**A team is not shown its market results** (market on): who wanted to leave, who left and how its appetite filled
+appear nowhere on a team's screens. The server stores them, the team's game plays them (its book and book risk), and
+only the host sees them, in the Teams columns and the Charts line. A team sees their effect in its own figures and
+in the Market Survey's shares.
 
 **Private:** decisions are not shown to other teams, and full statements stay the team's own. The seed is shown
 only to the host and in Test player. But a viewer sees the watched team's decisions (section 7).
