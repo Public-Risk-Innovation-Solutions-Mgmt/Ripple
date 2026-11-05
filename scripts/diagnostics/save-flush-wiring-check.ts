@@ -266,18 +266,38 @@ const failures: string[] = [];
 const all = walk(SRC);
 // ⚠ SEARCHED FOR, NOT HARDCODED TO App.tsx. Moving the effect into a hook is a
 // reasonable refactor and should not fail this; deleting it should.
-const hosts = all.filter(f => {
+//
+// ⚠ AND SEARCHED FOR AS *THE SAVE SCHEDULER'S* LISTENERS, NOT ANY LIFECYCLE
+// LISTENER. This gate first selected every file registering visibilitychange
+// or pagehide, which held only while App.tsx was the one. e022893 (draft
+// saving) gave PlayScreen.tsx its own visibilitychange listener — the hosted
+// team's draft auto-save, a server POST with its own debounce and no
+// saveScheduler — and the gate went red on aws on correct code: two "hosts",
+// PlayScreen judged against rules (flush(), pagehide) written for a scheduler
+// it does not use, and every positive control run against PlayScreen, where
+// none of the mutations applied. A host is now a file that registers these
+// events AND imports the scheduler (saveScheduler.ts). Other lifecycle
+// listeners are listed below, not judged. If the listeners ever move into a
+// hook that is handed the scheduler rather than importing it, this finds no
+// host and goes red — loudly, which is the direction to err in.
+const importsScheduler = (code: string) => /from\s+['"][^'"]*\/saveScheduler['"]/.test(code);
+const lifecycle = all.filter(f => {
   const code = stripComments(fs.readFileSync(f, 'utf8'));
   return listeners(code).some(l => REQUIRED.some(r => r.event === l.event));
 });
+const hosts = lifecycle.filter(f => importsScheduler(stripComments(fs.readFileSync(f, 'utf8'))));
+const others = lifecycle.filter(f => !hosts.includes(f));
 
 console.log(RULE);
 console.log('THE LIFECYCLE FLUSH IS WIRED: visibilitychange and pagehide reach flush()');
 console.log(RULE);
-console.log(`scanned ${all.length} files under src/; ${hosts.length} register a lifecycle listener\n`);
+console.log(`scanned ${all.length} files under src/; ${lifecycle.length} register a lifecycle listener, `
+  + `${hosts.length} of them for the save scheduler`);
+for (const o of others) console.log(`  not the save flush (no saveScheduler import; not judged): ${path.relative(path.join(__dirname, '../..'), o)}`);
+console.log('');
 
 if (hosts.length === 0) {
-  failures.push('NO file under src/ registers visibilitychange or pagehide. The debounce leaves the '
+  failures.push('NO file under src/ that uses the save scheduler registers visibilitychange or pagehide. The debounce leaves the '
     + 'last decision in memory for up to SAVE_DEBOUNCE_MS and nothing writes it when the tab goes '
     + 'away — see saveScheduler.ts. save-debounce-check will stay green throughout, because it '
     + 'tests flush() rather than its callers.');
