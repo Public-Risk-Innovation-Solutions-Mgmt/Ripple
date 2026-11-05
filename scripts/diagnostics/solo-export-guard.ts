@@ -1137,7 +1137,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and only in one line: the Version row (save key v45 -> v47; v46 is reserved
 // for pr/clf-stretch). Text-diffed (GUARD_TEXT_DIR) v45 against v47: 48 lines
 // differ, every one the Version row.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v121.json');
+// v124: MARKET COMPETITION (pr/market-competition, from aws 3bdb85a; numbered
+// past every export and render baseline on any branch — v123 is the highest
+// taken). Single player has no market and plays exactly as before:
+// VALUE_IDENTITY_v94 holds on every field. The control: aws 3bdb85a's own text
+// (GUARD_TEXT_DIR) against this branch's. 24 of 48 move, and only in one line:
+// the Version row (save key v47 -> v48; v46 is still pr/clf-stretch's). 48
+// lines differ (shown and raw), every one the Version row; the 24 statements
+// match.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v124.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
