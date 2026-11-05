@@ -9,12 +9,13 @@ pull request.
 **Single player** (`/solo`). One person runs a risk pool alone. Setup: pool name, length (3–10 years, default 5),
 first program year (default 2027), scenario (1–20 or random), and the lines (Workers' Compensation, General
 Liability, Property). Events ("shocks") are drawn automatically; there is no adverse reserve development.
-Locking a year plays it at once. Decisions carry into the next year; the game saves in the browser.
+Locking a year plays it at once. Decisions carry into the next year; the game saves in the browser. There is no
+market competition (section 5): New Members and Non-Renewal work as the formula in section 5 says.
 
 **Test player** (also on `/solo`). Single player on the host's setup form: the person sets the shock schedule and
 an adverse-development level per line, and the Year Walkthrough shows the scenario's seed. No sign-in. During the
 game an "Edit game" button opens the host's mid-game panel (section 2), with the same rules; the history reads
-"Test player". Single player has no such panel.
+"Test player". Single player has no such panel. Test player has no market competition either.
 
 Both show: Introduction · Rate Indication · Annual Statement · Decisions · Decision History · Year Walkthrough.
 
@@ -47,6 +48,7 @@ add, reset, disable or delete other admins.
 | Coverage lines | all three | every team writes the room's lines |
 | Adverse development, per line | Low | None, Low (1–5%), Mid (5–15%), High (15–20%) |
 | Shock schedule | empty | add events by year, or Randomise (2–4 events, never year 1) |
+| Market competition | Medium | Off, Low, Medium, High (section 5). A room created before the setting reads Off |
 
 The host gets a resume code for reopening the room elsewhere, and can hide the event from the lobby.
 
@@ -62,11 +64,17 @@ until the host's first advance; after that only rejoins and viewers.
 **Each year.**
 
 1. Each team sets its decisions and presses **Lock Program Year YYYY**, then confirms. The server stores the
-   decisions and marks the team locked. There is no unlock on screen.
-2. The host's Game Setup tab shows who has locked and who has reported.
-3. **Only the host's "Advance to year N" button moves the room on.** It changes the room's year and nothing
-   else. It does not check locks: the host can advance with teams unlocked, or with none. There is no timer,
-   deadline or automatic advance.
+   decisions and marks the team locked. With market competition on, the lock also carries the team's whole rate
+   per line (as its game will charge it), its book, and its three market decisions.
+2. **Locking is real.** The server refuses a different decision set from a team that has locked the year
+   (`ALREADY_LOCKED`); sending the same set again (a retry) is accepted. The host's Game Setup tab shows who has
+   locked, who has not ("Waiting on …") and who has reported, and has an **Unlock** button beside each locked
+   team: the team's form reopens on what it sent, and it may lock again with different decisions.
+3. **Only the host's "Advance to year N" button moves the room on.** It does not wait for locks: the host can
+   advance with teams unlocked, or with none. There is no timer, deadline or automatic advance. A team that was
+   unlocked and did not lock again has that year's set dropped at the advance, so it plays its previous locked
+   decisions. With market competition on, the advance also runs the year's **market step** once, on the server,
+   and stores each team's result with the room (section 5).
 4. After the advance each team's browser notices within seconds, plays the year, and posts a results summary.
    The opening position (year 0) is posted when a team first loads.
 
@@ -79,7 +87,9 @@ change shows only in their results, and a shock through the news banner in its y
 records each change (who, what, which year, when), shown to the host only.
 
 **A team that never locks** is still played, on its most recent locked decisions (or the defaults if it never
-locked). It posts only while its browser is open; until then its row reads "[year] not reported yet". Loans are
+locked). The market counts it at its last locked rate and decisions, on its book carried forward, and the host's
+Teams tab flags it ("counted at its YYYY lock"); a team that never locked stays out of the market ("not in the
+market"). It posts only while its browser is open; until then its row reads "[year] not reported yet". Loans are
 always declined in hosted games.
 
 **The end.** The advance past the last year completes the room ("Session complete"); the event leaves the lobby.
@@ -88,21 +98,26 @@ Rooms are kept 7 days.
 ## 3. Where the game is worked out
 
 **In the browser.** The simulation runs only in each team's and viewer's browser. The server never runs it: it
-stores settings, decisions and posted summaries, moves the year, and works out market shares.
+stores settings, decisions and posted summaries, moves the year, and works out market shares. The one game step
+it does run is the market step (section 5), from the rates the teams locked with, once per year at the advance.
 
 **Rebuilt, not saved.** On every load, on any device, a hosted team's browser rebuilds the game from the room's
 scenario, lines, shocks and development levels, then replays each played year on that year's stored decisions
 (`buildTeamGame`, `replayTeamYears`), so a new device lands in the same place. Each year replays on the settings
 in force in it — the shock schedule is kept by year, and a mid-game edit stores levels by year
 (`developmentLevelsByYear`) — so an edit never changes a played year. A room never edited reads its setup
-settings for every year. Single player saves decisions and averaged results in the browser and replays them on reload.
+settings for every year. Each year also replays on the team's own stored market result for that year
+(`setup.marketByYear`), so a rejoin on another device, and a replay after a mid-game edit, land where the team
+played. Single player saves decisions and averaged results in the browser and replays them on reload.
 
 **100 worlds.** Each year runs in 100 worlds sharing decisions, the rate and the events, differing in loss luck
 and investment returns. Screens show averages and a surplus range.
 
 **Stored per room:** settings and shock schedule (with any mid-game levels by year and the edit history), the current year, the roster (name, number, lines, locked and
-posted years, hashed credentials, viewer PIN) and market shares by year. **Per team, per year:** the locked
-decisions and a posted summary (surplus, combined ratio, premium to surplus, rate and change, admin ratio, loss
+posted years, hashed credentials, viewer PIN), market shares by year, and with the market on each year's market
+step (every team's input, who was missing or stale, every team's result, and the dropped members nobody took).
+**Per team, per year:** the locked decisions (and, with the market on, the rate, book and market decisions sent
+with them), the team's own market result, and a posted summary (surplus, combined ratio, premium to surplus, rate and change, admin ratio, loss
 figures, the decisions played). Full results, claims and the worlds are never stored — they are replayed.
 
 ## 4. What teams and the host see of each other
@@ -118,6 +133,14 @@ market share. A team's own row is highlighted.
 fixed once every team that locked has posted the year. It is display only and never enters a simulation.
 
 **The host also sees** each team's decisions for completed years, and charts of surplus, exposure and losses.
+With market competition on, the Teams tab adds two host-only columns — **Exposure moved** (members in less out,
+of the book at the start of the year) and **Book risk** — and the Charts tab a **Book risk** line. A team's
+Market Survey shows neither.
+
+**A team's own market results** (market on) sit on its Decisions page under the underwriting sliders, per line
+and year: members wanting to leave, members that left, how much of its appetite was filled, and from where — good
+leavers from dearer teams, new business from outside the room, members other teams did not renew — each with its
+average risk (1.00 = an average member), and the book risk the year played at. Only its own figures.
 
 **Private:** decisions are not shown to other teams, and full statements stay the team's own. The seed is shown
 only to the host and in Test player. But a viewer sees the watched team's decisions (section 7).
@@ -142,8 +165,45 @@ Assumption*.
 - so expected ordinary loss = cost per unit × E × [(1 − a1)(1 − 0.5 a1) + 1.2 a2]. Pricing learns it through
   experience.
 
-**One team does not affect another.** Each book is independent; market share is display only; shared events hit
-every team alike.
+**One team does not affect another — unless market competition is on.** With it Off (and in Single player and
+Test player) each book is independent; market share is display only; shared events hit every team alike.
+
+### Market competition (hosted rooms, Low / Medium / High)
+
+Members move between the room's teams on price, by formula — there are no individual members. Every value is in
+`pricingParameters.ts` ("MARKET COMPETITION"), with its reason and the measurements behind it; the step is
+`utils/market/marketStep.ts`, run by the server at the advance (`session/market.ts`).
+
+**Decisions change meaning** (per line, market on):
+
+- **New Members = appetite** (0–10%, default 0%): the most the team takes in this year, as a share of its book.
+  Members come only from dearer teams' leavers, outside supply, and (if accepted) other teams' dropped members.
+  Newcomers bring their actual risk; there is no flat 20% new-business load.
+- **Non-Renewal** (0–10%, default 0%): the team keeps today's relief (its remaining book's losses × (1 − ½ × the
+  share)); the dropped members go into the market.
+- **Accept non-renewed members** (Yes / No, default No).
+
+**The market step**, per line, once a year, from the rates teams locked with:
+
+1. **Fade.** Each team's book risk moves 50% back towards 1.00.
+2. **Pair gap** = the dearer team's whole rate (risk control and reinsurance included) ÷ the cheaper team's − 1.
+3. **Willing leavers** = k × (pair gap − 1%)² per cheaper rival, averaged over the N − 1 rivals and × 4, drawn
+   ±20%, capped at 15% of the book. k per line: Low WC 3.080 / GL 0.682 / Property 1.121; Medium 6.159 / 1.364 /
+   2.242; High 12.318 / 2.728 / 4.484 (calibrated on the funding tables now on `aws`; to be recalibrated if the
+   stretched tables of #72 land).
+4. **Leaver quality** from five risk buckets (0.60 / 0.80 / 1.00 / 1.25 / 1.60, each ÷ 1.02), tilting towards the
+   best as the gap grows; at a 10%+ gap the average leaver is 0.90 (Low), 0.80 (Medium), 0.70 (High). Dropped
+   members average about 1.5×.
+5. **Matching**, never past a team's appetite: (a) good leavers go to cheaper teams, weighted by how much cheaper,
+   the cheapest picking the best first; (b) outside supply — 2% of the room's book plus last year's untaken dropped
+   members, about average risk — goes only to teams at or below the room's average rate, cheapest first; (c)
+   dropped members go to teams with appetite left and Accept = Yes. Unmatched leavers stay (and start fresh next
+   year); untaken dropped members leave the market.
+6. **Results.** Exposure moves with the members; the new book risk is the exposure-weighted risk of who stayed and
+   who came. Book risk multiplies the team's ordinary losses for the year.
+
+Every draw is seeded by the room, team, line and year, so the step is the same wherever it runs. A team's rate is
+struck on its book before the moves, so the rate it locked with is the rate it is charged.
 
 ## 6. Pricing and results in brief
 
@@ -181,8 +241,6 @@ an aggregate cover (none, 110/50, 125/50, 150/50); loan repayment while a loan i
 
 ## 7. Anything surprising
 
-- **Advance ignores locks**, and the server accepts a new decision set from an already-locked team; locking is
-  enforced only on screen.
 - **Viewers see live decisions.** A viewer needs only the room code and team name, and gets that team's full
   decision history — including a locked year not yet played. That is more than the host sees, though comments
   say decisions stay private until played.

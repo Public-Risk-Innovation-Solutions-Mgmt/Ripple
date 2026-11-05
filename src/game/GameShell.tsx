@@ -49,7 +49,7 @@ import Header from '../components/Header';
 import TabNav, { type TabId } from '../components/TabNav';
 import DashboardPage from '../pages/DashboardPage';
 import { gameShocksOn } from '../utils/shockLosses';
-import DecisionsPage from '../pages/DecisionsPage';
+import DecisionsPage, { type DecisionsMarket } from '../pages/DecisionsPage';
 import DecisionHistoryPage from '../pages/DecisionHistoryPage';
 import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
@@ -142,13 +142,15 @@ export interface GameShellProps {
    * MarketSurveyTab); the tab is hidden without `multiplayer` (tabs.ts).
    */
   marketSurvey?: React.ReactNode;
+  /** MARKET COMPETITION: a hosted room with the market on — the Decisions page's market mode and the team's own results. */
+  market?: DecisionsMarket | null;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey, market,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
@@ -331,6 +333,7 @@ export default function GameShell({
             book={d.decisionLineBook}
             underwriting={d.underwriting}
             riskControlCost={d.riskControlCost}
+            market={market}
           />
         )}
 

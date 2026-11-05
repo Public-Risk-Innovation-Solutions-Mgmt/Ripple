@@ -828,3 +828,29 @@ export function handoffSk(hash: string): string {
 export function draftSk(teamId: string, year: number): string {
   return `DRAFT#${checkTeamId(teamId)}#${padYear(year)}`;
 }
+
+/**
+ * MARKET COMPETITION — one year's whole market step (StoredMarketYear: the
+ * inputs used and every team's result), written ONCE in the advance's
+ * transaction. Read by the next advance (last year's book risk and untaken
+ * non-renewals), by the host's view (Teams columns, Charts line, stale flags),
+ * and by the gate. The body is a JSON string, as D#/R# bodies are.
+ */
+export function marketYearSk(year: number): string {
+  return `MKY#${padYear(year)}`;
+}
+/** Every year's market step — the host's read range. */
+export const MARKET_YEAR_PREFIX = 'MKY#';
+
+/**
+ * MARKET COMPETITION — one team's own slice of one year's step, written in the
+ * same transaction as marketYearSk. A player's (and its viewers') read range is
+ * marketTeamPrefix, so a team's poll reads its own small items, never the whole
+ * room's step.
+ */
+export function marketTeamSk(teamId: string, year: number): string {
+  return `MKT#${checkTeamId(teamId)}#${padYear(year)}`;
+}
+export function marketTeamPrefix(teamId: string): string {
+  return `MKT#${checkTeamId(teamId)}#`;
+}

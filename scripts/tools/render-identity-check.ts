@@ -1764,7 +1764,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // move, all Year Walkthrough, and only in "riskpool_gamestate_v44" ->
 // "riskpool_gamestate_v45". Every configuration plays scenario 7, whose seed
 // is kept, so no figure moved. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v123.json');
+// v124: MARKET COMPETITION (pr/market-competition, from aws 3bdb85a; numbered
+// past every render baseline on any branch — v123 is the highest taken). The
+// solo screens this renders have no market. The control: aws 3bdb85a reproduces
+// v123, 174 of 174. Against its text (RENDER_TEXT_DIR on both sides),
+// word-diffed: 26 of 174 move, all Year Walkthrough, and only in
+// "riskpool_gamestate_v47" -> "riskpool_gamestate_v48" (v46 is still
+// pr/clf-stretch's). No figure moved; no key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v124.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

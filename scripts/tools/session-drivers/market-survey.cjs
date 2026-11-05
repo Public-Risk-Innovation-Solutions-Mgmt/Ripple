@@ -126,11 +126,14 @@ async function viewOf(page, scope, label) {
     out.text = await page.locator('[data-testid="market-survey"]').innerText();
     return out;
   }
-  // The host's table without its Hand Off column.
-  const dropAction = t => ({
-    heads: t.heads.slice(0, -1), year: t.year,
-    rows: t.rows.map(r => ({ cells: r.cells.slice(0, -1) })),
-  });
+  // The host's table without its Hand Off column, and without the market's two host-only columns
+  // (Exposure moved, Book risk — pr/market-competition; the room is at the default, Medium), which a
+  // team's Market Survey must not show.
+  const HOST_ONLY = ['Exposure moved', 'Book risk', 'Hand Off'];
+  const dropAction = t => {
+    const keep = t.heads.map((h, i) => (HOST_ONLY.includes(h) ? -1 : i)).filter(i => i >= 0);
+    return { heads: keep.map(i => t.heads[i]), year: t.year, rows: t.rows.map(r => ({ cells: keep.map(i => r.cells[i]) })) };
+  };
   const strip = t => ({ heads: t.heads, year: t.year, rows: t.rows.map(r => ({ cells: r.cells })) });
 
   async function compareAll(phase, wantYear) {

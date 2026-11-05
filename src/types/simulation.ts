@@ -620,6 +620,18 @@ export interface NewLossEngineRecord {
   events: { id: string; name: string; firedYear: number; region?: Region; uplift: number; rRate: number }[];
 }
 
+/**
+ * ONE LINE OF A TEAM'S MARKET RESULT FOR A YEAR, as the engine reads it
+ * (hosted market competition; bookUnderwriting.ts moveBook, which documents each
+ * field). A subset of the server's stored result (utils/market/marketStep.ts).
+ */
+export interface MarketLineInput {
+  readonly leftShare: number;
+  readonly intake: number;
+  readonly engineNonRenewal: number;
+  readonly bookRisk: number;
+}
+
 export interface GameSetupSettings {
   poolName: string;
   gameLength: number;     // number of years
@@ -652,6 +664,15 @@ export interface GameSetupSettings {
    * entry, reads `developmentLevels`. Absent on every game never edited.
    */
   developmentLevelsByYear?: Record<string, Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>>;
+  /**
+   * THIS TEAM'S MARKET RESULT BY YEAR (hosted games with market competition,
+   * pr/market-competition): year (a string) -> each line's MarketLineInput, as
+   * the server stored it when the host advanced past the year. Read by moveBook
+   * (bookUnderwriting.ts) in place of the sliders. Absent everywhere else —
+   * single player, Test player, a room with the market Off — and nothing moves
+   * differently.
+   */
+  marketByYear?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>;
   /**
    * THE SHOCK SWITCH, PINNED AS IT STOOD AT SETUP (wip/mid-game-edits): read by
    * gameShocksOn in place of "is the schedule non-empty", so adding a shock to a
@@ -749,8 +770,22 @@ export interface LineDecisionSet {
    *
    * ⚠ REPLACES newBusinessRejection: there is no rejection rate, and no
    * applicants arrive unless the team adds them.
+   *
+   * ⚠ IN A HOSTED ROOM WITH MARKET COMPETITION IT IS THE TEAM'S APPETITE: the
+   * most it takes in this year, from pricier teams' leavers, the outside supply
+   * and (if accepted) other teams' non-renewed members — the server's market
+   * step decides how much actually comes (src/session/market.ts). The engine
+   * grows nothing from it there, and the newcomers bring their own quality, no
+   * NEW_BUSINESS_PENALTY.
    */
   newMembers?: number;
+  /**
+   * "ACCEPT NON-RENEWED MEMBERS" (hosted market competition only): whether the
+   * team takes other teams' non-renewed members into any appetite left after
+   * the good leavers and the outside supply. Absent reads as No
+   * (MARKET_ACCEPT_DROPPED_DEFAULT). Read by the server's market step only.
+   */
+  acceptNonRenewed?: boolean;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See

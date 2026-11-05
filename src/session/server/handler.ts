@@ -65,6 +65,8 @@ const STATUS: Record<SessionErrorCode, number> = {
   // refuses the request, which is the same shape as WRONG_YEAR and TEAM_TAKEN
   // above and maps to the same code.
   EVENT_IN_PROGRESS: 409,
+  // ⚠ 409, a state refusal like WRONG_YEAR: the team is locked for the year (real locking).
+  ALREADY_LOCKED: 409,
   // LINES_LOCKED is gone from the contract — a join carries no lines, so no
   // server can emit it. Nothing maps to 409 for it any more.
   TRANSPORT_FAILURE: 500,

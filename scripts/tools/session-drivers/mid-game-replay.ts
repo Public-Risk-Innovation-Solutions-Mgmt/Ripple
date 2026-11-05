@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { buildTeamGame, replayTeamYears } from '../../../src/session/client/buildGame';
 import { summarize } from '../../../src/session/client/results';
 import type { RoomView } from '../../../src/session/contract';
+import { marketByYearForEngine, teamMarketByYear } from '../../../src/session/market';
 
 const [file, teamName, through, mode] = process.argv.slice(2);
 const room = JSON.parse(readFileSync(file, 'utf8'));
@@ -29,6 +30,8 @@ const view = {
 } as RoomView;
 const built = buildTeamGame(view, team.lines);
 const out: Record<string, unknown> = {};
-const r = replayTeamYears(built.gameState, Number(through) + 1, team.decisionsByYear);
+// MARKET COMPETITION: the team's stored market results, as its browser replays them (useSessionGame).
+const r = replayTeamYears(built.gameState, Number(through) + 1, team.decisionsByYear,
+  marketByYearForEngine(teamMarketByYear(room.marketByYear, teamName)));
 for (const p of r.produced) out[String(p.result.yearNumber)] = summarize(p.result, p.gameState, p.surplusRange);
 console.log(JSON.stringify(out));

@@ -138,8 +138,16 @@ export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYea
   // same decisions: from the first year a shock is in force it is this game with
   // nothing firing, and the pure premium is struck from its ledger. Before then
   // the game is its own shadow.
-  const shadowState = gs.pricingShadow
+  const shadowBase = gs.pricingShadow
     ?? (shadowStartsNow(gs) ? { ...gs, instance: { ...gs.instance, shockFree: true as const }, pricingShadow: undefined } : undefined);
+  // ⚠ THE MARKET'S MOVES REACH THE SHADOW (hosted market competition): the
+  // shadow's setup was copied when it was made, and a market result arrives a
+  // year at a time, so the game's current one is forwarded each year — the
+  // shadow's book moves as the game's does and the rate learns the book risk
+  // from its ledger too. Absent (every game without the market), nothing is copied.
+  const shadowState = shadowBase && gs.setup.marketByYear && shadowBase.setup.marketByYear !== gs.setup.marketByYear
+    ? { ...shadowBase, setup: { ...shadowBase.setup, marketByYear: gs.setup.marketByYear } }
+    : shadowBase;
   const shadow = shadowState ? { state: shadowState, played: playWorldsYear(shadowState, decisions) } : undefined;
   if (!gs.worlds) {
     const p = processYear(gs, decisions);

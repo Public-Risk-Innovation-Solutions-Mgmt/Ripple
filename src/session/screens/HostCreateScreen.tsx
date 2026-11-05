@@ -25,7 +25,7 @@ import { newSessionToken } from '../contract';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
 import type { DevelopmentLevels } from '../contract';
 import { DevelopmentLevelSelect, ShockScheduleFields } from '../../components/GameRulesFields';
-import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL } from '../../data/pricingParameters';
+import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, type MarketLevel } from '../../data/pricingParameters';
 import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
 import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -75,6 +75,8 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
   const [yearCount, setYearCount] = useState(soloTest?.initial.gameLength ?? 5);
   const [startingYear, setStartingYear] = useState(soloTest?.initial.startingYear ?? 2027);
   const [expectedTeams, setExpectedTeams] = useState(3);
+  // MARKET COMPETITION: hosted rooms only (Test player plays alone, with no market).
+  const [market, setMarket] = useState<MarketLevel>(MARKET_DEFAULT_LEVEL);
   // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
   // chose for themselves — so a host who changes nothing gets the old game.
   const [lines, setLines] = useState<CoverageLine[]>(() => soloTest ? [...soloTest.initial.activeLines] : [...LINE_ORDER]);
@@ -141,6 +143,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
         lines,
         developmentLevels: devLevels,
         shocks,
+        market,
       });
       // ⚠ PERSIST THE HOST TOKEN BEFORE NAVIGATING. The room exists the moment
       // createRoom resolves; a navigation that happened first and then failed to
@@ -274,6 +277,29 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             <p className="mt-1.5 text-xs text-slate-600">
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
               teams name themselves at join and play the coverage lines you pick below.
+            </p>
+          </div>}
+
+          {!soloTest && <div>
+            <label className="block max-w-[220px]">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Market competition</span>
+              <select
+                data-testid="market-level"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={market}
+                onChange={e => setMarket(e.target.value as MarketLevel)}
+              >
+                {MARKET_LEVELS.map(l => <option key={l} value={l}>{l[0].toUpperCase() + l.slice(1)}</option>)}
+              </select>
+            </label>
+            <p className="mt-1.5 text-xs text-slate-600">
+              {market === 'off'
+                ? 'Off: each team\'s book moves only on its own New Members and Non-Renewal, as in Single player.'
+                : <>Members move between teams on price. Each year, when you advance, members of a dearer team may leave for a
+                  cheaper one; teams take members in only up to their New Members appetite. {market === 'low' ? 'Low' : market === 'medium' ? 'Medium' : 'High'}: {
+                  market === 'low' ? 'members are slow to move and the best of them go first only gently.'
+                    : market === 'medium' ? 'a few percent of a much dearer team\'s book moves each year, mostly its better risks.'
+                      : 'members are quick to move, and the best risks go first.'}</>}
             </p>
           </div>}
 

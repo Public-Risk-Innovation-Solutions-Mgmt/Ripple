@@ -47,12 +47,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, type EventStatus } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, SessionError as SessionErrorClass, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
 import { decisionsForYear, decisionsFromJson, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
+import { marketLockInputFor } from '../client/marketLock';
 import MarketSurveyTab from './MarketSurveyTab';
 import GameShell from '../../game/GameShell';
 import type { TabId } from '../../components/TabNav';
@@ -372,9 +373,14 @@ export default function PlayScreen({ code, role }: Props) {
     setSubmitting(true);
     setActionError(null);
     try {
+      // MARKET COMPETITION: the lock carries the year's struck rate, book and market decisions.
+      const marketOn = (room.market ?? 'off') !== 'off';
+      const market = marketOn && game.gameState ? marketLockInputFor(game.gameState, decisions, room.currentYear) : undefined;
+      if (marketOn && !market) throw new SessionErrorClass('INVALID_REQUEST', 'The year is still being worked out — try again in a moment.', true);
       await sessionTransport().submit({
         code, token, yearNumber: room.currentYear,
         decisions: decisionsToJson(decisions),
+        ...(market ? { market } : {}),
       });
       refresh();
     } catch (e) {
@@ -664,6 +670,8 @@ export default function PlayScreen({ code, role }: Props) {
       roomMarketShare={you.marketShare ?? null}
       // Every team's standing — the host's Teams table, read only, own row highlighted.
       marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
+      // MARKET COMPETITION: the Decisions page's market mode and the team's own results.
+      market={(room.market ?? 'off') !== 'off' ? { byYear: you.marketByYear, startingYear: room.startingYear } : null}
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.

@@ -17,6 +17,7 @@ import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { colorForCombinedRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import type { RoomMarketShares, StandingFigures, StandingSummary, StandingTeam } from '../index';
+import type { StoredMarketYear } from '../contract';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -81,10 +82,17 @@ export interface StandingsTableProps {
   /** A last column — the host's hand-off button; none on a team's screen. */
   actionHead?: string;
   renderAction?: (teamName: string) => React.ReactNode;
+  /**
+   * MARKET COMPETITION — THE HOST'S ALONE (RoomView.marketByYear is host-only;
+   * a team's Market Survey passes nothing and shows no such columns). Two
+   * columns for the row's year: the exposure the market moved (in less out, of
+   * the book at the start of the year) and the book risk the year played at.
+   */
+  market?: Record<string, StoredMarketYear>;
 }
 
 export default function StandingsTable({
-  teams, marketShares, startingYear, currentYear, yearCount, ownTeam, actionHead, renderAction,
+  teams, marketShares, startingYear, currentYear, yearCount, ownTeam, actionHead, renderAction, market,
 }: StandingsTableProps) {
   const [view, setView] = useState<LineView>('pool');
 
@@ -149,6 +157,8 @@ export default function StandingsTable({
               </th>
               <th className="px-5 py-2 font-medium" title="Surplus at the year's end">Net surplus</th>
               <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line, premium on the pool">Market share</th>
+              {market && <th data-testid="teams-moved-head" className="px-5 py-2 font-medium" title="Members the market moved in the year: in less out, of the book at the start of the year">Exposure moved</th>}
+              {market && <th data-testid="teams-bookrisk-head" className="px-5 py-2 font-medium" title="The book risk factor the year played at: it multiplies the team's losses">Book risk</th>}
               {renderAction && <th className="px-5 py-2 text-right font-medium">{actionHead}</th>}
             </tr>
           </thead>
@@ -230,6 +240,34 @@ export default function StandingsTable({
                         : <>{formatPct(v)} <span className="text-[10px] text-slate-600">({startingYear + sy - 1})</span></>;
                     })()}
                   </td>
+                  {market && (() => {
+                    const step = reportingYear < 1 ? undefined : market[String(reportingYear)];
+                    const lines = effectiveView === 'pool' ? t.lines : [effectiveView];
+                    const r = step?.result[t.name];
+                    const flag = step?.missing.includes(t.name) ? 'not in the market (never locked)'
+                      : step?.inputs[t.name]?.stale ? `counted at its ${startingYear + step.inputs[t.name]!.fromYear - 1} lock` : null;
+                    const moved = (l: CoverageLine) => {
+                      const x = r?.[l];
+                      if (!x) return undefined;
+                      const before = x.bookAfter + x.outExposure - x.inGood - x.inOutside - x.inDropped;
+                      return before > 0 ? (x.inGood + x.inOutside + x.inDropped - x.outExposure) / before : 0;
+                    };
+                    const signed = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}%`;
+                    const each = (f: (l: CoverageLine) => string | undefined) => lines.length === 1
+                      ? (f(lines[0]) ?? <span className="text-slate-600">—</span>)
+                      : lines.map(l => <span key={l} className="block whitespace-nowrap text-xs">{l} {f(l) ?? <span className="text-slate-600">—</span>}</span>);
+                    return (
+                      <>
+                        <td data-testid={`moved-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
+                          {each(l => { const v = moved(l); return v === undefined ? undefined : signed(v); })}
+                          {flag && <span data-testid={`market-flag-${t.name}`} className="block text-[10px] font-sans text-amber-700">{flag}</span>}
+                        </td>
+                        <td data-testid={`bookrisk-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
+                          {each(l => r?.[l]?.bookRisk.toFixed(3))}
+                        </td>
+                      </>
+                    );
+                  })()}
                   {renderAction && <td className="px-5 py-2.5 text-right">{renderAction(t.name)}</td>}
                 </tr>
               );
