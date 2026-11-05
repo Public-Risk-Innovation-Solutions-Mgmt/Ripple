@@ -218,7 +218,7 @@ const METRICS: Metric[] = [
 const BOOK_RISK_METRIC: Metric = {
   id: 'bookRisk',
   title: 'Book risk',
-  note: "The room's market step · bookRisk",
+  note: 'market step · bookRisk',
   subtitle: 'How risky each book is against an average one (1.00), after members moved. It multiplies the year\'s losses and fades halfway back each year.',
   source: 'market',
   pick: () => 1,   // unused on this source

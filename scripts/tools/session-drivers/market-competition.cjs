@@ -194,8 +194,7 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   // The Charts tab: the book risk line.
   await host.click('[data-testid="host-tab-charts"]');
   await host.waitForSelector('[data-testid="chart-bookRisk"]', { timeout: 30000 });
-  ok(true, 'the Charts tab draws a Book risk line');
-  await shot(host, '03-charts-book-risk.png', host.locator('div.relative', { has: host.locator('[data-testid="chart-expand-bookRisk"]') }).first());
+  ok(true, 'the Charts tab draws a Book risk chart');
 
   // Each team's own market results.
   await toDecisionsWC(pages.Alder);
@@ -263,6 +262,12 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await host.getByRole('button', { name: WC, exact: true }).first().click();
   await host.waitForSelector('[data-testid="market-flag-Dogwood"]', { timeout: 60000 });
   ok((await host.textContent('[data-testid="market-flag-Dogwood"]')).includes('counted at its 2027 lock'), 'the host\'s Teams tab flags Dogwood as counted at its last lock');
+  // The Charts line, two years drawn.
+  await host.click('[data-testid="host-tab-charts"]');
+  await host.waitForSelector('[data-testid="chart-bookRisk"]', { timeout: 30000 });
+  await host.waitForTimeout(500);
+  ok(await host.locator('[data-testid="chart-bookRisk"] path, [data-testid="chart-bookRisk"] polyline').count() > 0, 'after two years the Book risk chart draws each team\'s line');
+  await shot(host, '03-charts-book-risk.png', host.locator('div.relative', { has: host.locator('[data-testid="chart-expand-bookRisk"]') }).first());
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors', errs[0] ?? '');
