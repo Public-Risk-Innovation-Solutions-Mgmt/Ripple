@@ -6,7 +6,7 @@
 //
 // 1. A REAL ROOM. Seven teams play a localStorage room at each level, four years,
 //    with every case the server handles: different rates, appetites, non-renewal
-//    and Accept switches; a team that skips a year (counted at its last lock, on
+//    (no team takes another's non-renewed members); a team that skips a year (counted at its last lock, on
 //    its book carried forward); a team unlocked and not re-locked; a team that
 //    never locks (left out). What the room STORES is then recomputed here from
 //    the stored inputs alone (each team's posted rate, book and decisions, last
@@ -32,14 +32,14 @@
 // pulls summed instead of averaged; with the team keys left out of the seeds; a
 // stored input tampered with; and stored results planted with each rule broken
 // (an intake past the appetite, a leaver from the cheapest team, outside supply
-// to a dear team, dropped members to a team that declines them, a book that
+// to a dear team, another team's dropped members taken in, a book that
 // does not add up).
 // ============================================================================
 
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_OUTSIDE_SUPPLY,
-  MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel,
+  MARKET_RIVAL_SCALE, type MarketLevel,
 } from '../../src/data/pricingParameters';
 import type { CoverageLine } from '../../src/types/simulation';
 import type { MarketLockInput, StoredMarketYear, MarketTeamLineResult } from '../../src/session/contract';
@@ -103,7 +103,6 @@ function thetaFor(target: number): number {
 }
 const leaverMixAt = (level: Level, gap: number) =>
   tilted(thetaFor(MARKET_FULL_SKEW_MEAN[level]) * Math.min(1, Math.max(0, (gap - MARKET_MIN_GAP) / (MARKET_FULL_SKEW_GAP - MARKET_MIN_GAP))));
-const droppedMixAt = (share: number) => tilted(thetaFor(1 + NON_RENEWAL_LOSS_RELIEF * (1 - share)));
 const bucketOf = (mix: number[], u: number) => { let c = 0; for (let i = 0; i < mix.length; i++) { c += mix[i]; if (u < c) return i; } return mix.length - 1; };
 /** Whole members by weight: floors, then the largest remainders, ties broken by a draw per weight. */
 function share(n: number, w: number[], rnd: () => number): number[] {
@@ -117,7 +116,7 @@ function share(n: number, w: number[], rnd: () => number): number[] {
   return c;
 }
 
-interface LineIn { rate: number; book: number; bookRisk: number; newMembers: number; nonRenewal: number; acceptDropped: boolean }
+interface LineIn { rate: number; book: number; bookRisk: number; newMembers: number; nonRenewal: number }
 interface Variant { noFade?: boolean; summedPulls?: boolean; noTeamSeed?: boolean }
 
 function recomputeLine(level: Level, seed: string, year: number, line: CoverageLine,
@@ -178,23 +177,13 @@ function recomputeLine(level: Level, seed: string, year: number, line: CoverageL
     for (const j of cheapestFirst) if (rate[j] <= avgRate + 1e-12) for (const m of newcomers) take(j, m);
     for (const m of newcomers) if (m.to >= 0) { outside[m.to] += m.e; outsideRisk[m.to] += m.e * m.risk; }
   }
+  // Non-renewed members: no team takes them; every one leaves the market (next year's refill).
   const dropped = z(), droppedTaken = z();
-  const droppedPool: M[] = [];
+  let untaken = 0;
   for (let i = 0; i < N; i++) {
     const a1 = Math.max(0, teams[i].x.nonRenewal);
-    if (a1 <= 0) continue;
-    const e1 = book[i] - out[i] + good[i] + outside[i];
-    const r1 = (risk0[i] * book[i] - outRisk[i] + goodRisk[i] + outsideRisk[i]) / e1;
-    const n = Math.max(1, Math.round(a1 * MARKET_MEMBERS_PER_BOOK));
-    const rnd = draws(`${seed}|drop|${tk(i)}|${line}|${year}`);
-    const mix = droppedMixAt(a1);
-    for (let q = 0; q < n; q++) droppedPool.push({ from: i, e: a1 * e1 / n, risk: r1 * RISKS[bucketOf(mix, rnd())], to: -1 });
-    dropped[i] = a1 * e1;
+    if (a1 > 0) { dropped[i] = a1 * (book[i] - out[i] + good[i] + outside[i]); untaken += dropped[i]; }
   }
-  droppedPool.sort((a, b) => a.risk - b.risk);
-  for (const j of cheapestFirst) if (teams[j].x.acceptDropped) for (const m of droppedPool) if (m.from !== j) take(j, m);
-  let untaken = 0;
-  for (const m of droppedPool) { if (m.to < 0) untaken += m.e; else { drop[m.to] += m.e; dropRisk[m.to] += m.e * m.risk; droppedTaken[m.from] += m.e; } }
   const res: Record<string, MarketTeamLineResult> = {};
   for (let i = 0; i < N; i++) {
     const after = book[i] - out[i] + good[i] + outside[i] + drop[i];
@@ -271,7 +260,7 @@ function ruleProblems(s: StoredMarketYear): string[] {
       if (x.leftShare > x.willingShare + 1e-9) p.push(`${n} ${line}: more left than wanted to`);
       if (x.inGood > 0 && !names.some(m => rate(m) / rate(n) - 1 > MARKET_MIN_GAP && r(m).outExposure > 0)) p.push(`${n} ${line}: good leavers with no team dearer by over 1% losing any`);
       if (x.inOutside > 0 && rate(n) > avg + 1e-12) p.push(`${n} ${line}: outside supply to a team above the average rate`);
-      if (x.inDropped > 0 && !input.acceptDropped) p.push(`${n} ${line}: dropped members to a team that declines them`);
+      if (x.inDropped > 0 || x.droppedTaken > 0) p.push(`${n} ${line}: another team's non-renewed members taken in`);
       if (Math.abs(x.bookAfter - (book - x.outExposure + intake)) > 1e-6 * Math.max(1, book)) p.push(`${n} ${line}: book after ≠ book − out + in`);
       if (x.droppedTaken > x.droppedExposure + 1e-9) p.push(`${n} ${line}: more of its dropped members taken than it dropped`);
     }
@@ -293,16 +282,16 @@ async function main() {
 
   const t = new LocalSessionTransport({ latencyMs: 0 });
   const stored: Record<Level, { code: string; seed: string; years: Record<string, StoredMarketYear>; posted: Record<string, Record<string, MarketLockInput>> }> = {} as never;
-  // Per team: rate factor, New Members, Non-Renewal, Accept — per line a little different.
+  // Per team: rate factor, New Members, Non-Renewal — per line a little different.
   const plan = [
-    { name: 'Alder', f: 0.94, nm: 0.10, nr: 0.00, acc: true },
-    { name: 'Birch', f: 0.98, nm: 0.06, nr: 0.03, acc: true },
-    { name: 'Cedar', f: 1.00, nm: 0.04, nr: 0.05, acc: false },
-    { name: 'Dogwood', f: 1.05, nm: 0.02, nr: 0.08, acc: true },   // skips year 3
-    { name: 'Elm', f: 1.12, nm: 0.00, nr: 0.10, acc: false },       // unlocked in year 2, not re-locked
-    { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00, acc: true },        // never locks
+    { name: 'Alder', f: 0.94, nm: 0.10, nr: 0.00 },
+    { name: 'Birch', f: 0.98, nm: 0.06, nr: 0.03 },
+    { name: 'Cedar', f: 1.00, nm: 0.04, nr: 0.05 },
+    { name: 'Dogwood', f: 1.05, nm: 0.02, nr: 0.08 },   // skips year 3
+    { name: 'Elm', f: 1.12, nm: 0.00, nr: 0.10 },       // unlocked in year 2, not re-locked
+    { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00 },        // never locks
     // A sixth team in the step, so averaging over N − 1 = 5 rivals × 4 is not the sum (at five it would be).
-    { name: 'Gum', f: 0.97, nm: 0.03, nr: 0.02, acc: false },
+    { name: 'Gum', f: 0.97, nm: 0.03, nr: 0.02 },
   ];
   console.log('\n1. A room at each level: what it stores, recomputed independently from the posted rates');
   for (const level of ['low', 'medium', 'high'] as Level[]) {
@@ -322,7 +311,7 @@ async function main() {
         const g = replayTeamYears(buildTeamGame(me.room, LINES).gameState, year, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear)).state;
         const d = decisionsForYear(year, undefined, false);
         for (const [j, line] of LINES.entries()) {
-          d.byLine[line] = { ...d.byLine[line], newMembers: Math.max(0, p.nm - 0.01 * j), nonRenewal: p.nr, acceptNonRenewed: p.acc };
+          d.byLine[line] = { ...d.byLine[line], newMembers: Math.max(0, p.nm - 0.01 * j), nonRenewal: p.nr };
         }
         const m = marketLockInputFor(g, d, year)!;
         // Rates spread by the team's factor, a touch more each year so the gaps move.
@@ -359,7 +348,7 @@ async function main() {
         for (const line of LINES) {
           const want = posted[n][String(lastLock)].byLine[line]!;
           const got = inp.byLine[line]!;
-          if (got.rate !== want.rate || got.newMembers !== want.newMembers || got.nonRenewal !== want.nonRenewal || got.acceptDropped !== want.acceptDropped) {
+          if (got.rate !== want.rate || got.newMembers !== want.newMembers || got.nonRenewal !== want.nonRenewal) {
             inputProblems.push(`y${y} ${n} ${line}: the stored rate or decisions are not the ones posted`);
           }
           const pr = prev?.result[n]?.[line];
@@ -393,7 +382,7 @@ async function main() {
   control('an intake past the appetite is refused', plant(s => { const x = s.result.Alder.WC! as { inGood: number; appetite: number }; x.inGood = x.appetite * 2; }));
   control('a leaver from the cheapest team is refused', plant(s => { (s.result.Alder.WC as { willingShare: number }).willingShare = 0.02; }));
   control('outside supply to a team above the average rate is refused', plant(s => { (s.result.Elm.WC as { inOutside: number }).inOutside = 1; }));
-  control('dropped members to a team that declines them are refused', plant(s => { (s.result.Cedar.WC as { inDropped: number }).inDropped = 0.5; }));
+  control('another team\'s dropped members taken in are refused', plant(s => { (s.result.Cedar.WC as { inDropped: number }).inDropped = 0.5; }));
   control('a book that does not add up is refused', plant(s => { (s.result.Birch.GL as { bookAfter: number }).bookAfter *= 1.01; }));
 
   // ============================================================================
@@ -421,7 +410,7 @@ async function main() {
     const gap = 0.06, ks = MARKET_K.medium.WC * (gap - 0.01) ** 2 * 4 / 4 * 4;
     let inBand = 0, n = 0, lo = Infinity, hi = 0;
     for (let s = 0; s < 200; s++) {
-      const teams = [0, 1, 2, 3, 4].map(i => ({ key: `T${i + 1}`, x: { rate: i === 0 ? 1 + gap : 1, book: 100, bookRisk: 1, newMembers: 0.1, nonRenewal: 0, acceptDropped: false } }));
+      const teams = [0, 1, 2, 3, 4].map(i => ({ key: `T${i + 1}`, x: { rate: i === 0 ? 1 + gap : 1, book: 100, bookRisk: 1, newMembers: 0.1, nonRenewal: 0 } }));
       const w = recomputeLine('medium', `S${s}`, 1, 'WC', teams, 0).res.T1.willingShare;
       lo = Math.min(lo, w / ks); hi = Math.max(hi, w / ks); n++;
       if (w >= ks * 0.8 - 1e-12 && w <= ks * 1.2 + 1e-12) inBand++;

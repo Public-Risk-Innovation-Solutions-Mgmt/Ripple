@@ -2,8 +2,8 @@
 // A TEAM'S OWN MARKET RESULTS — hosted rooms with market competition on. For the
 // line being viewed, every year the server's market step has run: how much of
 // the book wanted to leave, how much left, and how the New Members appetite
-// was filled — good leavers from dearer teams, new business from outside the
-// room, members other teams did not renew — each with its average risk
+// was filled — good leavers from dearer teams and new business from outside
+// the room (no team takes another's non-renewed members) — each with its average risk
 // (1.00 = an average member). Only the team's own figures: the result comes
 // from CallerView.marketByYear, which carries this team's slice alone.
 // ============================================================================
@@ -45,7 +45,6 @@ export default function MarketResultsPanel({ line, byYear, startingYear }: {
                 <th className="py-1 pr-3 font-medium">Appetite filled</th>
                 <th className="py-1 pr-3 font-medium">Good leavers</th>
                 <th className="py-1 pr-3 font-medium">New business</th>
-                <th className="py-1 pr-3 font-medium">Dropped members</th>
                 <th className="py-1 pr-3 font-medium">Book risk</th>
               </tr>
             </thead>
@@ -71,7 +70,6 @@ export default function MarketResultsPanel({ line, byYear, startingYear }: {
                     </td>
                     {cell(r.inGood, r.qualityGood, 'good')}
                     {cell(r.inOutside, r.qualityOutside, 'outside')}
-                    {cell(r.inDropped, r.qualityDropped, 'dropped')}
                     <td data-testid={`market-bookrisk-${y}`} className="py-1 pr-3">{r.bookRisk.toFixed(3)}</td>
                   </tr>
                 );

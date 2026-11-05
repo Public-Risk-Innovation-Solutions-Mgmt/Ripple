@@ -25,10 +25,10 @@
 //      b. outside supply: MARKET_OUTSIDE_SUPPLY × the room's book plus last
 //         year's untaken dropped members, at the even mix, to teams priced at or
 //         below the room's average rate, cheapest first, best first.
-//      c. non-renewed members (each team's Non-Renewal × its book after a and b,
-//         quality tilted to the worst, mean 1.5 − ½ × the share) to the other
-//         teams with appetite left and "Accept non-renewed members" on, cheapest
-//         first, best first. Whoever nobody takes leaves the market.
+//      c. non-renewed members (each team's Non-Renewal × its book after a and b)
+//         are taken by NO team: they leave the market, and next year's outside
+//         supply refills them (3b). Their quality — tilted to the worst, mean
+//         1.5 − ½ × the share — is what the dropping team's relief implies.
 //   4. Each team's book after the moves, its book risk (the risk mass over the
 //      book; the dropped members are left for the engine, which drops them and
 //      applies today's relief), and the share of that book the engine drops.
@@ -133,8 +133,6 @@ export interface MarketTeamLineInput {
   readonly newMembers: number;
   /** Non-Renewal: the share of the book dropped this year (0–0.10). */
   readonly nonRenewal: number;
-  /** "Accept non-renewed members". */
-  readonly acceptDropped: boolean;
 }
 
 export interface MarketTeamInput {
@@ -306,29 +304,17 @@ function runLine(input: MarketStepInput, line: CoverageLine,
     for (const m of opool) if (m.to >= 0) { inOut[m.to] += m.e; inOutM[m.to] += m.e * m.risk; }
   }
 
-  // 3c. NON-RENEWED MEMBERS — to other teams with appetite left that accept them
+  // 3c. NON-RENEWED MEMBERS — no team takes them. Each team's Non-Renewal × its
+  // book after a and b leaves the market; all of it is next year's refill (3b).
+  // (inDrop and droppedTaken stay in the result, always 0, the shape rooms
+  // already store.)
   const dropped = Array(N).fill(0), droppedTaken = Array(N).fill(0);
-  const dpool: Member[] = [];
+  let untaken = 0;
   for (let i = 0; i < N; i++) {
     const a1 = Math.max(0, ts[i].x.nonRenewal);
     if (a1 <= 0) continue;
-    const Ep = E[i] - outE[i] + inGood[i] + inOut[i];
-    const Bp = (B[i] * E[i] - outM[i] + inGoodM[i] + inOutM[i]) / Ep;
-    const D = a1 * Ep;
-    const n = Math.max(1, Math.round(a1 * MARKET_MEMBERS_PER_BOOK));
-    const mix = droppedMix(a1);
-    const rnd = seededRandom(`${seed}|drop|${keyOf(i)}|${line}|${year}`);
-    for (let m = 0; m < n; m++) dpool.push({ src: i, e: D / n, risk: Bp * MARKET_BUCKETS[pick(mix, rnd())], to: -1 });
-    dropped[i] = D;
-  }
-  dpool.sort((a, b) => a.risk - b.risk);
-  for (const j of byPrice.filter(j => ts[j].x.acceptDropped)) {
-    for (const m of dpool) if (m.to < 0 && m.src !== j && fits(j, m.e)) { m.to = j; rem[j] -= m.e; }
-  }
-  let untaken = 0;
-  for (const m of dpool) {
-    if (m.to < 0) { untaken += m.e; continue; }
-    inDrop[m.to] += m.e; inDropM[m.to] += m.e * m.risk; droppedTaken[m.src] += m.e;
+    dropped[i] = a1 * (E[i] - outE[i] + inGood[i] + inOut[i]);
+    untaken += dropped[i];
   }
 
   // 4. the books after the moves

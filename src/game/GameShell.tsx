@@ -220,7 +220,11 @@ export default function GameShell({
         onAdvanceYear={onAdvanceYear ? openLockConfirm : undefined}
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
-        lineView={lineView}
+        // ⚠ THE TOP BAR READS THE POOL EVERYWHERE BUT A LINE ON DECISIONS. The
+        // line view outlives the tab it was picked on, so the bar used to keep a
+        // line's figures on every other tab; only the Decisions page, where a
+        // line is being decided, shows that line's. The bar names which it shows.
+        lineView={shownTab === 'decisions' ? lineView : 'pool'}
         roomMarketShare={roomMarketShare}
       />
 

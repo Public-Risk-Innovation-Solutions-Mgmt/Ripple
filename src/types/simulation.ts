@@ -779,13 +779,6 @@ export interface LineDecisionSet {
    * NEW_BUSINESS_PENALTY.
    */
   newMembers?: number;
-  /**
-   * "ACCEPT NON-RENEWED MEMBERS" (hosted market competition only): whether the
-   * team takes other teams' non-renewed members into any appetite left after
-   * the good leavers and the outside supply. Absent reads as No
-   * (MARKET_ACCEPT_DROPPED_DEFAULT). Read by the server's market step only.
-   */
-  acceptNonRenewed?: boolean;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See

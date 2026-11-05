@@ -43,13 +43,11 @@ export function validMarketLockInput(x: unknown, lines: readonly CoverageLine[])
   const out: Partial<Record<CoverageLine, MarketLockLine>> = {};
   for (const line of lines) {
     const v = (byLine as Record<string, unknown>)[line] as Partial<MarketLockLine> | undefined;
-    if (!v || !finitePositive(v.rate) || !finitePositive(v.book) || !finite(v.newMembers) || !finite(v.nonRenewal)
-      || typeof v.acceptDropped !== 'boolean') return null;
+    if (!v || !finitePositive(v.rate) || !finitePositive(v.book) || !finite(v.newMembers) || !finite(v.nonRenewal)) return null;
     out[line] = {
       rate: v.rate, book: v.book,
       newMembers: clamp(v.newMembers, NEW_MEMBERS_SLIDER.min, NEW_MEMBERS_SLIDER.max),
       nonRenewal: clamp(v.nonRenewal, NON_RENEWAL_SLIDER.min, NON_RENEWAL_SLIDER.max),
-      acceptDropped: v.acceptDropped,
     };
   }
   return { byLine: out };
@@ -99,7 +97,7 @@ export function marketYearForAdvance(a: {
     teams.push({
       key: keyOf(t.teamNumber),
       lines: Object.fromEntries(Object.entries(byLine).map(([line, l]) => [line, {
-        rate: l!.rate, book: l!.book, newMembers: l!.newMembers, nonRenewal: l!.nonRenewal, acceptDropped: l!.acceptDropped,
+        rate: l!.rate, book: l!.book, newMembers: l!.newMembers, nonRenewal: l!.nonRenewal,
         bookRisk: a.previous?.result[t.name]?.[line as CoverageLine]?.bookRisk ?? 1,
       }])),
     });
