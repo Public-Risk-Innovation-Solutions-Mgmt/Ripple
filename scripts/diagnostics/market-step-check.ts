@@ -343,7 +343,8 @@ async function main() {
 
   for (const level of ['low', 'medium', 'high'] as Level[]) {
     const { code, seed, years, posted } = stored[level];
-    let diffs: string[] = [], inputProblems: string[] = [], rules: string[] = [];
+    let diffs: string[] = [], rules: string[] = [];
+    const inputProblems: string[] = [];
     let movedTeams = 0;
     for (let y = 1; y <= 4; y++) {
       const s = years[String(y)], prev = years[String(y - 1)];
