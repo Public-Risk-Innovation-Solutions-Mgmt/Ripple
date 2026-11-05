@@ -2898,6 +2898,65 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     ],
   },
   {
+    // MARKET COMPETITION (pr/market-competition) — hosted rooms only. Every value
+    // is the measured one; the block above each constant carries the measurements.
+    title: 'Market competition (hosted rooms)',
+    entries: [
+      ['Market competition setting', {
+        value: `Off / Low / Medium / High, default ${MARKET_DEFAULT_LEVEL[0].toUpperCase() + MARKET_DEFAULT_LEVEL.slice(1)}`,
+        unit: 'the host\'s setting at room setup',
+        what: 'Whether members move between the room\'s teams on price, and how readily. Off plays as a game '
+          + 'without it; a room created before the setting reads Off. Single player and Test player have no market.',
+        basis: 'CHOSEN',
+      }],
+      ['Pair gap', {
+        value: 'the pricier team\'s whole rate ÷ the cheaper team\'s − 1',
+        unit: 'per pair of teams, per line',
+        what: 'The whole rate each team locked with — risk control and reinsurance included — compared pair by pair.',
+        basis: 'CHOSEN',
+      }],
+      ['Willing leavers (k)', {
+        value: `Low ${perLine(MARKET_K.low, 3)} · Medium ${perLine(MARKET_K.medium, 3)} · High ${perLine(MARKET_K.high, 3)}`,
+        unit: 'k in k × (pair gap − 1%)², per pair',
+        what: `Each cheaper rival pulls k × (pair gap − ${MARKET_MIN_GAP * 100}%)² of the dearer team's book; the pulls are `
+          + `averaged over the N − 1 rivals and × ${MARKET_RIVAL_SCALE}, drawn ±${MARKET_COUNT_SPREAD * 100}% and capped at `
+          + `${MARKET_LEAVER_CAP * 100}% of the book a year.`,
+        basis: 'CHOSEN',
+        note: 'Calibrated on the funding tables live on aws to match the behaviour measured on #72\'s stretched tables '
+          + '(five teams, Medium, scenario 7: the dearest team\'s share 17.6 → 10.2 over five years, stretched 10.5). '
+          + 'Must be recalibrated if #72\'s tables land.',
+      }],
+      ['Leaver quality', {
+        value: `buckets ${MARKET_BUCKETS_RAW.map(b => b.toFixed(2)).join(' / ')} ÷ 1.02; full skew at a ${MARKET_FULL_SKEW_GAP * 100}%+ gap: `
+          + `Low ${MARKET_FULL_SKEW_MEAN.low} · Medium ${MARKET_FULL_SKEW_MEAN.medium} · High ${MARKET_FULL_SKEW_MEAN.high}`,
+        unit: 'risk against the leaving team\'s book (1.00 = average)',
+        what: 'Who leaves: the mix tilts towards the best risks as the pair gap grows. Dropped (non-renewed) members average about 1.5×.',
+        basis: 'CHOSEN',
+      }],
+      ['Outside supply', {
+        value: `${MARKET_OUTSIDE_SUPPLY * 100}% of the room's book + last year's untaken dropped members`,
+        unit: 'per line, per year',
+        what: 'New members from outside the room, at about average risk, offered only to teams at or below the room\'s '
+          + 'average rate, cheapest first.',
+        basis: 'CHOSEN',
+        note: 'Measured: a closed room left 47–76% of appetite unfilled; 3% let supply reach the dearest team.',
+      }],
+      ['Book risk fade', {
+        value: `${MARKET_BOOK_RISK_FADE * 100}% towards 1.00 a year`,
+        unit: 'before the year\'s moves',
+        what: 'The book risk factor multiplies a team\'s losses; each year it moves halfway back to 1.00 before new moves.',
+        basis: 'CHOSEN',
+        note: 'Measured: 0% ratcheted to 1.35; 25% took about six years to clear; 50% clears in 2–3.',
+      }],
+      ['Accept non-renewed members', {
+        value: MARKET_ACCEPT_DROPPED_DEFAULT ? 'Yes by default' : 'No by default',
+        unit: 'a team\'s switch, per line',
+        what: 'Whether a team\'s appetite left after good leavers and outside supply is filled with other teams\' dropped members.',
+        basis: 'CHOSEN',
+      }],
+    ],
+  },
+  {
     title: 'Opening position',
     entries: [
       ['Prior development defaults', {

@@ -670,6 +670,8 @@ export default function PlayScreen({ code, role }: Props) {
       roomMarketShare={you.marketShare ?? null}
       // Every team's standing — the host's Teams table, read only, own row highlighted.
       marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
+      // MARKET COMPETITION: the Decisions page's market mode and the team's own results.
+      market={(room.market ?? 'off') !== 'off' ? { byYear: you.marketByYear, startingYear: room.startingYear } : null}
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.

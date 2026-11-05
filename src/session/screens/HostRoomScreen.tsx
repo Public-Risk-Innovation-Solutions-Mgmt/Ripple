@@ -378,7 +378,7 @@ export default function HostRoomScreen({ code }: Props) {
                             onClick={() => void handleUndoLock(t.name)}
                             className="ml-1 text-xs font-medium text-blue-600 underline hover:text-blue-700 disabled:opacity-50"
                           >
-                            {undoingTeam === t.name ? 'Undoing…' : 'Undo'}
+                            {undoingTeam === t.name ? 'Unlocking…' : 'Unlock'}
                           </button>
                         </span>
                       : <span className="flex items-center gap-1.5 text-slate-600"><Circle size={14} /> open</span>}
@@ -426,8 +426,17 @@ export default function HostRoomScreen({ code }: Props) {
                     ? joined.length === 0
                       ? 'No teams have joined yet.'
                       : 'Every team that has joined is locked in.'
-                    : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(teamLabel).join(', ')}</span></>}
+                    : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(teamLabel).join(', ')}</span>.
+                      {' '}<span data-testid="outstanding-note">If you advance now, a team that has not locked plays its last locked decisions
+                      {(room?.market ?? 'off') !== 'off' ? ', and the market counts it at its last locked rate' : ''}
+                      {' '}(one that never locked plays the defaults{(room?.market ?? 'off') !== 'off' ? ' and stays out of the market' : ''}).</span></>}
                 </p>
+                {(room?.market ?? 'off') !== 'off' && (
+                  <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">
+                    Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>.
+                    Advancing moves members between teams on the rates they locked.
+                  </p>
+                )}
                 <button
                   type="button"
                   data-testid="advance"
