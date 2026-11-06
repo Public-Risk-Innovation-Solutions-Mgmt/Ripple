@@ -146,6 +146,9 @@ appear nowhere on a team's screens. The server stores them, the team's game play
 only the host sees them, in the Teams columns and the Charts line. A team sees their effect in its own figures and
 in the Market Survey's shares.
 
+**Nor any market explanation.** With the market on, no note on the Decisions page or the Market Survey explains it;
+a team sees only the two slider labels (New Members as its appetite, Non-Renewal's members leaving the market).
+
 **Private:** decisions are not shown to other teams, and full statements stay the team's own. The seed is shown
 only to the host and in Test player. But a viewer sees the watched team's decisions (section 7).
 

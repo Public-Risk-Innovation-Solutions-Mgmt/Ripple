@@ -80,8 +80,8 @@ interface DecisionsPageProps {
   /**
    * MARKET COMPETITION — a hosted room with the market on. New Members is then
    * the team's appetite and Non-Renewal's members leave the market. A team is not
-   * shown its market results (the host's Teams columns are); the server stores
-   * them and the team's game plays them.
+   * shown its market results (the host's Teams columns are) or any explanation
+   * of the market; the server stores the results and the team's game plays them.
    * False everywhere else (Single player, Test player, a room with it Off).
    */
   market?: boolean;
@@ -248,13 +248,6 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
                   dollars: underwriting.newBusinessPremium,
                 }}
               />
-              {market && (
-                <p data-testid="market-mode-note" className="text-xs text-gray-600">
-                  Market competition is on: members of dearer teams may leave for cheaper ones, and you take members in
-                  only up to your appetite, each bringing their own risk. Your whole rate is compared with every other
-                  team&rsquo;s when the host advances the year.
-                </p>
-              )}
             </>
           )}
         </SectionCard>

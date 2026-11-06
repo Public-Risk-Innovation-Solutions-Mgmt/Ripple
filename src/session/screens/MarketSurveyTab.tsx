@@ -18,11 +18,6 @@ export default function MarketSurveyTab({ room, ownTeam }: { room: RoomView; own
       <div>
         <h1 className="text-lg font-semibold text-gray-900">Market Survey</h1>
         <p className="text-sm text-gray-600">Every team in the room, as the host sees them.</p>
-        {(room.market ?? 'off') !== 'off' && (
-          <p data-testid="market-survey-market-note" className="mt-1 text-xs text-gray-600">
-            Market competition is on: members move between teams on price each year, so market shares move with them.
-          </p>
-        )}
       </div>
       {room.standings ? (
         <StandingsTable
