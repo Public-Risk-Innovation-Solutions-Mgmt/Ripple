@@ -101,8 +101,9 @@ function startStub() {
   await device.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
   ok(true, 'the team is driving, on the Decisions tab by default');
 
-  ok(await device.locator('[data-testid="draft-status"]').count() === 0,
-    'no "Saving…"/"Saved" indicator before any edit');
+  // A player's strip no longer SHOWS "Saving…"/"Saved"; it carries the state as data-draft.
+  ok(await device.locator('[data-testid="session-strip"][data-draft]').count() === 0,
+    'no saving/saved draft state before any edit');
 
   // ---- edit a decision: WC's reinsurance-option panel, a one-click control --
   // ⚠ "DECISIONS" OPENS ON THE POOL SUB-VIEW (investment allocation only); the
@@ -123,14 +124,14 @@ function startStub() {
     `clicking ${targetTestId} selected it`);
 
   // ---- the debounced auto-save: "Saving…" then "Saved", inside ~3-4s --------
-  await device.waitForSelector('[data-testid="draft-status"]', { timeout: 10000 });
-  const statusText = (await device.textContent('[data-testid="draft-status"]')).trim();
-  ok(/Saving|Saved/.test(statusText), `the draft-status indicator appeared ("${statusText}")`);
+  await device.waitForSelector('[data-testid="session-strip"][data-draft]', { timeout: 10000 });
+  const statusText = await device.getAttribute('[data-testid="session-strip"]', 'data-draft');
+  ok(/^(saving|saved)$/.test(statusText ?? ''), `the draft state appeared ("${statusText}")`);
   await device.waitForFunction(
-    () => document.querySelector('[data-testid="draft-status"]')?.textContent?.includes('Saved'),
+    () => document.querySelector('[data-testid="session-strip"]')?.dataset.draft === 'saved',
     null, { timeout: 10000 },
   );
-  ok(true, 'the indicator settled on "Saved"');
+  ok(true, 'the draft state settled on saved');
 
   // ---- confirm the server actually holds it, independent of the UI ---------
   const readBack = await (await fetch(`${API}/read`, {
@@ -156,9 +157,9 @@ function startStub() {
 
   // ---- lock the year: the draft must disappear with it ---------------------
   await lockAndConfirm(device);
-  await device.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
-  ok(await device.locator('[data-testid="draft-status"]').count() === 0,
-    'the draft-status indicator is gone once the year is locked');
+  await device.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
+  ok(await device.locator('[data-testid="session-strip"][data-draft]').count() === 0,
+    'the draft state is gone once the year is locked');
   const afterLock = await (await fetch(`${API}/read`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code, token: await device.evaluate(c => {

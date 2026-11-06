@@ -181,11 +181,10 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // code comments, so this assertion had been failing for a legitimate reason.
     // It checks BOTH sliders rather than either, which is stricter than the
     // or-test it replaces. Intake is labelled "New business" to players (UI tidy).
-    // Simple underwriting: the two sliders by their names and values — "Existing
-    // Book: Non-Renewal Assumption" and "New Members: Growth Assumption" (uw-hybrid's
-    // "New Business: Growth Assumption" before), each at 0% — and nothing of
-    // the retired intake positions.
-    ok(/Existing Book: Non-Renewal Assumption\s*0%/.test(main) && /New Members: Growth Assumption\s*0%/.test(main)
+    // Simple underwriting: the two sliders by their names and values — "Non-Renewal"
+    // and "New Members" ("Existing Book: Non-Renewal Assumption" and "New Members:
+    // Growth Assumption" before) each at 0% — and nothing of the retired intake positions.
+    ok(/Non-Renewal\s*0%/.test(main) && /New Members\s*0%/.test(main)
        && !/\bIntake\b|No New Business|Renew all/.test(main), 'the two underwriting sliders render, by name and value');
   }
 
@@ -219,7 +218,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
       }
 
       await lockAndConfirm(p);
-      await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     }
     ok(true, `year ${year}: teams locked in${year === SKIP_YEAR ? ` (${TEAMS[SKIPPER]} deliberately did not)` : ''}`);
 
@@ -234,8 +233,8 @@ const roomRecord = (page, code) => page.evaluate(c =>
 
     for (let i = 0; i < 3; i++) {
       await players[i].waitForFunction(y => {
-        const el = document.querySelector('[data-testid="posted-year"]');
-        return !!el && el.textContent.includes(`year ${y} result posted`);
+        // A player's strip no longer SHOWS the posted year; it carries it as data-posted-year.
+        return document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(y);
       }, year, { timeout: 180000 });
     }
     ok(true, `year ${year}: all three tabs computed their own result`);
@@ -301,7 +300,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
     }
   }
 
-  for (let i = 0; i < 3; i++) await players[i].waitForSelector('[data-testid="player-complete"]', { timeout: 40000 });
+  for (let i = 0; i < 3; i++) await players[i].waitForSelector('[data-testid="session-strip"][data-lock="complete"]', { timeout: 40000 });
   ok(true, 'every player tab reports the session complete');
 
   await browser.close();

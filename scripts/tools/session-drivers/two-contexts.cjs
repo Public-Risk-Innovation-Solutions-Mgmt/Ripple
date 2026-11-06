@@ -134,7 +134,7 @@ const anyKeys = page => page.evaluate(() =>
     // anywhere on this path: the serialisation is the server's.
     await Promise.all(players.map(async p => {
       await lockAndConfirm(p);
-      await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+      await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
     }));
     // The host learns by polling, so this waits for the locks to arrive rather
     // than sampling the instant the clicks return — a session across contexts
@@ -180,7 +180,7 @@ const anyKeys = page => page.evaluate(() =>
 
   await Promise.all(players.map(async p => {
     await lockAndConfirm(p);
-    await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+    await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
   }));
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForTimeout(300);

@@ -280,13 +280,13 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
     }
     for (const page of teams) {
       await lockAndConfirm(page);
-      await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await page.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]').catch(() => {});
     await host.waitForTimeout(500);
     await host.click('[data-testid="advance"]');
     for (const page of teams) {
-      await page.waitForFunction(() => document.querySelector('[data-testid="posted-year"]')?.textContent.includes('year 1 result posted'), null, { timeout: 180000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === '1', null, { timeout: 180000 });
       await page.waitForTimeout(800);
     }
     for (const [k, page] of teams.entries()) {

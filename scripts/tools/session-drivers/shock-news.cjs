@@ -177,11 +177,11 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
     await team.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
     for (const y of [1, 2]) {
       await lockAndConfirm(team);
-      await team.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await team.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
       await host.click('[data-testid="host-tab-setup"]').catch(() => {});
       await host.waitForTimeout(300);
       await host.click('[data-testid="advance"]');
-      await team.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
+      await team.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
       await team.waitForTimeout(800);
       const n = await team.locator('[data-testid="event-news"]').count();
       if (y === 1) ok(n === 0, 'hosted: after the advance into 2027, a quiet year: no banner');

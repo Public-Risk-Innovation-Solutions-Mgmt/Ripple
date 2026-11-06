@@ -105,7 +105,7 @@ function startStub() {
     'the host sees "open", not "locked", before the team locks anything');
 
   await lockAndConfirm(device);
-  await device.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+  await device.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   ok(true, 'the team locked its year and sees "Waiting for host"');
 
   // ---- the host sees it locked, and undoes it -------------------------------
@@ -118,7 +118,7 @@ function startStub() {
   ok(true, 'the host\'s undo reopened the lock — the row reads "open" again');
 
   // ---- the team's own screen re-enables on its next poll --------------------
-  await device.waitForSelector('[data-testid="waiting"]', { state: 'detached', timeout: 30000 });
+  await device.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { state: 'detached', timeout: 30000 });
   ok(true, 'the team\'s own screen left the locked state, with no action from this device');
   await device.waitForSelector('button:has-text("Lock Program Year")', { timeout: 30000 });
   const relockBtn = device.getByRole('button', { name: /Lock Program Year/ });
@@ -133,7 +133,7 @@ function startStub() {
 
   // ---- re-lock works normally after an undo ---------------------------------
   await lockAndConfirm(device);
-  await device.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+  await device.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   ok(true, 're-locking the same year after an undo succeeds normally');
   await host.waitForSelector(`[data-testid="locked-${TEAM_NAME}"]`, { timeout: 30000 });
   ok(true, 'the host sees it locked again');

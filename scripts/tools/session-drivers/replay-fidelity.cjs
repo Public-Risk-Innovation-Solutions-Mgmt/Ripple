@@ -249,7 +249,7 @@ async function resultsYearText(page, year) {
       fcValues.push(v);
     }
     await lockAndConfirm(player);
-    await player.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await player.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
 
     await host.click('[data-testid="advance"]');
     await host.waitForFunction(y => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === String(y), year + 1, { timeout: 30000 });

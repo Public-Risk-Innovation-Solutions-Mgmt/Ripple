@@ -191,11 +191,11 @@ async function hosted(browser) {
     const name = locks === 0 ? 'start' : `after ${locks} lock${locks > 1 ? 's' : ''}`;
     await check(name, START + n - 2, START + n - 2);
     await lockAndConfirm(team);
-    await team.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await team.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     await host.click('[data-testid="host-tab-setup"]');
     await host.waitForTimeout(300);
     await host.click('[data-testid="advance"]');
-    await team.waitForFunction(y => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${y} result posted`), n, { timeout: 180000 });
+    await team.waitForFunction(y => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(y), n, { timeout: 180000 });
     await host.waitForFunction(([c, y]) => {
       const r = JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c) || 'null');
       return !!r && !!(r.teams[0].resultsByYear || {})[String(y)];

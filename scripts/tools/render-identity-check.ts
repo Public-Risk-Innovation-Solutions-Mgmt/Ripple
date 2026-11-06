@@ -1785,7 +1785,22 @@ const BASELINE = process.env.RENDER_BASELINE
 //     Statement's Pool view at the same point).
 // No other word moved. The removed "Accept non-renewed members" switch was only
 // ever shown in a hosted room with the market on, which this does not render.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v125.json');
+// v126: THE UNDERWRITING SLIDERS' PLAIN NAMES (pr/market-slider-wording, from aws
+// bba588c; numbered past every render baseline on any branch — v125 is the
+// highest). ⚠ THE CONTROL DOES NOT REPRODUCE v125: aws bba588c itself moves 10 of
+// 174 — the Decisions screens on each game's LAST line tab (WC, GL, PR alone;
+// GL of WC+GL; PR of WC+GL+PR; y0 and y2) — and, word-diffed against v125's text,
+// each only by the "Lock Program Year 2027" (2029 at y2) button now at the foot
+// of that tab (aws's bottom lock button, d1aa8c2; its Decisions sub-menu adds no
+// words to these screens). Those 10 are aws's, carried here. Against aws
+// bba588c's own text (RENDER_TEXT_DIR on both sides), word-diffed, 16 of 174
+// move: every Decisions screen on a line tab, each only in the two sliders'
+// wording — "Existing Book: Non-Renewal Assumption" -> "Non-Renewal", "New
+// Members: Growth Assumption" -> "New Members", "Premium from new members" ->
+// "Expected premium from new members". No figure moved; no key added or
+// removed. (The player's status strip, also changed here, is a hosted screen
+// this does not render.)
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v126.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

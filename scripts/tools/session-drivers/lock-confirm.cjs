@@ -225,14 +225,14 @@ async function hostedMode(browser) {
     const closed = await dismissAllWays(team);
     const room = await read();
     ok(closed.every(Boolean), 'hosted: "Go back", Escape and a click outside each close the box', JSON.stringify(closed));
-    ok(submits.length === 0 && await team.locator('[data-testid="waiting"]').count() === 0,
+    ok(submits.length === 0 && await team.locator('[data-testid="session-strip"][data-lock="locked"]').count() === 0,
       'hosted: and nothing is sent — no decisions submitted, the team not waiting', `${submits.length} submit(s)`);
     ok(room?.currentYear === 1 && room.teams.every(t => t.lockedYear == null),
       'hosted: the room holds no lock for the team and its year does not move',
       JSON.stringify({ year: room?.currentYear, locked: room?.teams?.map(t => t.lockedYear) }));
 
     await confirmLock(team);
-    await team.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+    await team.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
     await team.waitForTimeout(2500);
     const after = await read();
     ok(submits.length === 1, 'hosted: "Lock decisions" sends the decisions once — one submit request', `${submits.length} submit(s)`);

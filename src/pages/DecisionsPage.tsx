@@ -77,14 +77,6 @@ interface DecisionsPageProps {
   underwriting?: UnderwritingFigures | null;
   /** The risk control slider's cost, in dollars — derivations.ts's riskControlCost. */
   riskControlCost?: number | null;
-  /**
-   * MARKET COMPETITION — a hosted room with the market on. New Members is then
-   * the team's appetite and Non-Renewal's members leave the market. A team is not
-   * shown its market results (the host's Teams columns are) or any explanation
-   * of the market; the server stores the results and the team's game plays them.
-   * False everywhere else (Single player, Test player, a room with it Off).
-   */
-  market?: boolean;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -108,7 +100,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null, market = false }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -229,7 +221,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
               {/* ONE BOOK PER LINE: the two sliders move the book's exposure,
                   and this year's loss per unit. See bookUnderwriting.ts. */}
               <UnderwritingSlider
-                label={market ? 'Non-Renewal: members you drop (they leave the market)' : 'Existing Book: Non-Renewal Assumption'}
+                label="Non-Renewal"
                 range={NON_RENEWAL_SLIDER}
                 value={d.nonRenewal ?? NON_RENEWAL_SLIDER.default}
                 onChange={v => set('nonRenewal', v)}
@@ -237,14 +229,14 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
                 result={underwriting && { testId: 'uw-non-renewed', text: 'Premium not renewed', dollars: underwriting.nonRenewedPremium }}
               />
               <UnderwritingSlider
-                label={market ? 'New Members: appetite (the most you take in this year)' : 'New Members: Growth Assumption'}
+                label="New Members"
                 range={NEW_MEMBERS_SLIDER}
                 value={d.newMembers ?? NEW_MEMBERS_SLIDER.default}
                 onChange={v => set('newMembers', v)}
                 disabled={disabled}
                 result={underwriting && {
                   testId: 'uw-new-business',
-                  text: market ? 'Premium from new members, if the appetite fills' : 'Premium from new members',
+                  text: 'Expected premium from new members',
                   dollars: underwriting.newBusinessPremium,
                 }}
               />

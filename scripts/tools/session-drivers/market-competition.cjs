@@ -7,8 +7,8 @@
 //
 // The host's setting (Medium by default) on room setup; five teams priced from
 // 30% to 90% funding, with different appetites and non-renewal; the Decisions
-// page in market mode (the appetite label, no Accept switch — no team takes
-// another's non-renewed members); REAL LOCKING — the host sees who has not locked, unlocks a team,
+// page as in every room (sliders named plainly "New Members" and "Non-Renewal",
+// no Accept switch — no team takes another's non-renewed members); REAL LOCKING — the host sees who has not locked, unlocks a team,
 // the team re-locks on a new appetite; the advance; members moving (the dearest
 // team's book shrinks, the cheapest's grows); the host's two Teams columns and
 // the Charts book risk line; NO market results and NO market explanation on a
@@ -72,7 +72,7 @@ async function toDecisionsWC(page) {
   await page.getByRole('button', { name: WC, exact: true }).first().click();
   await page.waitForTimeout(300);
 }
-const posted = (page, y) => page.waitForFunction(n => new RegExp(`year ${n} result posted`).test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), y, { timeout: 240000 });
+const posted = (page, y) => page.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 240000 });
 const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g, ''));
 
 (async () => {
@@ -136,20 +136,26 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
     if (name === 'Alder') {
       ok(await p.locator('[data-testid="market-mode-note"]').count() === 0 && !/Market competition is on/.test(await p.textContent('body')),
         'the Decisions page explains no market: no "Market competition is on" note');
-      ok(await sliderBox(p, 'New Members: appetite').count() === 1 && await sliderBox(p, 'Non-Renewal: members you drop (they leave the market)').count() === 1,
-        'New Members reads as the appetite, Non-Renewal as members dropped from the market');
+      // The sliders carry their plain names in every room — no market wording on them.
+      ok(await sliderBox(p, /^New Members$/).count() === 1 && await sliderBox(p, /^Non-Renewal$/).count() === 1
+         && !/appetite|leave the market|members you drop/i.test(await p.textContent('body')),
+        'the sliders read plainly "New Members" and "Non-Renewal", with no market wording');
+      ok(/Expected premium from new members:/.test(await p.textContent('body')) && /Premium not renewed:/.test(await p.textContent('body')),
+        'their premiums read "Expected premium from new members" and "Premium not renewed"');
       ok(await p.locator('[data-testid^="accept-non-renewed"]').count() === 0 && !/Accept non-renewed/.test(await p.textContent('body')),
         'there is no "Accept non-renewed members" control');
     }
     if (funding !== null) await setSlider(p, /^Funding Confidence Level$/, funding);
-    if (nm) await setSlider(p, 'New Members: appetite', nm);
-    if (nr) await setSlider(p, 'Non-Renewal: members you drop (they leave the market)', nr);
+    if (nm) await setSlider(p, /^New Members$/, nm);
+    if (nr) await setSlider(p, /^Non-Renewal$/, nr);
+    // A team's Decisions page: the sliders' plain names and premiums, and the strip with only the viewer PIN.
+    if (name === 'Alder') await shot(p, '05-team-decisions.png');
   }
 
   // ---- locking, and the host's unlock ---------------------------------------
   for (const name of ['Alder', 'Birch', 'Cedar', 'Dogwood']) {
     await lockAndConfirm(pages[name]);
-    await pages[name].waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+    await pages[name].waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
   }
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForSelector('[data-testid="locked-Dogwood"]', { timeout: 30000 });
@@ -159,16 +165,16 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await shot(host, '04-unlock-control.png');
   await host.click('[data-testid="undo-lock-Cedar"]');
   await host.waitForSelector('[data-testid="locked-Cedar"]', { state: 'detached', timeout: 30000 });
-  await pages.Cedar.waitForSelector('[data-testid="waiting"]', { state: 'detached', timeout: 30000 });
+  await pages.Cedar.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { state: 'detached', timeout: 30000 });
   ok(true, 'the host unlocks Cedar and Cedar\'s screen reopens');
   await toDecisionsWC(pages.Cedar);
-  await setSlider(pages.Cedar, 'New Members: appetite', 6);
+  await setSlider(pages.Cedar, /^New Members$/, 6);
   await lockAndConfirm(pages.Cedar);
-  await pages.Cedar.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+  await pages.Cedar.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
   await host.waitForSelector('[data-testid="locked-Cedar"]', { timeout: 30000 });
   ok(true, 'Cedar re-locks on a 6% appetite');
   await lockAndConfirm(pages.Elm);
-  await pages.Elm.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+  await pages.Elm.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
   await host.waitForSelector('[data-testid="locked-Elm"]', { timeout: 30000 });
 
   // ---- the advance: the market step ----------------------------------------
@@ -251,7 +257,7 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   // ---- year 2: Dogwood does not lock ----------------------------------------
   for (const name of ['Alder', 'Birch', 'Cedar', 'Elm']) {
     await lockAndConfirm(pages[name]);
-    await pages[name].waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+    await pages[name].waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
   }
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForSelector('[data-testid="locked-Elm"]', { timeout: 30000 });

@@ -142,10 +142,10 @@ async function tabText(page, tab) {
     }
 
     await lockAndConfirm(driver);
-    await driver.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await driver.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await host.waitForFunction(n => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === String(n), y + 1, { timeout: 30000 });
-    await driver.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
+    await driver.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
     await viewer.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result computed`), y, { timeout: 180000 });
     ok(true, `year ${y}: the viewer computed it on its own, from the watched team's decisions`);
 
