@@ -11,8 +11,9 @@
 // another's non-renewed members); REAL LOCKING — the host sees who has not locked, unlocks a team,
 // the team re-locks on a new appetite; the advance; members moving (the dearest
 // team's book shrinks, the cheapest's grows); the host's two Teams columns and
-// the Charts book risk line; NO market results on a team's screens (the server
-// stores them and the team's game plays them, but only the host sees them); the
+// the Charts book risk line; NO market results and NO market explanation on a
+// team's screens (no note on Decisions or the Market Survey; the server stores
+// the results and the team's game plays them, but only the host sees them); the
 // Market Survey, with no market columns, its shares moved; a rejoin on a second
 // device whose Annual Statement — the moves played — is exactly the first's; and a team that skips a year flagged to the
 // host as counted at its last lock.
@@ -133,7 +134,8 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
     const p = pages[name];
     await toDecisionsWC(p);
     if (name === 'Alder') {
-      ok(await p.locator('[data-testid="market-mode-note"]').count() === 1, 'the Decisions page is in market mode');
+      ok(await p.locator('[data-testid="market-mode-note"]').count() === 0 && !/Market competition is on/.test(await p.textContent('body')),
+        'the Decisions page explains no market: no "Market competition is on" note');
       ok(await sliderBox(p, 'New Members: appetite').count() === 1 && await sliderBox(p, 'Non-Renewal: members you drop (they leave the market)').count() === 1,
         'New Members reads as the appetite, Non-Renewal as members dropped from the market');
       ok(await p.locator('[data-testid^="accept-non-renewed"]').count() === 0 && !/Accept non-renewed/.test(await p.textContent('body')),
@@ -200,7 +202,8 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
     await toDecisionsWC(pages[name]);
     ok(await pages[name].locator('[data-testid="market-results"]').count() === 0 && !/Your market results|Wanting to leave|Appetite filled/.test(await pages[name].textContent('body')),
       `${name} is shown no market results after the moves`);
-    ok(await pages[name].locator('[data-testid="market-mode-note"]').count() === 1, `${name} still sees the "Market competition is on" note`);
+    ok(await pages[name].locator('[data-testid="market-mode-note"]').count() === 0 && !/Market competition is on/.test(await pages[name].textContent('body')),
+      `${name} sees no market note after the moves either`);
   }
 
   // The Market Survey: no market columns; shares moved.
@@ -211,7 +214,8 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await survey.waitForTimeout(400);
   ok(await survey.locator('[data-testid="teams-moved-head"]').count() === 0 && await survey.locator('[data-testid="teams-bookrisk-head"]').count() === 0,
     'a team\'s Market Survey shows neither market column');
-  ok(await survey.locator('[data-testid="market-survey-market-note"]').count() === 1, 'and says shares move with the market');
+  ok(await survey.locator('[data-testid="market-survey-market-note"]').count() === 0 && !/Market competition is on/.test(await survey.locator('[data-testid="market-survey"]').innerText()),
+    'and no market note');
   await survey.waitForFunction(() => !/—/.test(document.querySelector('[data-testid="market-survey"] [data-testid="share-Elm"]')?.textContent || '—'), null, { timeout: 120000 }).catch(() => {});
   const shareOf = async n => num(await survey.textContent(`[data-testid="market-survey"] [data-testid="share-${n}"]`));
   const [sA, sE] = [await shareOf('Alder'), await shareOf('Elm')];
