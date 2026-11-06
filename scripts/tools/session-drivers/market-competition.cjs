@@ -148,6 +148,8 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
     if (funding !== null) await setSlider(p, /^Funding Confidence Level$/, funding);
     if (nm) await setSlider(p, /^New Members$/, nm);
     if (nr) await setSlider(p, /^Non-Renewal$/, nr);
+    // A team's Decisions page: the sliders' plain names and premiums, and the strip with only the viewer PIN.
+    if (name === 'Alder') await shot(p, '05-team-decisions.png');
   }
 
   // ---- locking, and the host's unlock ---------------------------------------
