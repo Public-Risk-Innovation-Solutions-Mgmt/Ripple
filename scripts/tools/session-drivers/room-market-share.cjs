@@ -176,10 +176,10 @@ function expectedShares(rec, year) {
 
   // Different underwriting, every line.
   for (const v of LINES) {
-    // The sliders' on-screen names since simple underwriting: nonRenewal and
-    // newMembers underneath, each 0-10% in 1% steps (0-5% before they widened).
+    // The sliders' on-screen names, "Non-Renewal" and "New Members" (nonRenewal
+    // and newMembers underneath), each 0-10% in 1% steps (0-5% before they widened).
     // TWELVE PRESSES, TWO PAST THE TOP: the slider must stop at 10%.
-    for (const [t, label, presses] of [['Cedar Valley', 'Existing Book: Non-Renewal Assumption', 12], ['Tri-County', 'New Members: Growth Assumption', 12]]) {
+    for (const [t, label, presses] of [['Cedar Valley', 'Non-Renewal', 12], ['Tri-County', 'New Members', 12]]) {
       const p = players[t];
       await decisionsTab(p);
       await p.getByRole('button', { name: VIEW[v], exact: true }).first().click();
@@ -282,7 +282,7 @@ function expectedShares(rec, year) {
     const chipsBefore = TIMING ? null : await playerChips(players[TEAMS[0]]);
     for (const t of locking) {
       await lockAndConfirm(players[t]);
-      await players[t].waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await players[t].waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     }
     if (!TIMING) {
       // Two polls' worth: every screen has read the locked room.
@@ -384,8 +384,8 @@ function expectedShares(rec, year) {
         if (await tab.count() === 0) continue;
         await tab.click();
         await page.waitForTimeout(250);
-        for (const label of ['Existing Book: Non-Renewal Assumption', 'New Members: Growth Assumption']) {
-          got.push(`${v} ${label.split(':')[0]} ${await nudge(page, label, 12)}`);
+        for (const label of ['Non-Renewal', 'New Members']) {
+          got.push(`${v} ${label} ${await nudge(page, label, 12)}`);
         }
       }
       ok(got.length >= 2 && got.every(g => g.endsWith(' 0.1')), `${mode}: each underwriting slider stops at 10% on every line the game plays (WC alone by default)`, got.join(', '));

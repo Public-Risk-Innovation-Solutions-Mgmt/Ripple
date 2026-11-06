@@ -46,7 +46,7 @@ async function join(ctx, code, name) {
 const roomRecord = (page, code) => page.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
 const posted = (rec, name, y) => JSON.stringify(rec.teams.find(t => t.name === name)?.resultsByYear?.[String(y)] ?? null);
 async function waitPosted(page, y) {
-  await page.waitForFunction(yy => new RegExp(`year ${yy} result posted`).test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''),
+  await page.waitForFunction(yy => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(yy),
     y, { timeout: 240000 });
 }
 /** The largest relative difference between two summaries' numbers; Infinity if their shapes differ. */
@@ -105,7 +105,7 @@ function replay(rec, name, through, mode) {
   for (const p of [a, b]) p.on('pageerror', e => errs.push(e.message));
 
   // ---- year 1, played by both ----
-  for (const p of [a, b]) { await lockAndConfirm(p); await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 }); }
+  for (const p of [a, b]) { await lockAndConfirm(p); await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 }); }
   await host.click('[data-testid="host-tab-setup"]');
   await host.click('[data-testid="advance"]');
   await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '2', null, { timeout: 30000 });
@@ -117,7 +117,7 @@ function replay(rec, name, through, mode) {
 
   // ---- Team 1 locks year 2 before the host's change ----
   await lockAndConfirm(a);
-  await a.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+  await a.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
 
   // ---- the host's "Edit game" panel ----
   await host.click('[data-testid="host-tab-setup"]');
@@ -172,7 +172,7 @@ function replay(rec, name, through, mode) {
 
   // ---- year 2: Team 2 locks, the host advances, both post ----
   await lockAndConfirm(b);
-  await b.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+  await b.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   await host.click('[data-testid="advance"]');
   await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '3', null, { timeout: 30000 });
   for (const p of [a, b]) await waitPosted(p, 2);

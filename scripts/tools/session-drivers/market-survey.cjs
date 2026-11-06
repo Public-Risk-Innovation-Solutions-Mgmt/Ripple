@@ -198,14 +198,14 @@ async function viewOf(page, scope, label) {
         }
       }
       await lockAndConfirm(p);
-      await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]');
     await host.waitForTimeout(300);
     await host.click('[data-testid="advance"]');
     await host.waitForFunction(n => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === n, String(y + 1), { timeout: 30000 });
     for (const p of teams) {
-      await p.waitForFunction(n => new RegExp(`year ${n} result posted`).test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), y, { timeout: 180000 });
+      await p.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
     }
     await compareAll(`after year ${y}`, next);
   }

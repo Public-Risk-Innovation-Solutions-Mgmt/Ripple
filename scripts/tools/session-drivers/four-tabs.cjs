@@ -51,7 +51,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
     await players[i].fill('[data-testid="team-name"]', TEAMS[i]);
     await players[i].click('[data-testid="join-team"]');
     await players[i].waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
-    const mine = (await players[i].textContent('[data-testid="my-team"]')).trim();
+    const mine = (await players[i].getAttribute('[data-testid="session-strip"]', 'data-team')).trim();
     ok(mine === TEAMS[i], `tab ${i + 1} claimed ${TEAMS[i]}`);
   }
 
@@ -75,7 +75,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
     await fourth.fill('[data-testid="team-name"]', TEAMS[0]);
     await fourth.click('[data-testid="join-team"]');
     await fourth.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
-    const back = (await fourth.textContent('[data-testid="my-team"]')).trim();
+    const back = (await fourth.getAttribute('[data-testid="session-strip"]', 'data-team')).trim();
     ok(back === TEAMS[0], `a name this browser already holds rejoins that team (${back})`);
     const rec = await fourth.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
     ok(rec.teams.length === 3, `the rejoin created no fourth team (${rec.teams.length} teams)`);
@@ -92,7 +92,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
     const watched = (await viewer.textContent('[data-testid="watched-team"]')).trim();
     ok(watched === TEAMS[0], 'a viewer watches a team that is already claimed');
     // And the player who owns it is unaffected.
-    const stillMine = (await players[0].textContent('[data-testid="my-team"]')).trim();
+    const stillMine = (await players[0].getAttribute('[data-testid="session-strip"]', 'data-team')).trim();
     ok(stillMine === TEAMS[0], 'the viewer did not displace the player driving that team');
     await viewer.close();
   }
@@ -100,7 +100,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
   // ---- all three lock in --------------------------------------------------
   for (let i = 0; i < 3; i++) {
     await lockAndConfirm(players[i]);
-    await players[i].waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await players[i].waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   }
   ok(true, 'all three tabs submitted and show submit-and-wait');
 
@@ -110,9 +110,9 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
   // ---- rejoin by token ----------------------------------------------------
   await players[1].reload();
   await players[1].waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
-  const afterReload = (await players[1].textContent('[data-testid="my-team"]')).trim();
+  const afterReload = (await players[1].getAttribute('[data-testid="session-strip"]', 'data-team')).trim();
   ok(afterReload === TEAMS[1], 'a reload returns the same player to the same team, not the picker');
-  const stillLocked = await players[1].$('[data-testid="waiting"]') !== null;
+  const stillLocked = await players[1].$('[data-testid="session-strip"][data-lock="locked"]') !== null;
   ok(stillLocked, 'the reloaded tab is still locked in, not asked to submit again');
 
   // ---- host advances ------------------------------------------------------
@@ -123,7 +123,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
   // Every player tab must notice on its own, from the poller.
   for (let i = 0; i < 3; i++) {
     await players[i].waitForFunction(
-      () => document.querySelector('[data-testid="player-year"]')?.textContent.trim() === '2',
+      () => document.querySelector('[data-testid="session-strip"]')?.dataset.year === '2',
       null, { timeout: 15000 },
     );
   }

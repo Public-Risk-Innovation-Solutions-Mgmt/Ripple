@@ -550,9 +550,9 @@ async function hosted(browser) {
     // Year 1 buys the 110/50 aggregate cover: the room's shocks are off, and it is offered all the same.
     played.push(await s.choose(level, cover, y === 1 ? 'agg-110-50' : 'none', rc));
     await lockAndConfirm(page);
-    await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
-    await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
+    await page.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
     await page.waitForTimeout(1000);
   }
   // Hosted: year 2's 2% carries forward to the coming year — the last submitted set.

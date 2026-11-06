@@ -143,7 +143,7 @@ const activeView = page => page.$$eval('nav button', bs =>
     const live = year === 1 ? players : [harbour, cedar];
     for (const p of live) {
       await lockAndConfirm(p);
-      await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]');
     await host.waitForTimeout(250);
