@@ -354,6 +354,56 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
 export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
 
 /**
+ * THE FUNDING TABLES' STRETCH, PER LINE — the 95% stop each line's table is
+ * stretched to (wip/clf-stretch). Each line's table is its BaselineCV table
+ * stretched about 1.0:
+ *
+ *     CLF_new = 1 + (CLF_old - 1) x k,   k = (CLF_STRETCH_95 - 1) / (CLF_old at 95% - 1)
+ *
+ * so the 95% stop is exactly this value, every other stop moves in proportion,
+ * and Expected stays a factor of exactly 1.0 (a stretch about 1 moves no stop
+ * to or from 1, and the table's own Expected position does not move). The k
+ * this gives: WC 0.30 / 0.1045 = 2.871, GL 0.25 / 0.1741 = 1.436, Property
+ * 0.25 / 0.1389 = 1.800. clf-stretch-check holds each table to it.
+ *
+ * ⚠ WHY: TODAY'S TABLES BOUGHT ABOUT HALF THEIR LABEL. The BaselineCV tables
+ * describe ordinary losses only; a year's retained cost also carries the large
+ * claims, the shocks and LAE, so a stop's label overstated what it delivered.
+ * Measured on multiplayer 15dc74b (the CLF chat's stretch probe: the 20
+ * fixed-seed scenarios, five years, 100 worlds, shocks on, defaults but
+ * funding), the share of line-years whose combined ratio came in at or under
+ * 100% at 70 / 80 / 90% funding, single player:
+ *
+ *                 unstretched     95% stop 1.25    95% stop 1.40
+ *     WC           38 / 47 / 59    58 / 74 / 87     72 / 88 / 96
+ *     GL           55 / 61 / 68    67 / 78 / 88     77 / 88 / 96
+ *     Property     47 / 55 / 64    63 / 78 / 90     76 / 91 / 97
+ *
+ * Hosted with no adverse development reads the same within a few points (GL
+ * and Property lower: the host's shock draw fires more events). WC sits between
+ * the 1.25 and 1.40 columns, so 1.30; GL and Property land on 1.25. With these,
+ * 70 / 80 / 90% funding covers about that share of years with no development.
+ * AS BUILT on aws a7d480d: single player WC 63 / 80 / 92, GL 67 / 78 / 88,
+ * Property 63 / 78 / 90. ⚠ ON aws 7fc44f9 — after the fixed ALAE load
+ * (PRICING_ALAE_LOAD) and the seed switch — the same probe reads single
+ * player WC 72 / 87 / 95, GL 69 / 79 / 89, Property 61 / 76 / 87; hosted None
+ * WC 68 / 85 / 95, GL 53 / 63 / 73, Property 57 / 73 / 85. WC now runs 2-7
+ * points over its labels and Property 3 under: the stops were chosen on the
+ * earlier build and are kept as set, not re-fitted. Expected does not move
+ * (WC 34%, GL 47%, Property 35% in single player on 7fc44f9).
+ *
+ * ⚠ NOT A FIX FOR ADVERSE DEVELOPMENT. Development raises the year's cost
+ * across the board rather than widening its spread, so no stretch makes the
+ * labels hold at Low, Mid or High: a stretch wide enough to reach 90% there
+ * under-covers at 70% (WC Mid at a 1.60 stop: 7 / 45 / 91). That wants a
+ * development loading in the rate, by level — not more stretch.
+ *
+ * ⚠ REQUIRED CAPITAL READS THE SAME TABLE (unpaid reserve x (CLF at
+ * RESERVE_MARGIN_CONFIDENCE - 1)), so the stretch raises it by the same k.
+ */
+export const CLF_STRETCH_95: PerLine<number> = { WC: 1.30, GL: 1.25, Property: 1.25 };
+
+/**
  * The combined dividend / assessment control, IN DOLLARS: negative is an
  * assessment, positive a dividend, $1M a notch. Its 31 notches are the ones it
  * had as a share of surplus (-15% to +15% in 1% steps); each is now $1M.
@@ -2548,26 +2598,30 @@ export const MARKET_DEFAULT_LEVEL: MarketLevel = 'medium';
  * k × (pair gap − 1%)² of its book to each cheaper rival, the pulls averaged
  * over its N − 1 rivals and × 4 (MARKET_RIVAL_SCALE).
  *
- * ⚠ CALIBRATED ON THE FUNDING TABLES LIVE ON aws (3bdb85a: the BaselineCV tables,
- * NOT #72's stretched tables). The behaviour was first measured and agreed on the
- * stretched tables (#72, wip/clf-stretch: k = WC 0.600 / GL 0.618 / Property 0.617
- * at Medium). On aws's tables the year-1 rate gaps are narrower by a different
- * factor per line (the stretch is k = 2.871 / 1.436 / 1.800), so k was rescaled
- * per line to keep each line's pull on the room's dearest team at its starting
- * gaps the same: k_aws = k_stretched × (the dearest's pull sum, stretched ÷ aws),
- * from the five-team room (30 / 50 / Expected / 70 / 90%) on scenarios 7 and 12
- * (identical gaps). Checked over five years, Medium, scenario 7: the dearest
- * team's share 17.6 → 10.2 (stretched 17.6 → 10.5), the cheapest's 21.7 → 27.6
- * (21.9 → 28.0), book risk 0.985 / 1.052 (0.983 / 1.051); rule 4 within 0.2 of a
- * point. Low is half of Medium and High double, as on the stretched tables.
+ * ⚠ CALIBRATED ON THE STRETCHED FUNDING TABLES (pr/clf-stretch, #72:
+ * CLF_STRETCH_95, WC 1.30 / GL and Property 1.25), WHICH THIS BRANCH LANDS.
+ * The market-measurement chat first measured and agreed the market's
+ * behaviour on the stretched tables (test/clf-stretch-market, dc2d426: five
+ * and sixteen teams from 30% to 90% funding on fixed-seed scenarios 7 and 12,
+ * five years, Medium) at k = WC 0.600 / GL 0.618 / Property 0.617; Low is half
+ * of Medium and High double. On the stretched tables a funding level's rate
+ * sits further from its neighbours' than on the unstretched ones, so the same
+ * pull needs a smaller k: the measurement put the dearest team's share at
+ * 17.6 → 10.5 over five years at Medium on scenario 7, the cheapest's 21.9 →
+ * 28.0, and book risk 0.983 / 1.051.
  *
- * ⚠ RECALIBRATE IF #72's STRETCHED TABLES LAND: on them these k are about 10×
- * too strong on WC. The stretched values are the ones in brackets above.
+ * WHY HERE: aws carried k rescaled to the unstretched BaselineCV tables (WC
+ * 6.159 / GL 1.364 / Property 2.242 at Medium) only while #72 was open, to keep
+ * each line's pull on the room's dearest team at its starting gaps the same
+ * (k_aws = k_stretched × the dearest's pull sum, stretched ÷ aws), and noted
+ * that those k are about 10× too strong on WC once the stretched tables land.
+ * They land here, so k goes back to the values measured on them.
  */
+const MARKET_K_MEDIUM: PerLine<number> = { WC: 0.600, GL: 0.618, Property: 0.617 };
 export const MARKET_K: Readonly<Record<Exclude<MarketLevel, 'off'>, PerLine<number>>> = {
-  low: { WC: 3.080, GL: 0.682, Property: 1.121 },
-  medium: { WC: 6.159, GL: 1.364, Property: 2.242 },
-  high: { WC: 12.318, GL: 2.728, Property: 4.484 },
+  low: { WC: MARKET_K_MEDIUM.WC / 2, GL: MARKET_K_MEDIUM.GL / 2, Property: MARKET_K_MEDIUM.Property / 2 },
+  medium: MARKET_K_MEDIUM,
+  high: { WC: MARKET_K_MEDIUM.WC * 2, GL: MARKET_K_MEDIUM.GL * 2, Property: MARKET_K_MEDIUM.Property * 2 },
 };
 
 /**
@@ -2801,13 +2855,26 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'baseline-cv-table-check holds the two to the same value.',
       }],
       ['CLF tables', {
-        value: 'the BaselineCV tables, in clfTables.ts', unit: 'multiplier on the retained pure premium',
-        what: 'Confidence level factors by line and stop: each line reads the table built at its own Baseline CV. '
+        value: 'the BaselineCV tables, stretched, in clfTables.ts', unit: 'multiplier on the retained pure premium',
+        what: 'Confidence level factors by line and stop: each line reads the table built at its own Baseline CV, '
+          + 'stretched to its Funding table stretch. '
           + 'Required capital is the unpaid reserve x (the same table\'s 90% factor - 1).',
         basis: 'SOURCED',
         note: 'The data scientist\'s method, by simulation on the game\'s opening book units, ordinary losses only '
           + '(clf-ds-method-derive). The factor multiplies the whole retained pure premium. The new-engine and '
           + 'member-engine tables before them are kept in the file as history, not in use.',
+      }],
+      ['Funding table stretch', {
+        value: perLine(CLF_STRETCH_95, 2), unit: 'the 95% stop each line\'s table is stretched to',
+        what: 'Each line\'s funding table is its Baseline CV table stretched about 1.0: CLF = 1 + (table CLF - 1) x k, '
+          + 'with k set so the 95% stop is this value. Every stop moves in proportion; Expected stays exactly 1.0. '
+          + 'Required capital reads the stretched table too.',
+        basis: 'CHOSEN',
+        note: 'Measured: the unstretched tables bought about half their label — 70 / 80 / 90% funding covered the year\'s '
+          + 'costs in 38-55 / 47-61 / 59-68% of years, because the tables describe ordinary losses only. Stretched to '
+          + 'these stops, 70 / 80 / 90% funding covers about that share of years with no adverse development (20 '
+          + 'scenarios, five years, shocks on). Not a fix for adverse development, which raises the year\'s cost rather '
+          + 'than its spread; no stretch makes the labels hold at Low, Mid or High.',
       }],
       ['Funding slider stops', {
         value: `${FUNDING_SLIDER_RANGE.min} to ${FUNDING_SLIDER_RANGE.max}, step ${FUNDING_SLIDER_RANGE.step}, plus Expected`,
@@ -2921,9 +2988,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + `averaged over the N − 1 rivals and × ${MARKET_RIVAL_SCALE}, drawn ±${MARKET_COUNT_SPREAD * 100}% and capped at `
           + `${MARKET_LEAVER_CAP * 100}% of the book a year.`,
         basis: 'CHOSEN',
-        note: 'Calibrated on the funding tables live on aws to match the behaviour measured on #72\'s stretched tables '
-          + '(five teams, Medium, scenario 7: the dearest team\'s share 17.6 → 10.2 over five years, stretched 10.5). '
-          + 'Must be recalibrated if #72\'s tables land.',
+        note: 'Measured on the stretched funding tables (#72, CLF_STRETCH_95) by the market-measurement chat: five and '
+          + 'sixteen teams from 30% to 90% funding, scenarios 7 and 12, five years (five teams, Medium, scenario 7: the '
+          + 'dearest team\'s share 17.6 → 10.5, the cheapest\'s 21.9 → 28.0). Low is half of Medium and High double. '
+          + 'aws carried k rescaled to the unstretched tables (Medium WC 6.159 / GL 1.364 / Property 2.242) until the '
+          + 'stretched tables landed.',
       }],
       ['Leaver quality', {
         value: `buckets ${MARKET_BUCKETS_RAW.map(b => b.toFixed(2)).join(' / ')} ÷ 1.02; full skew at a ${MARKET_FULL_SKEW_GAP * 100}%+ gap: `
