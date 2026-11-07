@@ -405,7 +405,7 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
   if (allYears.length === 0 || !poolResult) {
     return (
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
-        <div className="text-center py-20 text-gray-600">
+        <div className="text-center py-20 text-black">
           <Calculator size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No calculation audit available yet</p>
           <p className="text-sm mt-1">Complete a year to see calculation details.</p>
@@ -627,10 +627,10 @@ function AuditSection({ title, icon, rows }: AuditSectionProps) {
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th className="text-left px-5 py-3 font-semibold text-gray-600 w-1/4">Metric</th>
-              <th className="text-right px-5 py-3 font-semibold text-gray-600 w-1/6">Value</th>
-              <th className="text-left px-5 py-3 font-semibold text-gray-600">Formula / Source</th>
-              <th className="text-left px-5 py-3 font-semibold text-gray-600 w-1/6">Check / Notes</th>
+              <th className="text-left px-5 py-3 font-semibold text-black w-1/4">Metric</th>
+              <th className="text-right px-5 py-3 font-semibold text-black w-1/6">Value</th>
+              <th className="text-left px-5 py-3 font-semibold text-black">Formula / Source</th>
+              <th className="text-left px-5 py-3 font-semibold text-black w-1/6">Check / Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -676,7 +676,7 @@ function FormulaCell({ row }: { row: AuditRow }) {
   return (
     <div className="space-y-1">
       {(spec.kind !== 'text' || spec.text !== '') && (
-        <div className={isProse ? 'text-gray-600 whitespace-pre-line' : 'font-mono text-gray-800 tabular-nums'}>
+        <div className={isProse ? 'text-black whitespace-pre-line' : 'font-mono text-gray-800 tabular-nums'}>
           {renderFormula(spec)}
         </div>
       )}
@@ -685,7 +685,7 @@ function FormulaCell({ row }: { row: AuditRow }) {
           {row.subFormula.label} = {renderFormula(row.subFormula.spec)}
         </div>
       )}
-      {row.explain && <div className="text-xs text-gray-600">{row.explain}</div>}
+      {row.explain && <div className="text-xs text-black">{row.explain}</div>}
     </div>
   );
 }

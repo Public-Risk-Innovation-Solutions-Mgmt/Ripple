@@ -138,7 +138,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   onChange={e => setGameLength(parseInt(e.target.value))}
                   className="w-full accent-blue-600 h-2"
                 />
-                <div className="flex justify-between text-sm text-gray-600 mt-1.5">
+                <div className="flex justify-between text-sm text-black mt-1.5">
                   <span>{GAME_LENGTH_YEARS.min} years</span>
                   <span>{GAME_LENGTH_YEARS.max} years</span>
                 </div>
@@ -156,7 +156,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
-                <p className="text-sm text-gray-600 mt-1.5">Controls calendar labels only</p>
+                <p className="text-sm text-black mt-1.5">Controls calendar labels only</p>
               </div>
             </div>
 
@@ -175,13 +175,13 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                 <button
                   type="button"
                   onClick={() => setInstanceId(randomScenarioId())}
-                  className="px-5 py-3 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-gray-600 transition flex items-center gap-2 text-base font-medium"
+                  className="px-5 py-3 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-black transition flex items-center gap-2 text-base font-medium"
                 >
                   <Shuffle size={16} />
                   Random
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
+              <p className="text-sm text-black mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
             </div>
 
             {/* Coverage lines */}
@@ -216,7 +216,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   );
                 })}
               </div>
-              <p className={`text-sm mt-1.5 ${activeLines.length === 0 ? 'text-red-500' : 'text-gray-600'}`}>
+              <p className={`text-sm mt-1.5 ${activeLines.length === 0 ? 'text-red-500' : 'text-black'}`}>
                 {activeLines.length === 0
                   ? 'Select at least one coverage line.'
                   : 'Lines are chosen once at setup and locked for the game.'}
@@ -248,7 +248,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                 data-testid="start-single-player"
                 onClick={handleStart}
                 disabled={!canStart}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
+                className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
               >
                 Single player
               </button>
@@ -264,7 +264,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
           </div>
         </div>
 
-        <p className="text-center text-sm text-gray-600 mt-5">
+        <p className="text-center text-sm text-black mt-5">
           All member names and entities are fictional. No real public entity names are used.
         </p>
       </div>

@@ -293,7 +293,7 @@ export default function FinancialsPage({ lockedResults, priorResults, lineView }
       )}
 
       {!statement && (
-        <div className="text-center py-16 text-gray-600">
+        <div className="text-center py-16 text-black">
           <FileText size={40} className="mx-auto mb-3 opacity-30" />
           <p>No statement available. Lock a year to generate statements.</p>
         </div>
@@ -331,7 +331,7 @@ function StatementCard({ title, icon, children }: { title: string; icon?: React.
 function BSLine({ label, value, bold, highlight, valueColor = 'text-gray-800', indent }: { label: string; value: string; bold?: boolean; highlight?: boolean; valueColor?: string; indent?: boolean }) {
   return (
     <div className={`flex justify-between items-baseline gap-2 ${indent ? 'pl-4' : ''} ${highlight ? 'bg-blue-50 -mx-2 px-2 py-1 rounded' : ''}`}>
-      <span className={`text-sm text-gray-600 ${bold ? 'font-semibold text-gray-800' : ''}`}>{label}</span>
+      <span className={`text-sm text-black ${bold ? 'font-semibold text-gray-800' : ''}`}>{label}</span>
       <span className={`text-sm font-mono ${bold ? 'font-bold' : 'font-medium'} ${valueColor} text-right`}>{value}</span>
     </div>
   );

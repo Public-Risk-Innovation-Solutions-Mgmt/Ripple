@@ -51,7 +51,7 @@ export default function DocumentReader({ documents, selectedId, onSelect, listHe
                         : 'hover:bg-gray-50'
                   }`}
                 >
-                  <span className={`mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-600'}`}>
+                  <span className={`mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-600' : 'text-black'}`}>
                     {isBuilt ? <FileText size={16} /> : <Lock size={16} />}
                   </span>
                   <span>
@@ -74,11 +74,11 @@ export default function DocumentReader({ documents, selectedId, onSelect, listHe
         <div data-testid="document-body" className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 min-h-[400px]">
           {selected?.content !== undefined ? (
             <div
-              className="prose prose-sm sm:prose-base prose-slate max-w-none prose-headings:font-bold prose-a:text-blue-600"
+              className="prose prose-sm sm:prose-base prose-slate max-w-none prose-headings:font-bold prose-a:text-brand-600 prose-a:no-underline hover:prose-a:text-brand-600"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(selected.content) }}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full py-16 text-center text-gray-600">
+            <div className="flex flex-col items-center justify-center h-full py-16 text-center text-black">
               <Lock size={28} className="mb-3" />
               <p className="text-sm font-medium text-gray-500">{selected?.title}</p>
               <p className="text-sm mt-1 max-w-sm">{selected?.notBuiltNote ?? 'Not built yet.'}</p>

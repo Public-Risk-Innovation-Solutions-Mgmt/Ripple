@@ -54,7 +54,7 @@ function historicalPricingBasisLR(y: HistoricalYear): number | undefined {
 function pricingBasisCell(y: HistoricalYear) {
   const lr = historicalPricingBasisLR(y);
   if (lr === undefined) {
-    return <span className="text-gray-600" title="This saved year predates the pricing-basis loss ratio and its numerator cannot be rebuilt from the fields the save carries.">—</span>;
+    return <span className="text-black" title="This saved year predates the pricing-basis loss ratio and its numerator cannot be rebuilt from the fields the save carries.">—</span>;
   }
   return <span className={colorForRatio(lr)}>{formatPct(lr)}</span>;
 }
@@ -121,7 +121,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
         <StatCard
           label="Loss Ratio (prem + admin)"
           value={displayLossRatio !== undefined ? formatPct(displayLossRatio) : '—'}
-          valueColor={displayLossRatio !== undefined ? colorForRatio(displayLossRatio) : 'text-gray-600'}
+          valueColor={displayLossRatio !== undefined ? colorForRatio(displayLossRatio) : 'text-black'}
           icon={<Activity size={16} />}
           sub={displayLossRatioRetained !== undefined
             ? `Net loss ÷ premium + admin · ${formatPct(displayLossRatioRetained)} of retained premium`
@@ -130,14 +130,14 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
         <StatCard
           label="Underwriting Income"
           value={displayUnderwritingIncome !== undefined ? formatCurrency(displayUnderwritingIncome, true) : '—'}
-          valueColor={displayUnderwritingIncome !== undefined ? (displayUnderwritingIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-600'}
+          valueColor={displayUnderwritingIncome !== undefined ? (displayUnderwritingIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-black'}
           icon={<Activity size={16} />}
           sub="Excl. investment income"
         />
         <StatCard
           label="Investment Income"
           value={displayInvestmentIncome !== undefined ? formatCurrency(displayInvestmentIncome, true) : '—'}
-          valueColor={displayInvestmentIncome !== undefined ? (displayInvestmentIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-600'}
+          valueColor={displayInvestmentIncome !== undefined ? (displayInvestmentIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-black'}
           icon={<DollarSign size={16} />}
         />
         <StatCard
@@ -193,7 +193,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
           <BarChart2 size={18} className="text-blue-600" />
           <h3 className="font-bold text-gray-900">Annual Summary</h3>
           {priorHistoricalYears.length > 0 && (
-            <span className="text-xs text-gray-600 font-normal">— years before 0 are pre-game history (see Pool History tab)</span>
+            <span className="text-xs text-black font-normal">— years before 0 are pre-game history (see Pool History tab)</span>
           )}
         </div>
 
@@ -227,7 +227,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                 {openingYear && (
                   <tr className="bg-blue-50/40 hover:bg-blue-50 transition-colors">
                     <td className="px-4 py-3 font-bold text-gray-900">0</td>
-                    <td className="px-4 py-3 text-gray-600">{openingYear.calendarYear}</td>
+                    <td className="px-4 py-3 text-black">{openingYear.calendarYear}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{formatCurrency(openingYear.totalMemberCharge, true)}</td>
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(openingYear.poolPremiumAndAdminExpense, true)}</td>
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(openingYear.grossUltimateLoss, true)}</td>
@@ -237,14 +237,14 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(openingYear.investmentIncome, true)}</td>
                     <td className={openingYear.netIncome >= 0 ? 'px-4 py-3 font-semibold text-emerald-600/70' : 'px-4 py-3 font-semibold text-red-600/70'}>{formatCurrency(openingYear.netIncome, true)}</td>
                     <td className={`px-4 py-3 font-bold ${colorForSurplus(openingYear.endingSurplus)}`}>{formatCurrency(openingYear.endingSurplus, true)}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatMillions(openingYear.activeExposure, 1)}</td>
+                    <td className="px-4 py-3 text-black">{formatMillions(openingYear.activeExposure, 1)}</td>
                     <td className="px-4 py-3 text-sky-600 font-medium">{formatPct(openingYear.marketShare)}</td>
                   </tr>
                 )}
                 {lockedResults.map(r => (
                   <tr key={r.yearNumber} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-bold text-gray-900">{r.yearNumber}</td>
-                    <td className="px-4 py-3 text-gray-600">{r.calendarYear}</td>
+                    <td className="px-4 py-3 text-black">{r.calendarYear}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{formatCurrency(r.totalMemberCharge, true)}</td>
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(r.poolPremiumAndAdminExpense, true)}</td>
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(r.grossUltimateLoss, true)}</td>
@@ -260,7 +260,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className={`px-4 py-3 font-bold ${colorForSurplus(r.endingSurplus)}`}>
                       {formatCurrency(r.endingSurplus, true)}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{formatMillions(r.activeExposure, 1)}</td>
+                    <td className="px-4 py-3 text-black">{formatMillions(r.activeExposure, 1)}</td>
                     <td className="px-4 py-3 text-sky-600 font-medium">{formatPct(r.marketShare)}</td>
                   </tr>
                 ))}

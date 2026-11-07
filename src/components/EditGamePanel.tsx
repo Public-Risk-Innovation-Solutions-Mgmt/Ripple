@@ -107,7 +107,7 @@ export function EditGamePanel({ lines, yearCount, startingYear, firstEditable, s
       </p>
 
       {years.length === 0 ? (
-        <p data-testid="edit-game-over" className="mt-3 text-sm text-slate-600">The game is over: no year is left to change.</p>
+        <p data-testid="edit-game-over" className="mt-3 text-sm text-black">The game is over: no year is left to change.</p>
       ) : (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-sm">
@@ -189,7 +189,7 @@ export function EditGamePanel({ lines, yearCount, startingYear, firstEditable, s
         <div className="mt-3 flex items-center gap-3">
           <button type="button" data-testid="edit-apply" disabled={busy || changed.length === 0}
             onClick={() => { if (currentChanged && lockedTeams.length > 0) setConfirming(true); else void apply(); }}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300">
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300">
             {busy ? 'Applying…' : changed.length === 0 ? 'No changes' : `Apply ${changed.length === 1 ? 'change' : 'changes'}`}
           </button>
           {changed.length > 0 && (

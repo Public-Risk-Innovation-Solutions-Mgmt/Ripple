@@ -129,7 +129,7 @@ const SCOPE_STYLE: Record<string, string> = {
   WC: 'bg-sky-100 text-sky-700',
   GL: 'bg-violet-100 text-violet-700',
   Property: 'bg-amber-100 text-amber-700',
-  Pool: 'bg-gray-200 text-gray-600',
+  Pool: 'bg-gray-200 text-black',
 };
 
 // ⚠ THREE TILES ARE BUTTONS AND TWO ARE STILL DIVS, AND THE SPLIT IS THE POINT.
@@ -174,7 +174,7 @@ function CategoryTile({ c, standing, onToggle, disabled }: {
       <span className="text-xs font-semibold text-gray-700 mt-0.5">
         {formatCurrency(cost)}/yr
       </span>
-      <span className={`text-[10px] mt-1 ${on ? 'text-blue-700 font-semibold' : 'text-gray-600'}`}>
+      <span className={`text-[10px] mt-1 ${on ? 'text-blue-700 font-semibold' : 'text-black'}`}>
         {standing ? standingLabel(standing) : 'Not active'}
       </span>
     </>
@@ -182,7 +182,7 @@ function CategoryTile({ c, standing, onToggle, disabled }: {
 
   const shell = 'w-full h-full flex flex-col items-center p-2 rounded-lg border text-center text-xs';
   if (!live) {
-    return <div className={`${shell} border-gray-200 bg-white text-gray-600`}>{body}</div>;
+    return <div className={`${shell} border-gray-200 bg-white text-black`}>{body}</div>;
   }
   return (
     <button
@@ -191,7 +191,7 @@ function CategoryTile({ c, standing, onToggle, disabled }: {
       disabled={disabled}
       aria-pressed={on}
       className={`${shell} transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-        on ? 'border-blue-500 bg-blue-50 text-gray-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
+        on ? 'border-blue-500 bg-blue-50 text-gray-700' : 'border-gray-200 bg-white text-black hover:border-blue-300'
       }`}
     >
       {body}
@@ -272,12 +272,12 @@ export default function RiskControlCategoryBoxes({
           though it were a bill. */}
       <div className="flex items-baseline justify-between border-t border-gray-200 pt-2">
         <span className="text-[11px] text-gray-500">Committed this year</span>
-        <span className={`text-sm font-bold ${committedCost > 0 ? 'text-gray-900' : 'text-gray-600'}`}>
+        <span className={`text-sm font-bold ${committedCost > 0 ? 'text-gray-900' : 'text-black'}`}>
           {formatCurrency(committedCost)}/yr
         </span>
       </div>
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] text-gray-600">
+        <span className="text-[11px] text-black">
           All {shown.length} available programs, if selected
         </span>
         <span className="text-xs font-semibold text-gray-500">

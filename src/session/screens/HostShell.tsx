@@ -49,18 +49,18 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               {eventName || 'Host a session'}
             </h1>
             {code && (
-              <span className="text-sm text-slate-600">
-                room <span className="font-mono font-medium text-slate-600">{code}</span>
+              <span className="text-sm text-black">
+                room <span className="font-mono font-medium text-black">{code}</span>
               </span>
             )}
             {version && (
               <span data-testid="host-version-header" className="text-sm text-slate-400">
-                version <span data-testid="host-version" className="font-mono text-slate-600">{version.version}</span>
+                version <span data-testid="host-version" className="font-mono text-black">{version.version}</span>
                 {version.scenario !== undefined && (
-                  <> · scenario <span data-testid="host-scenario" className="font-mono text-slate-600">{version.scenario}</span></>
+                  <> · scenario <span data-testid="host-scenario" className="font-mono text-black">{version.scenario}</span></>
                 )}
                 {version.seed !== undefined && (
-                  <> · seed <span data-testid="host-seed" className="font-mono text-slate-600">{version.seed}</span></>
+                  <> · seed <span data-testid="host-seed" className="font-mono text-black">{version.seed}</span></>
                 )}
               </span>
             )}
@@ -73,7 +73,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               type="button"
               data-testid="host-main-page-link"
               onClick={() => navigate('/')}
-              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
             >
               <Home size={14} /> Main page
             </button>
@@ -81,7 +81,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               type="button"
               data-testid="host-admin-link"
               onClick={() => navigate('/admin')}
-              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
             >
               <Shield size={14} /> Admin
             </button>
@@ -106,7 +106,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
                       : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <span className={active ? 'text-blue-600' : 'text-slate-600'}>{t.icon}</span>
+                <span className={active ? 'text-blue-600' : 'text-black'}>{t.icon}</span>
                 {t.label}
               </button>
             );

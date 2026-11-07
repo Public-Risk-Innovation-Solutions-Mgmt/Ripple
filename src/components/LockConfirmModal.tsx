@@ -46,7 +46,7 @@ export default function LockConfirmModal({ year, summary, onConfirm, onCancel }:
         </div>
 
         <div className="p-5 space-y-4">
-          <p className="text-sm text-gray-600">Once locked, they can't be changed this year.</p>
+          <p className="text-sm text-black">Once locked, they can't be changed this year.</p>
 
           <div className="space-y-3" data-testid="lock-confirm-summary">
             {summary.lines.map(l => (
@@ -77,7 +77,7 @@ export default function LockConfirmModal({ year, summary, onConfirm, onCancel }:
             </button>
             <button
               onClick={onConfirm}
-              className="flex-1 text-sm px-3 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+              className="flex-1 text-sm px-3 py-2 rounded-lg bg-brand-600 text-white font-semibold hover:bg-brand-700"
             >
               Lock decisions
             </button>

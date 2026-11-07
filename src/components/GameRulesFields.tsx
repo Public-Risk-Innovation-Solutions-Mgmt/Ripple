@@ -73,7 +73,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
   return (
     <div>
       <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Shock schedule</span>
-      <p className="mt-1 text-xs text-slate-600">{note}</p>
+      <p className="mt-1 text-xs text-black">{note}</p>
       <div className="mt-2 flex items-end gap-2">
         <label className="flex-1 block">
           <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
@@ -100,7 +100,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
           type="button"
           data-testid="add-shock"
           onClick={() => { setShocks(prev => [...prev, { shockId, yearNumber: shockYear }]); setDrawnFor(null); }}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-black"
         >
           Add
         </button>
@@ -109,7 +109,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
           data-testid="randomise-shocks"
           onClick={handleRandomise}
           disabled={yearCount < 1}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 disabled:text-slate-300"
+          className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-black disabled:text-slate-300"
           title="Replace the list with a draw from the catalog: about three events per ten years, never year 1"
         >
           <Shuffle size={13} />
@@ -117,7 +117,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
         </button>
       </div>
       {drawnFor && !drawStale && (
-        <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-slate-600">
+        <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-black">
           Drawn from seed <span className="font-mono">{drawnFor.seed}</span> over {drawnFor.yearCount} years.
         </p>
       )}
@@ -131,13 +131,13 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
           {shocks.map((s, i) => (
             // The id and year stay in the DOM as attributes: drivers match these,
             // not the prose label.
-            <li key={i} data-shock-id={s.shockId} data-shock-year={s.yearNumber} className="flex items-center gap-2 text-sm text-slate-600">
+            <li key={i} data-shock-id={s.shockId} data-shock-year={s.yearNumber} className="flex items-center gap-2 text-sm text-black">
               <Zap size={13} className="text-amber-500" />
               <span>{shockLabel(s.shockId)} — Year {s.yearNumber}</span>
               <button
                 type="button"
                 onClick={() => { setShocks(prev => prev.filter((_, j) => j !== i)); setDrawnFor(null); }}
-                className="text-slate-600 hover:text-red-600"
+                className="text-black hover:text-red-600"
                 aria-label={`Remove shock ${i + 1}`}
               >
                 <Trash2 size={13} />

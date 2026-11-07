@@ -346,7 +346,7 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
             back. The underlying field is untouched — see above. */}
         <Metric label="Avg. Member Satisfaction" value={`${memberMeanSatisfaction.toFixed(2)} / 10`} />
         {!exposureBasis && (
-          <p data-testid="exposure-mixed" className="col-span-2 self-center text-xs text-gray-600">
+          <p data-testid="exposure-mixed" className="col-span-2 self-center text-xs text-black">
             Exposure is payroll on WC and GL and insured value on Property; this pool writes both, so there is
             no one figure. Pick a line above.
           </p>
@@ -360,7 +360,7 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
             <h3 className="font-bold text-gray-900">Active Member Roster</h3>
             <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">{activeMembers.length}</span>
           </div>
-          <p className="text-xs text-gray-600">Click column headers to sort</p>
+          <p className="text-xs text-black">Click column headers to sort</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -412,7 +412,7 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
           </p>
         )}
       </div>
-      <p className="text-xs text-gray-600 text-center">All member names are fictional. No real public entity names are used.</p>
+      <p className="text-xs text-black text-center">All member names are fictional. No real public entity names are used.</p>
     </div>
   );
 }
@@ -425,13 +425,13 @@ function MemberRow({ member, displayYear, expLine, satisfaction, ratio, lossCost
   // order of magnitude wider (WC p10 0.24, p90 1.86, max 5.48 against the mod's
   // 0.93 to 1.35), so reusing 0.95/1.05 here would paint most of the book red.
   // Banded on the measured quartiles instead.
-  const ratioColor = ratio === null ? 'text-gray-600'
+  const ratioColor = ratio === null ? 'text-black'
     : ratio <= 0.6 ? 'text-emerald-600' : ratio >= 1.4 ? 'text-red-600' : 'text-gray-700';
   // ⚠ THE COST'S BANDS ARE ITS OWN AGAIN, AND THEY ARE ABSOLUTE DOLLARS RATHER
   // THAN A RATIO, so neither of the two sets above transfers. Banded on the
   // measured quartiles of the shipped column, 6 games x 10 years on WC: p25
   // $0.31, p50 $0.49, p75 $0.70, max $5.77.
-  const costColor = lossCost === null ? 'text-gray-600'
+  const costColor = lossCost === null ? 'text-black'
     : lossCost <= 0.31 ? 'text-emerald-600' : lossCost >= 0.70 ? 'text-red-600' : 'text-gray-700';
   // ⚠ BANDED ON WHERE MEMBERS START, NOT ON THE 1-10 SCALE'S MIDDLE. The old
   // 7 / 5 thresholds were set when the opening draw spanned 6.0-8.5 and the
@@ -447,12 +447,12 @@ function MemberRow({ member, displayYear, expLine, satisfaction, ratio, lossCost
   return (
     <tr className="hover:bg-gray-50 transition-colors">
       <td className="px-4 py-3 font-medium text-gray-900">{member.name}</td>
-      <td className="px-4 py-3 text-gray-600"><span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full whitespace-nowrap">{member.type}</span></td>
-      <td className="px-4 py-3 text-gray-600"><SizeBadge size={member.sizeCategory} /></td>
+      <td className="px-4 py-3 text-black"><span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full whitespace-nowrap">{member.type}</span></td>
+      <td className="px-4 py-3 text-black"><SizeBadge size={member.sizeCategory} /></td>
       {expLine && (
         <td className="px-4 py-3 font-mono text-gray-800">{formatMillions(getMemberExposure(member, expLine, displayYear))}</td>
       )}
-      <td className="px-4 py-3 text-gray-600">{member.calendarYearJoined > 0 ? member.calendarYearJoined : '—'}</td>
+      <td className="px-4 py-3 text-black">{member.calendarYearJoined > 0 ? member.calendarYearJoined : '—'}</td>
       {expLine && (
         <td className={`px-4 py-3 font-semibold ${ratioColor}`} title={ratio === null ? `Fewer than ${EXPERIENCE_MOD.windowYears} years of claims with the pool` : undefined}>
           {ratio === null ? '—' : `${ratio.toFixed(2)}x`}
@@ -474,14 +474,14 @@ function MemberRow({ member, displayYear, expLine, satisfaction, ratio, lossCost
 }
 
 function SizeBadge({ size }: { size: string }) {
-  const cls = size === 'Very Large' ? 'bg-purple-100 text-purple-700' : size === 'Large' ? 'bg-blue-100 text-blue-700' : size === 'Medium' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600';
+  const cls = size === 'Very Large' ? 'bg-purple-100 text-purple-700' : size === 'Large' ? 'bg-blue-100 text-blue-700' : size === 'Medium' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-black';
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>{size}</span>;
 }
 
 function SummaryChip({ icon, label, value, valueColor = 'text-gray-900' }: { icon?: React.ReactNode; label: string; value: string; valueColor?: string }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col items-center shadow-sm text-center">
-      {icon && <span className="text-gray-600 mb-1">{icon}</span>}
+      {icon && <span className="text-black mb-1">{icon}</span>}
       <span className="text-xs text-gray-500 font-medium">{label}</span>
       <span className={`text-lg font-bold ${valueColor}`}>{value}</span>
     </div>

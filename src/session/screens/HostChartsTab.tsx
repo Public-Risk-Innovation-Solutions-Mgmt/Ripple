@@ -400,7 +400,7 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
     return (
       <figure className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <figcaption className="text-sm font-medium text-slate-700">{metric.title}</figcaption>
-        <p data-testid={`chart-empty-${metric.id}`} className="py-10 text-center text-sm text-slate-600">
+        <p data-testid={`chart-empty-${metric.id}`} className="py-10 text-center text-sm text-black">
           Nothing reported on this view yet.
         </p>
       </figure>
@@ -458,10 +458,10 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
             long one cannot wrap around the note and interleave with it. */}
         <span className="flex items-baseline justify-between gap-4">
           <span className="text-sm font-medium text-slate-700">{metric.title}</span>
-          <span className="shrink-0 font-mono text-[11px] text-slate-600">{metric.note}</span>
+          <span className="shrink-0 font-mono text-[11px] text-black">{metric.note}</span>
         </span>
         {metric.subtitle && (
-          <span className="mt-0.5 block text-[11px] text-slate-600">{metric.subtitle}</span>
+          <span className="mt-0.5 block text-[11px] text-black">{metric.subtitle}</span>
         )}
       </figcaption>
 
@@ -616,7 +616,7 @@ export default function HostChartsTab({ room }: Props) {
 
   if (room.teams.length === 0) {
     return (
-      <p data-testid="charts-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
+      <p data-testid="charts-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-black">
         No teams have joined yet.
       </p>
     );
@@ -671,9 +671,9 @@ export default function HostChartsTab({ room }: Props) {
             ) : (
               <span className="inline-block h-2.5 w-2.5 rounded-full border border-dashed border-slate-300" />
             )}
-            <span data-testid={`chart-legend-${s.team.name}`} className={s.state.kind === 'drawn' ? 'text-slate-700' : 'text-slate-600'}>{teamLabel(s.team)}</span>
+            <span data-testid={`chart-legend-${s.team.name}`} className={s.state.kind === 'drawn' ? 'text-slate-700' : 'text-black'}>{teamLabel(s.team)}</span>
             {s.state.kind === 'absent' && (
-              <span data-testid={`chart-absent-${s.team.name}`} className="italic text-slate-600">
+              <span data-testid={`chart-absent-${s.team.name}`} className="italic text-black">
                 does not write {effectiveView === 'pool' ? 'any line' : effectiveView}
               </span>
             )}
@@ -717,7 +717,7 @@ export default function HostChartsTab({ room }: Props) {
         </div>
       ))}
 
-      <p className="flex items-center gap-1.5 px-1 text-[11px] text-slate-600">
+      <p className="flex items-center gap-1.5 px-1 text-[11px] text-black">
         <BarChart3 size={12} />
         {effectiveView === 'pool'
           ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'

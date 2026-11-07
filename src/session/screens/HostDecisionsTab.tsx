@@ -181,7 +181,7 @@ export default function HostDecisionsTab({ room }: Props) {
 
   if (room.teams.length === 0) {
     return (
-      <p data-testid="decisions-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
+      <p data-testid="decisions-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-black">
         No teams have joined yet.
       </p>
     );
@@ -189,7 +189,7 @@ export default function HostDecisionsTab({ room }: Props) {
 
   if (effectiveYear === null) {
     return (
-      <p data-testid="decisions-no-year" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
+      <p data-testid="decisions-no-year" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-black">
         No year has been completed yet. Each team's decisions appear here once the year they were made in has
         been advanced.
       </p>
@@ -227,7 +227,7 @@ export default function HostDecisionsTab({ room }: Props) {
         <div className="overflow-x-auto">
           <table data-testid="decisions-table" className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-black">
                 <th className="px-5 py-2 font-medium">Team number</th>
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-3 py-2 font-medium">Funding</th>
@@ -250,10 +250,10 @@ export default function HostDecisionsTab({ room }: Props) {
                       className="cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50"
                       onClick={() => setOpenTeam(open ? null : team.name)}
                     >
-                      <td data-testid={`decisions-number-${team.name}`} className="whitespace-nowrap px-5 py-2 text-slate-600">Team {team.teamNumber}</td>
+                      <td data-testid={`decisions-number-${team.name}`} className="whitespace-nowrap px-5 py-2 text-black">Team {team.teamNumber}</td>
                       <td className="px-5 py-2 font-medium text-slate-700">{team.name}</td>
                       {state.kind !== 'reported' ? (
-                        <td colSpan={7} className="px-3 py-2 text-xs italic text-slate-600">
+                        <td colSpan={7} className="px-3 py-2 text-xs italic text-black">
                           {SPAN_NOTE[state.kind]}
                         </td>
                       ) : (
@@ -282,7 +282,7 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
   const flags = flagsFor(line, d);
   const flagged = (key: string) => flags.some(f => f.key === key);
   const mark = (key: string) =>
-    flagged(key) ? 'rounded bg-amber-50 font-medium text-amber-700' : 'text-slate-600';
+    flagged(key) ? 'rounded bg-amber-50 font-medium text-amber-700' : 'text-black';
   const titleOf = (key: string) => flags.find(f => f.key === key)?.title;
 
   return (
@@ -300,12 +300,12 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
         </span>
       </td>
       {/* A row written before uw-hybrid carries the old fields: 0% for both. */}
-      <td className="px-3 py-2 text-slate-600">{formatPct(d.nonRenewal ?? 0, 0)}</td>
-      <td className="px-3 py-2 text-slate-600">{formatPct(d.newMembers ?? 0, 0)}</td>
-      <td className="px-3 py-2 text-slate-600">{formatPct(d.riskControlPct, 1)}</td>
+      <td className="px-3 py-2 text-black">{formatPct(d.nonRenewal ?? 0, 0)}</td>
+      <td className="px-3 py-2 text-black">{formatPct(d.newMembers ?? 0, 0)}</td>
+      <td className="px-3 py-2 text-black">{formatPct(d.riskControlPct, 1)}</td>
       <td className="px-3 py-2">
         {divOf(d) === 0 && assOf(d) === 0 ? (
-          <span className="text-slate-600">—</span>
+          <span className="text-black">—</span>
         ) : (
           <span
             className={`px-1 ${flagged('dividend') || flagged('assessment') ? 'rounded bg-amber-50 font-medium text-amber-700' : ''}`}
@@ -322,7 +322,7 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
           driver caught it rendering as "1000% / 8000% / 1000%". Printed the way
           every other screen prints it (ResultsPage, DecisionHistoryPage): the
           number with a percent sign, never through formatPct. */}
-      <td className="px-3 py-2 text-slate-600">
+      <td className="px-3 py-2 text-black">
         {d.allocation.cashPct.toFixed(0)}% / {d.allocation.bondsPct.toFixed(0)}% / {d.allocation.equitiesPct.toFixed(0)}%
       </td>
     </>
@@ -340,12 +340,12 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
  */
 function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLine; years: number[] }) {
   if (!team.lines.includes(line)) {
-    return <p className="text-xs italic text-slate-600">{team.name} does not write {LINE_FULL_NAME[line]}.</p>;
+    return <p className="text-xs italic text-black">{team.name} does not write {LINE_FULL_NAME[line]}.</p>;
   }
   return (
     <table className="w-full text-xs">
       <thead>
-        <tr className="text-left uppercase tracking-wide text-slate-600">
+        <tr className="text-left uppercase tracking-wide text-black">
           <th className="py-1 font-medium">Year</th>
           <th className="py-1 font-medium">Funding</th>
           <th className="py-1 font-medium">Reinsurance</th>
@@ -361,18 +361,18 @@ function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLi
           const f = posted?.byLine[line];
           return (
             <tr key={y} className="border-t border-slate-200/60">
-              <td className="py-1 text-slate-600">{y}</td>
-              <td className="py-1 text-slate-600">{d ? fundingLabel(d) : '—'}</td>
-              <td className="py-1 text-slate-600">{d ? reinsuranceLabel(d) : '—'}</td>
-              <td className="py-1 text-slate-600">
+              <td className="py-1 text-black">{y}</td>
+              <td className="py-1 text-black">{d ? fundingLabel(d) : '—'}</td>
+              <td className="py-1 text-black">{d ? reinsuranceLabel(d) : '—'}</td>
+              <td className="py-1 text-black">
                 {d ? (divOf(d) > 0 || assOf(d) > 0
                   ? `${divOf(d) > 0 ? money(divOf(d)) : '—'} / ${assOf(d) > 0 ? money(assOf(d)) : '—'}`
                   : '—') : '—'}
               </td>
-              <td className="py-1 text-slate-600">
+              <td className="py-1 text-black">
                 {f ? `$${(f.endingSurplus / 1e6).toFixed(2)}M` : '—'}
               </td>
-              <td className="py-1 text-slate-600">
+              <td className="py-1 text-black">
                 {f ? formatPct(f.actualLossRatioPricingBasis, 1) : '—'}
               </td>
             </tr>

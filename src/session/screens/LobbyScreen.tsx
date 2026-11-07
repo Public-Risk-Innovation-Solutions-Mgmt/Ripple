@@ -85,7 +85,7 @@ function WatchByPinModal({ onClose }: { onClose: () => void }) {
             type="button"
             disabled={joining || !pin.trim()}
             onClick={() => { void submit(); }}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
           >
             {joining ? 'Finding team…' : 'Watch'}
           </button>
@@ -179,7 +179,7 @@ function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
             data-testid="submit-reclaim"
             disabled={reclaiming || !canSubmit}
             onClick={() => { void submit(); }}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
           >
             {reclaiming ? 'Reclaiming…' : 'Reclaim'}
           </button>
@@ -296,7 +296,7 @@ export default function LobbyScreen() {
               type="button"
               data-testid="admin-login"
               onClick={() => { if (isAdmin) navigate('/admin'); else setShowAdminLogin(true); }}
-              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
             >
               <Shield size={14} /> Admin
             </button>
@@ -305,7 +305,7 @@ export default function LobbyScreen() {
                 type="button"
                 data-testid="admin-logout"
                 onClick={() => { void adminLogout().then(() => setAdmin(null)); }}
-                className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
+                className="flex items-center gap-1.5 text-sm text-black hover:text-black"
               >
                 <LogOut size={14} /> Log out
               </button>
@@ -364,7 +364,7 @@ export default function LobbyScreen() {
               type="button"
               data-testid="watch-by-pin"
               onClick={() => setShowWatchByPin(true)}
-              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+              className="flex items-center gap-1.5 text-sm text-brand-600"
             >
               <KeyRound size={14} /> Have a PIN? Watch a team
             </button>
@@ -372,7 +372,7 @@ export default function LobbyScreen() {
               type="button"
               data-testid="reclaim-team"
               onClick={() => setShowReclaim(true)}
-              className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+              className="flex items-center gap-1.5 text-sm text-brand-600"
             >
               <RotateCcw size={14} /> Lost your device? Reclaim a team
             </button>
@@ -413,16 +413,16 @@ export default function LobbyScreen() {
         )}
 
         {events === null && (
-          <p data-testid="lobby-loading" className="mt-8 text-sm text-slate-600">Loading events…</p>
+          <p data-testid="lobby-loading" className="mt-8 text-sm text-black">Loading events…</p>
         )}
 
         {events !== null && (
           <>
             <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Open events</h2>
-            <p className="mt-1 text-xs text-slate-600">Anyone can join these as a team leader or as a viewer.</p>
+            <p className="mt-1 text-xs text-black">Anyone can join these as a team leader or as a viewer.</p>
             <div data-testid="open-events" className="mt-3 space-y-3">
               {open.length === 0 && (
-                <p data-testid="no-open-events" className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center text-sm text-slate-600">
+                <p data-testid="no-open-events" className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center text-sm text-black">
                   No events are open right now.
                 </p>
               )}
@@ -442,7 +442,7 @@ export default function LobbyScreen() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-slate-600">{e.code}</span>
+                    <span className="font-mono text-xs text-black">{e.code}</span>
                     {/* ⚠ AN ADMIN RUNS THE EVENT, NOT JOINS IT. Everyone else gets
                         Join; an admin gets Host, straight to that event's host
                         screen (HostScreen's own admin gate is already satisfied,
@@ -473,7 +473,7 @@ export default function LobbyScreen() {
                       <button
                         data-testid={`join-${e.code}`}
                         onClick={() => navigate(`/join/${e.code}`)}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+                        className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"
                       >
                         Join
                       </button>
@@ -501,14 +501,14 @@ export default function LobbyScreen() {
                         <div className="flex items-center gap-2.5">
                           <p className="text-base font-semibold text-slate-700">{e.eventName}</p>
                           <StatusBadge status="IN_PROGRESS" />
-                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600">VIEWERS ONLY</span>
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-black">VIEWERS ONLY</span>
                         </div>
                         <p className="mt-1 text-sm text-slate-500">
                           Year {e.currentYear} of {e.yearCount} · {e.teams} {e.teams === 1 ? 'team' : 'teams'} · no new teams can join
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="font-mono text-xs text-slate-600">{e.code}</span>
+                        <span className="font-mono text-xs text-black">{e.code}</span>
                         {/* ⚠ AN ADMIN STILL RUNS A STARTED EVENT, SAME AS AN
                             OPEN ONE. Advancing the year, checking the Teams/
                             Charts/Decisions tabs, or deleting it don't stop

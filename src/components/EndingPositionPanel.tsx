@@ -38,7 +38,7 @@ export default function EndingPositionPanel({ rows, complete }: Props) {
         <h3 className="font-bold text-gray-900">
           {complete ? 'Ending Position' : 'Position to Date'}
         </h3>
-        <span className="text-xs text-gray-600 font-normal">
+        <span className="text-xs text-black font-normal">
           — surplus against what is still owed, every line
         </span>
       </div>
@@ -66,7 +66,7 @@ export default function EndingPositionPanel({ rows, complete }: Props) {
                   <td className="px-4 py-2.5 text-right tabular-nums text-gray-900">
                     {formatCurrency(r.endingSurplus, true)}
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">
+                  <td className="px-4 py-2.5 text-right tabular-nums text-black">
                     ({formatCurrency(r.outstanding, true)})
                   </td>
                   {anyDeficiency && (
@@ -78,10 +78,10 @@ export default function EndingPositionPanel({ rows, complete }: Props) {
                     r.netOfOutstanding >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                     {formatCurrency(r.netOfOutstanding, true)}
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">
+                  <td className="px-4 py-2.5 text-right tabular-nums text-black">
                     {r.outstandingToPremium === null ? '—' : `${r.outstandingToPremium.toFixed(2)}x`}
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">
+                  <td className="px-4 py-2.5 text-right tabular-nums text-black">
                     {r.outstandingToBooked === null ? '—' : `${(100 * r.outstandingToBooked).toFixed(0)}%`}
                   </td>
                 </tr>
@@ -91,7 +91,7 @@ export default function EndingPositionPanel({ rows, complete }: Props) {
         </table>
       </div>
 
-      <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-600 space-y-1.5">
+      <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 text-xs text-black space-y-1.5">
         <p>
           <span className="font-semibold">Outstanding claim liability</span> is the booked reserve — claims
           already incurred and not yet paid, net of reinsurance. It is a real obligation, not a forecast, and

@@ -80,17 +80,17 @@ export default function HostScreen({ code }: Props) {
           // its own host-authenticated call (createHandoff), not just a view of
           // the room this screen already polls.
           ? <HostTeamsTab room={room} code={code} hostToken={hostToken} />
-          : <p className="text-sm text-slate-600">Loading room…</p>
+          : <p className="text-sm text-black">Loading room…</p>
       )}
       {activeTab === 'charts' && (
         room
           ? <HostChartsTab room={room} />
-          : <p className="text-sm text-slate-600">Loading room…</p>
+          : <p className="text-sm text-black">Loading room…</p>
       )}
       {activeTab === 'decisions' && (
         room
           ? <HostDecisionsTab room={room} />
-          : <p className="text-sm text-slate-600">Loading room…</p>
+          : <p className="text-sm text-black">Loading room…</p>
       )}
     </HostShell>
   );

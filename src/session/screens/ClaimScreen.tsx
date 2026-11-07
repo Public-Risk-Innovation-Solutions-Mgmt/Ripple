@@ -78,7 +78,7 @@ export default function ClaimScreen({ code, handoffToken }: Props) {
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          className="mt-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
         >
           Back to the Lobby
         </button>
@@ -87,7 +87,7 @@ export default function ClaimScreen({ code, handoffToken }: Props) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 text-black">
       <Loader2 className="animate-spin" size={18} />
       <span className="ml-2 text-sm">Claiming your team…</span>
     </div>

@@ -249,7 +249,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
                 }}
               />
               {market && (
-                <p data-testid="market-mode-note" className="text-xs text-gray-600">
+                <p data-testid="market-mode-note" className="text-xs text-black">
                   Market competition is on: members of dearer teams may leave for cheaper ones, and you take members in
                   only up to your appetite, each bringing their own risk. Your whole rate is compared with every other
                   team&rsquo;s when the host advances the year.
@@ -523,7 +523,7 @@ function FundingLevelControl({ d, fundingConsequence, setFundingLevel, setFundin
           type="button"
           onClick={setFundingAtExpected}
           disabled={disabled}
-          className="self-start text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed -mt-1"
+          className="self-start text-xs text-brand-600 disabled:opacity-50 disabled:cursor-not-allowed -mt-1"
         >
           Reset to Expected (~{Math.round(expectedPct * 100)}%)
         </button>
@@ -597,7 +597,7 @@ function NewRatePanel({ n, prior }: {
   const d4 = (v: number) => `$${v.toFixed(4)}`;
   const chg = (now: number, before: number | undefined, what: string) => {
     if (before === undefined || !(before > 0)) {
-      return <span className="text-gray-600" title={`no ${what} was recorded for last year`}>—</span>;
+      return <span className="text-black" title={`no ${what} was recorded for last year`}>—</span>;
     }
     const pct = ((now / before) - 1) * 100;
     return (
@@ -654,14 +654,14 @@ function NewRatePanel({ n, prior }: {
         <tbody>
           {rows.map(([label, id, a, b]) => (
             <tr key={label} className="border-t border-gray-200/70">
-              <td className="py-1 text-gray-600">{label}</td>
+              <td className="py-1 text-black">{label}</td>
               <td data-testid={`new-rate-indicated-${id}`} className="py-1 text-right tabular-nums">{a}</td>
               <td data-testid={`new-rate-yours-${id}`} className="py-1 text-right tabular-nums">{b}</td>
             </tr>
           ))}
           <tr className="border-t border-gray-200/70">
-            <td className="py-1 text-gray-600">+ Reinsurance</td>
-            <td className="py-1 text-right text-gray-600">—</td>
+            <td className="py-1 text-black">+ Reinsurance</td>
+            <td className="py-1 text-right text-black">—</td>
             <td data-testid="new-rate-yours-reins" className="py-1 text-right tabular-nums">{c2(yours.reins)}</td>
           </tr>
           <tr className="border-t border-gray-300 font-medium">
@@ -672,18 +672,18 @@ function NewRatePanel({ n, prior }: {
           </tr>
           {expenseRows.map(([label, id, v]) => (
             <tr key={id} className={`border-t ${id === 'exp-total' ? 'border-gray-300 font-medium' : 'border-gray-200/70'}`}>
-              <td className="py-1 text-gray-600">{label}</td>
+              <td className="py-1 text-black">{label}</td>
               <td data-testid={`new-rate-indicated-${id}`} data-value={v} className="py-1 text-right tabular-nums">{p1(v)}</td>
               <td data-testid={`new-rate-yours-${id}`} data-value={v} className="py-1 text-right tabular-nums">{p1(v)}</td>
             </tr>
           ))}
           <tr className="border-t border-gray-200/70">
-            <td className="py-1 text-gray-600">Permissible loss ratio</td>
+            <td className="py-1 text-black">Permissible loss ratio</td>
             <td data-testid="new-rate-indicated-plr" data-value={plrIndicated} className="py-1 text-right tabular-nums">{p1(plrIndicated)}</td>
             <td data-testid="new-rate-yours-plr" data-value={plrYours} className="py-1 text-right tabular-nums">{p1(plrYours)}</td>
           </tr>
           <tr className="border-t border-gray-200/70">
-            <td className="py-1 text-gray-600">vs last year</td>
+            <td className="py-1 text-black">vs last year</td>
             <td data-testid="new-rate-vs-indicated" className="py-1 text-right tabular-nums align-top">
               {chg(n.firstIndicationPer100, prior?.finalRatePer100, 'final rate')}
             </td>
@@ -925,7 +925,7 @@ function UnderwritingSlider({ label, range, value, onChange, disabled, result }:
         disabled={disabled}
       />
       {result && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-black">
           {result.text}: <span data-testid={result.testId} data-value={result.dollars} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(result.dollars)}</span>
         </p>
       )}
@@ -967,7 +967,7 @@ function RenewalUnderwriting({
             rightLabel={`Worst ${(top * 100).toFixed(0)}%`}
             disabled={disabled}
           />
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-black">
             {value > 0
               ? `${declines} of ${members.length} member${members.length === 1 ? '' : 's'} not renewed this year — `
                 + `the book opens next year at ${members.length - declines} before anyone joins.`
@@ -1028,7 +1028,7 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
           + 'from year to year; on average the losses and loss expense saved equal the cost.'}
       />
       {cost !== null && cost !== undefined && (
-        <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-gray-600">
+        <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-black">
           Cost at current exposure:{' '}
           <span data-testid="risk-control-cost" data-value={cost} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(cost)}</span>
         </div>
@@ -1144,7 +1144,7 @@ function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, 
     <div className="space-y-3 border-t border-gray-100 pt-4" data-testid={`agg-cover-${line}`}>
       <div>
         <h4 data-testid={`agg-cover-title-${line}`} className="text-sm font-semibold text-gray-900">{AGGREGATE_COVER_TITLE}</h4>
-        <p data-testid={`agg-cover-note-${line}`} className="text-xs text-gray-600 leading-relaxed">{AGGREGATE_COVER_NOTE}</p>
+        <p data-testid={`agg-cover-note-${line}`} className="text-xs text-black leading-relaxed">{AGGREGATE_COVER_NOTE}</p>
       </div>
       {/* Two columns: the option's label, and its annual premium for this line and year. */}
       <div className="flex items-center justify-between px-3 text-xs font-medium text-gray-500">
@@ -1169,7 +1169,7 @@ function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, 
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <span data-testid={`agg-cover-label-${line}-${id}`}>{label.label}</span>
-              <span className="text-xs text-gray-600 whitespace-nowrap pl-3">{formatCurrency(price)}</span>
+              <span className="text-xs text-black whitespace-nowrap pl-3">{formatCurrency(price)}</span>
             </button>
           );
         })}
@@ -1199,7 +1199,7 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
   const exposure = bookExposureOf(book, line, yearNumber);
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-600 leading-relaxed">
+      <p className="text-xs text-black leading-relaxed">
         Choose <strong>one cover</strong> for this line. Each protects the Pool against a year whose losses run
         well above what was expected.
       </p>
@@ -1223,7 +1223,7 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
             >
               {/* ⚠ NAME AND PRICE ONLY: no description of what the cover answers. */}
               <span className={chosen ? 'font-semibold' : ''}>{o.name}</span>
-              <span className="text-xs text-gray-600 whitespace-nowrap">{formatCurrency(price)}/yr</span>
+              <span className="text-xs text-black whitespace-nowrap">{formatCurrency(price)}/yr</span>
             </button>
           );
         })}
@@ -1253,7 +1253,7 @@ function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumbe
   const factor = shockCostFactor(line, yearNumber, isRoster(book) ? undefined : bookExposureOf(book, line, yearNumber), shockBaseOf(book));
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-600 leading-relaxed">
+      <p className="text-xs text-black leading-relaxed">
         Choose <strong>one cover</strong> for this line.
       </p>
       <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
@@ -1271,7 +1271,7 @@ function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumbe
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <span>{o.id === 'none' ? 'None' : o.id}</span>
-              <span className="text-xs text-gray-600">{`${formatCurrency(optionPrice(line, o.id, factor))}/yr`}</span>
+              <span className="text-xs text-black">{`${formatCurrency(optionPrice(line, o.id, factor))}/yr`}</span>
             </button>
           );
         })}

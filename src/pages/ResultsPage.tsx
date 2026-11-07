@@ -118,7 +118,7 @@ function formatChange(kind: MetricKind, change: number): string {
 }
 
 function changeColor(polarity: MetricPolarity, change: number): string {
-  if (polarity === 'neutral' || change === 0) return 'text-gray-600';
+  if (polarity === 'neutral' || change === 0) return 'text-black';
   const isGoodDirection = polarity === 'goodUp' ? change > 0 : change < 0;
   return isGoodDirection ? 'text-emerald-600' : 'text-red-600';
 }
@@ -162,7 +162,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
       </div>
 
       {lockedResults.length === 0 && (
-        <div className="text-center py-20 text-gray-600">
+        <div className="text-center py-20 text-black">
           <ClipboardList size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No results yet</p>
           <p className="text-sm mt-1">Complete a year to see detailed results here.</p>
@@ -264,7 +264,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                         const change = currentValue - priorValue;
                         return (
                           <tr key={metric.key} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-3 py-2 text-gray-600">{metric.label}</td>
+                            <td className="px-3 py-2 text-black">{metric.label}</td>
                             <td className="px-3 py-2 text-right font-mono text-gray-500">{formatMetricValue(metric.kind, priorValue)}</td>
                             <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800">{formatMetricValue(metric.kind, currentValue)}</td>
                             <td className={`px-3 py-2 text-right font-mono font-semibold ${changeColor(metric.polarity, change)}`}>{formatChange(metric.kind, change)}</td>
@@ -276,7 +276,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                   </table>
                 </div>
               )}
-              <p className="text-xs text-gray-600 mt-4 border-t border-gray-100 pt-3">
+              <p className="text-xs text-black mt-4 border-t border-gray-100 pt-3">
                 Shock Events: not yet implemented — Phase 4 will show which specific event(s) fired this year.
               </p>
             </div>
@@ -506,7 +506,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                 value={formatCurrency(result.surplusTieOutDifference)}
                 valueColor={Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? 'text-emerald-600' : 'text-amber-600'}
               />
-              <p className="text-xs text-gray-600 mt-2">
+              <p className="text-xs text-black mt-2">
                 Balance check: {formatCurrency(result.totalAssets)} Assets - {formatCurrency(result.totalLiabilities)} Liabilities ={' '}
                 {formatCurrency(result.endingSurplus)}
               </p>
@@ -648,7 +648,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                 {result.narrativeExplanation ? (
                   <p className="text-gray-700 text-sm leading-relaxed">{result.narrativeExplanation}</p>
                 ) : (
-                  <p className="text-gray-600 text-sm italic">
+                  <p className="text-black text-sm italic">
                     No narrative for this line — narratives are generated pool-wide only. Switch to Pool view to read it.
                   </p>
                 )}

@@ -22,10 +22,10 @@ function renderBlock(block: WelcomeBlock, i: number) {
     case 'subheading':
       return <h4 key={i} className="text-sm font-semibold text-gray-800 mt-4">{renderInline(block.text)}</h4>;
     case 'paragraph':
-      return <p key={i} className="text-sm text-gray-600 leading-relaxed mt-2">{renderInline(block.text)}</p>;
+      return <p key={i} className="text-sm text-black leading-relaxed mt-2">{renderInline(block.text)}</p>;
     case 'list':
       return (
-        <ul key={i} className="list-disc list-inside text-sm text-gray-600 leading-relaxed mt-2 space-y-1">
+        <ul key={i} className="list-disc list-inside text-sm text-black leading-relaxed mt-2 space-y-1">
           {block.items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
         </ul>
       );
@@ -58,7 +58,7 @@ export default function WelcomeModal({ onClose }: WelcomeModalProps) {
           <button
             onClick={onClose}
             aria-label="Close"
-            className="text-gray-600 hover:text-gray-600 transition-colors"
+            className="text-black hover:text-black transition-colors"
           >
             <X size={20} />
           </button>
@@ -71,7 +71,7 @@ export default function WelcomeModal({ onClose }: WelcomeModalProps) {
         <div className="px-5 py-4 border-t border-gray-100 flex justify-end flex-shrink-0">
           <button
             onClick={onClose}
-            className="bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            className="bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors"
           >
             Got it
           </button>

@@ -131,7 +131,7 @@ function HandoffModal({ code, hostToken, teamName, onClose }: {
               <button
                 type="button"
                 onClick={() => { void navigator.clipboard?.writeText(link).then(() => setCopied(true)); }}
-                className="shrink-0 text-slate-600 hover:text-slate-700"
+                className="shrink-0 text-black hover:text-slate-700"
                 aria-label="Copy hand-off link"
               >
                 <Copy size={16} />
@@ -149,7 +149,7 @@ function HandoffModal({ code, hostToken, teamName, onClose }: {
         <button
           type="button"
           onClick={onClose}
-          className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+          className="mt-5 w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
           Done
         </button>

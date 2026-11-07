@@ -72,7 +72,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
       </div>
 
       {rows.length === 0 ? (
-        <div className="text-center py-20 text-gray-600">
+        <div className="text-center py-20 text-black">
           <ScrollText size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No decision history yet</p>
           <p className="text-sm mt-1">Lock a year to start building the history for this view.</p>
@@ -99,7 +99,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                   return (
                   <tr key={r.yearNumber} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-bold text-gray-900">{r.yearNumber}</td>
-                    <td className="px-4 py-3 text-gray-600">{r.calendarYear}</td>
+                    <td className="px-4 py-3 text-black">{r.calendarYear}</td>
                     {isPoolRow(r) ? (
                       <>
                         <td className="px-4 py-3">{r.pool.assetAllocation.cashPct.toFixed(0)}%</td>
@@ -123,7 +123,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                           <td className="px-4 py-3">
                             {(r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0)
                               ? pctDisplay(r.decisions.loanRepaymentAggressiveness, 0)
-                              : <span className="text-gray-600">—</span>}
+                              : <span className="text-black">—</span>}
                           </td>
                         )}
                       </>

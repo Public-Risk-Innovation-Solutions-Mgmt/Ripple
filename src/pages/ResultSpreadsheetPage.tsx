@@ -91,7 +91,7 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
   if (shown.length === 0) {
     return (
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
-        <div className="text-center py-20 text-gray-600">
+        <div className="text-center py-20 text-black">
           <Table size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No spreadsheet data yet</p>
           <p className="text-sm mt-1">Complete a year to populate the result spreadsheet.</p>
@@ -141,7 +141,7 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
               const wb = buildResultsWorkbook(shown, activeLines, RESULT_METRICS, walkthroughRows?.());
               XLSX.writeFile(wb, exportFilename);
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
             <Download size={16} />
             Download Results (.xlsx)

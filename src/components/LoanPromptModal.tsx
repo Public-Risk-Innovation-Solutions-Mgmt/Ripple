@@ -28,7 +28,7 @@ export default function LoanPromptModal({ offers, onResolve }: LoanPromptModalPr
         </div>
 
         <div className="p-5 space-y-4">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-black">
             {offers.length === 1 ? 'A coverage line' : 'One or more coverage lines'} ended
             the year with a negative surplus. You can authorize an inter-line loan — a real
             transfer from the other lines' invested assets, repaid to them with interest — to
@@ -64,7 +64,7 @@ export default function LoanPromptModal({ offers, onResolve }: LoanPromptModalPr
                     className={`flex-1 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
                       authorized[o.line]
                         ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                        : 'bg-white text-black border-gray-200 hover:border-blue-300'
                     }`}
                   >
                     Authorize Loan
@@ -74,7 +74,7 @@ export default function LoanPromptModal({ offers, onResolve }: LoanPromptModalPr
                     className={`flex-1 text-sm px-3 py-1.5 rounded-lg border transition-colors ${
                       !authorized[o.line]
                         ? 'bg-gray-800 text-white border-gray-800'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                        : 'bg-white text-black border-gray-200 hover:border-gray-400'
                     }`}
                   >
                     Decline
@@ -88,7 +88,7 @@ export default function LoanPromptModal({ offers, onResolve }: LoanPromptModalPr
         <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
           <button
             onClick={() => onResolve(offers.filter(o => authorized[o.line]).map(o => o.line))}
-            className="bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            className="bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors"
           >
             Confirm & Continue
           </button>

@@ -167,7 +167,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               The host&rsquo;s game setup, played solo: set each line&rsquo;s prior development and the shock schedule, then start.
             </p>
             <button type="button" data-testid="test-player-back" onClick={soloTest.onBack}
-              className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+              className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-black hover:bg-slate-50">
               Back
             </button>
           </div>
@@ -202,7 +202,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               onChange={e => setEventName(e.target.value)}
               placeholder="e.g. PRISM Spring Workshop"
             />
-            <span className="mt-1 block text-xs text-slate-600">
+            <span className="mt-1 block text-xs text-black">
               Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
             </span>
           </label>}
@@ -216,7 +216,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               onChange={e => setPoolName(e.target.value)}
               placeholder="e.g. Harbour Public Entity Risk Pool"
             />
-            <span className="mt-1 block text-xs text-slate-600">
+            <span className="mt-1 block text-xs text-black">
               {soloTest
                 ? 'Required. The pool you run, as the welcome memo and your screens name it.'
                 : <>The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.</>}
@@ -244,7 +244,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 value={yearCount}
                 onChange={e => setYearCount(Number(e.target.value))}
               />
-              <span className={`mt-1 block text-xs ${soloTest && !soloYearsOk ? 'text-amber-700' : 'text-slate-600'}`}>
+              <span className={`mt-1 block text-xs ${soloTest && !soloYearsOk ? 'text-amber-700' : 'text-black'}`}>
                 {soloTest ? `How many rounds the game will run: ${GAME_LENGTH_YEARS.min} to ${GAME_LENGTH_YEARS.max}.` : 'How many rounds the game will run.'}
               </span>
             </label>
@@ -256,7 +256,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 value={startingYear}
                 onChange={e => setStartingYear(Number(e.target.value))}
               />
-              <span className="mt-1 block text-xs text-slate-600">The year the teams price first; the game opens in the year before it.</span>
+              <span className="mt-1 block text-xs text-black">The year the teams price first; the game opens in the year before it.</span>
             </label>
           </div>
 
@@ -274,7 +274,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             {/* ⚠ SAID ON SCREEN BECAUSE A NUMBER FIELD LOOKS LIKE A LIMIT. It is
                 not one: the room does not turn anyone away, and the count exists
                 so the host knows when everybody has arrived. */}
-            <p className="mt-1.5 text-xs text-slate-600">
+            <p className="mt-1.5 text-xs text-black">
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
               teams name themselves at join and play the coverage lines you pick below.
             </p>
@@ -292,7 +292,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 {MARKET_LEVELS.map(l => <option key={l} value={l}>{l[0].toUpperCase() + l.slice(1)}</option>)}
               </select>
             </label>
-            <p className="mt-1.5 text-xs text-slate-600">
+            <p className="mt-1.5 text-xs text-black">
               {market === 'off'
                 ? 'Off: each team\'s book moves only on its own New Members and Non-Renewal, as in Single player.'
                 : <>Members move between teams on price. Each year, when you advance, members of a dearer team may leave for a
@@ -310,7 +310,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 be each team's own choice at join, which made a session a table of
                 different games; the lines are a property of the EVENT, like the
                 seed and the year count. */}
-            <p className="mt-1 text-xs text-slate-600">
+            <p className="mt-1 text-xs text-black">
               {soloTest ? 'The lines you play. At least one.' : 'Every team plays these lines. At least one.'}
             </p>
             <div className="mt-2 space-y-2">
@@ -340,7 +340,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 );
               })}
             </div>
-            <p data-testid="dev-level-note" className="mt-2 text-xs text-slate-600">
+            <p data-testid="dev-level-note" className="mt-2 text-xs text-black">
               Each played year every open prior year's reserve grows by a rate drawn in its line's range —
               None 0%,
               Low {Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[1] * 100)}%,
@@ -368,7 +368,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               data-testid="start-test-player"
               disabled={!canStartSolo}
               onClick={handleStartSolo}
-              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+              className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
             >
               Start test game
             </button>
@@ -377,7 +377,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             data-testid="create-room"
             disabled={!canCreate}
             onClick={() => { void handleCreate(); }}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+            className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
           >
             {busy ? 'Creating…' : 'Create room'}
           </button>}

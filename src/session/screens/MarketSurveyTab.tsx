@@ -17,9 +17,9 @@ export default function MarketSurveyTab({ room, ownTeam }: { room: RoomView; own
     <div data-testid="market-survey" className="mx-auto max-w-screen-2xl space-y-4 px-4 py-6">
       <div>
         <h1 className="text-lg font-semibold text-gray-900">Market Survey</h1>
-        <p className="text-sm text-gray-600">Every team in the room, as the host sees them.</p>
+        <p className="text-sm text-black">Every team in the room, as the host sees them.</p>
         {(room.market ?? 'off') !== 'off' && (
-          <p data-testid="market-survey-market-note" className="mt-1 text-xs text-gray-600">
+          <p data-testid="market-survey-market-note" className="mt-1 text-xs text-black">
             Market competition is on: members move between teams on price each year, so market shares move with them.
           </p>
         )}
@@ -34,7 +34,7 @@ export default function MarketSurveyTab({ room, ownTeam }: { room: RoomView; own
           ownTeam={ownTeam}
         />
       ) : (
-        <p data-testid="market-survey-unavailable" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
+        <p data-testid="market-survey-unavailable" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-black">
           The room&rsquo;s standings are not available yet.
         </p>
       )}

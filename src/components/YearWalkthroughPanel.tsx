@@ -40,20 +40,20 @@ function Stage({ st, n }: { st: WalkStage; n: number }) {
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 py-2">
         <span className="text-sm font-semibold text-gray-800">{n}. {st.title}</span>
         <span className="flex items-center gap-2">
-          <span className={`rounded px-1.5 py-0.5 text-xs ${st.info ? 'bg-gray-100 text-gray-500' : st.same ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'}`}>
+          <span className={`rounded px-1.5 py-0.5 text-xs ${st.info ? 'bg-gray-100 text-gray-500' : st.same ? 'bg-slate-100 text-black' : 'bg-amber-50 text-amber-700'}`}>
             {walkMark(st.same, st.info)}
           </span>
           {!st.info && <span data-testid="walk-code" className="font-mono text-xs font-semibold text-gray-700">{st.code}</span>}
         </span>
       </div>
-      <div data-testid="walk-feed" className="space-y-0.5 border-b border-gray-50 px-3 py-2 text-xs text-gray-600">
+      <div data-testid="walk-feed" className="space-y-0.5 border-b border-gray-50 px-3 py-2 text-xs text-black">
         {feedText(st).map((t, i) => <p key={i} className={i === 0 ? 'font-medium text-gray-700' : 'font-mono'}>{t}</p>)}
       </div>
       <table className="w-full text-sm">
         <tbody>
           {st.rows.map((r, i) => (
             <tr key={i} className="border-b border-gray-50 last:border-0">
-              <td className="px-3 py-1 text-gray-600">{r.label}</td>
+              <td className="px-3 py-1 text-black">{r.label}</td>
               <td className="px-3 py-1 text-right font-mono text-gray-900">{shown(r)}</td>
             </tr>
           ))}
@@ -112,7 +112,7 @@ export default function YearWalkthroughPanel({ gameState, lineView, showSeed, ro
               data-testid="walk-download"
               disabled={years.length === 0}
               onClick={download}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
             >
               <Download size={16} />
               Download Year Walkthrough (Excel)
@@ -120,7 +120,7 @@ export default function YearWalkthroughPanel({ gameState, lineView, showSeed, ro
           </div>
         </div>
 
-        <div data-testid="walk-header" className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600">
+        <div data-testid="walk-header" className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-black">
           <span>Version <span data-testid="walk-version" className="font-mono text-gray-900">{header.version}</span></span>
           {header.scenario !== undefined && (
             <span>Scenario <span data-testid="walk-scenario" className="font-mono text-gray-900">{header.scenario}</span></span>
