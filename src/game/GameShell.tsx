@@ -161,15 +161,13 @@ export interface GameShellProps {
    * this existed.
    */
   onLineReviewed?: (line: LineView) => void;
-  /** MARKET COMPETITION: a hosted room with the market on — the Decisions page's market mode (the appetite labels and the note). */
-  market?: boolean;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey, market,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey,
   lineActivity, onLineReviewed,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
@@ -374,7 +372,6 @@ export default function GameShell({
             book={d.decisionLineBook}
             underwriting={d.underwriting}
             riskControlCost={d.riskControlCost}
-            market={market}
           />
         )}
 

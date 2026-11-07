@@ -727,8 +727,6 @@ export default function PlayScreen({ code, role }: Props) {
       roomMarketShare={you.marketShare ?? null}
       // Every team's standing — the host's Teams table, read only, own row highlighted.
       marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
-      // MARKET COMPETITION: the Decisions page's market mode and the team's own results.
-      market={(room.market ?? 'off') !== 'off'}
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.
@@ -743,100 +741,103 @@ export default function PlayScreen({ code, role }: Props) {
       // because that is what the room is discussing.
       decisionsDisabled={isViewer || locked}
       statusStrip={
-        <div data-testid="session-strip" className="border-b border-slate-200 bg-white px-4 py-2">
+        // ⚠ A PLAYER'S STRIP SHOWS THE VIEWER PIN AND NOTHING ELSE, apart from an
+        // error when something fails. The team, its lines, the room code, the
+        // year, the lock state, "Saved", who is still deciding and the posted
+        // year are gone from a player's screen (the lock button still reads
+        // "Waiting for host" once locked). A viewer's strip keeps them, since
+        // it is how a viewer follows the team. The same facts ride on the strip
+        // as data-* attributes, unseen, for the session drivers to read.
+        <div
+          data-testid="session-strip"
+          data-team={you.teamName}
+          data-team-number={myTeam?.teamNumber}
+          data-year={complete ? undefined : room.currentYear}
+          data-lock={complete ? 'complete' : processing ? 'processing' : locked ? 'locked' : 'open'}
+          data-draft={!isViewer && !locked && !complete && draftStatus !== 'idle' ? draftStatus : undefined}
+          data-posted-year={game.processedYear ?? undefined}
+          className="border-b border-slate-200 bg-white px-4 py-2"
+        >
           <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-5 gap-y-1 text-xs">
-            {isViewer && (
-              <span className="flex items-center gap-1.5 font-medium text-slate-500">
-                <Eye size={13} /> Watching
-              </span>
-            )}
-            {/* The team's number beside its name, "Team 1 | Harbour Mutual" — the
-                pairing every host screen shows (contract teamNumbers). The name
-                keeps its own span, as drivers and viewers read it. */}
-            <span className="font-medium text-slate-700">
-              {myTeam && (
-                <span data-testid={isViewer ? 'watched-team-number' : 'my-team-number'} className="text-slate-500">
-                  Team {myTeam.teamNumber} |{' '}
+            {isViewer ? (
+              <>
+                <span className="flex items-center gap-1.5 font-medium text-slate-500">
+                  <Eye size={13} /> Watching
                 </span>
-              )}
-              <span data-testid={isViewer ? 'watched-team' : 'my-team'}>{you.teamName}</span>
-            </span>
-            {/* ⚠ SHOWN, WITH NO CONTROL BESIDE IT. After the join the lines are
-                a fact about this team rather than a setting, so the strip states
-                them and offers nothing to change. */}
-            <span className="text-slate-500" data-testid="my-lines">
-              {(you.lines ?? []).join(' + ')}
-              <span className="ml-1 text-black">(fixed)</span>
-            </span>
-            <span className="text-black">room <span className="font-mono">{code}</span></span>
-            {/* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
-                A viewer never holds a PIN of its own — see JoinResponse.pin — so
-                there is nothing here to show one. */}
-            {!isViewer && active.role === role && active.pin && (
-              <span className="flex items-center gap-1 text-black" data-testid="team-pin">
-                viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
-                <button
-                  type="button"
-                  onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
-                  className="text-black hover:text-black"
-                  aria-label="Copy viewer PIN"
-                >
-                  <Copy size={12} />
-                </button>
-              </span>
-            )}
-            <span className="text-slate-500">
-              Year <span data-testid="player-year" className="font-medium text-slate-700">{complete ? '—' : room.currentYear}</span>
-              {' '}of {room.yearCount}
-            </span>
+                {/* The team's number beside its name, "Team 1 | Harbour Mutual" — the
+                    pairing every host screen shows (contract teamNumbers). */}
+                <span className="font-medium text-slate-700">
+                  {myTeam && (
+                    <span data-testid="watched-team-number" className="text-slate-500">
+                      Team {myTeam.teamNumber} |{' '}
+                    </span>
+                  )}
+                  <span data-testid="watched-team">{you.teamName}</span>
+                </span>
+                {/* ⚠ SHOWN, WITH NO CONTROL BESIDE IT. After the join the lines are
+                    a fact about this team rather than a setting. */}
+                <span className="text-slate-500" data-testid="my-lines">
+                  {(you.lines ?? []).join(' + ')}
+                  <span className="ml-1 text-black">(fixed)</span>
+                </span>
+                <span className="text-black">room <span className="font-mono">{code}</span></span>
+                <span className="text-slate-500">
+                  Year <span data-testid="player-year" className="font-medium text-slate-700">{complete ? '—' : room.currentYear}</span>
+                  {' '}of {room.yearCount}
+                </span>
 
-            {complete ? (
-              <span data-testid="player-complete" className="flex items-center gap-1.5 text-emerald-700">
-                <CheckCircle2 size={13} /> Session complete
-              </span>
-            ) : processing ? (
-              <span data-testid="game-processing" className="flex items-center gap-1.5 text-slate-500">
-                <Loader2 size={13} className="animate-spin" />
-                {game.progress ? `Restoring year ${game.progress.year} of ${game.progress.of}…` : `Running year ${game.gameState.currentYearNumber}…`}
-              </span>
-            ) : locked ? (
-              <span data-testid={isViewer ? 'viewer-locked' : 'waiting'} className="flex items-center gap-1.5 text-emerald-700">
-                <CheckCircle2 size={13} />
-                {isViewer ? `Locked in for Program Year ${room.startingYear + room.currentYear - 1}` : 'Locked in — waiting for the host'}
-              </span>
+                {complete ? (
+                  <span data-testid="player-complete" className="flex items-center gap-1.5 text-emerald-700">
+                    <CheckCircle2 size={13} /> Session complete
+                  </span>
+                ) : processing ? (
+                  <span data-testid="game-processing" className="flex items-center gap-1.5 text-slate-500">
+                    <Loader2 size={13} className="animate-spin" />
+                    {game.progress ? `Restoring year ${game.progress.year} of ${game.progress.of}…` : `Running year ${game.gameState.currentYearNumber}…`}
+                  </span>
+                ) : locked ? (
+                  <span data-testid="viewer-locked" className="flex items-center gap-1.5 text-emerald-700">
+                    <CheckCircle2 size={13} />
+                    {`Locked in for Program Year ${room.startingYear + room.currentYear - 1}`}
+                  </span>
+                ) : (
+                  <span data-testid="viewer-open" className="flex items-center gap-1.5 text-slate-500">
+                    <Clock size={13} /> {`Still deciding Program Year ${room.startingYear + room.currentYear - 1}`}
+                  </span>
+                )}
+
+                <span className="text-black" data-testid="viewer-basis">
+                  decisions as last locked
+                </span>
+
+                {!complete && outstanding.length > 0 && (
+                  <span className="text-black">
+                    still deciding: <span data-testid="outstanding">{outstanding.join(', ')}</span>
+                  </span>
+                )}
+
+                {game.processedYear !== null && (
+                  <span className="text-black" data-testid="posted-year">
+                    year {game.processedYear} result computed
+                  </span>
+                )}
+              </>
             ) : (
-              <span data-testid={isViewer ? 'viewer-open' : undefined} className="flex items-center gap-1.5 text-slate-500">
-                <Clock size={13} /> {isViewer ? `Still deciding Program Year ${room.startingYear + room.currentYear - 1}` : 'Open for decisions'}
-              </span>
-            )}
-
-            {/* ⚠ PLAYER ONLY, NEVER ONCE LOCKED — a locked year's decisions
-                are submitted, not drafted, and a draft never outlives the
-                lock (contract.ts's CallerView.draft). */}
-            {!isViewer && !locked && !complete && draftStatus !== 'idle' && (
-              <span className="flex items-center gap-1.5 text-slate-500" data-testid="draft-status">
-                {draftStatus === 'saving'
-                  ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
-                  : <><CheckCircle2 size={13} /> Saved</>}
-              </span>
-            )}
-
-            {isViewer && (
-              <span className="text-black" data-testid="viewer-basis">
-                decisions as last locked
-              </span>
-            )}
-
-            {!complete && outstanding.length > 0 && (
-              <span className="text-black">
-                still deciding: <span data-testid="outstanding">{outstanding.join(', ')}</span>
-              </span>
-            )}
-
-            {game.processedYear !== null && (
-              <span className="text-black" data-testid="posted-year">
-                year {game.processedYear} result {isViewer ? 'computed' : 'posted'}
-              </span>
+              /* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
+                 A viewer never holds a PIN of its own — see JoinResponse.pin. */
+              active.role === role && active.pin && (
+                <span className="flex items-center gap-1 text-black" data-testid="team-pin">
+                  viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
+                    className="text-black hover:text-black"
+                    aria-label="Copy viewer PIN"
+                  >
+                    <Copy size={12} />
+                  </button>
+                </span>
+              )
             )}
 
             {actionError && (

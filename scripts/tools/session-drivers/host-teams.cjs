@@ -118,9 +118,13 @@ function rankProblems(rows, want = wantRanks(rows)) {
   ok(JSON.stringify(setupPairs) === JSON.stringify(JOINED) && JSON.stringify(setupHeads) === JSON.stringify(['Team number', 'Team']),
     `Game Setup: the roster pairs them the same way (${setupPairs.map(p => p.join(' | ')).join(', ')})`);
   const own = [];
-  for (const p of [wcTeam, glTeam, slow]) own.push((await p.locator('[data-testid="my-team"]').locator('..').innerText()).trim());
+  // A player's strip no longer SHOWS the team's number and name; it carries them as data-team-number / data-team.
+  for (const p of [wcTeam, glTeam, slow]) {
+    const strip = p.locator('[data-testid="session-strip"]');
+    own.push(`Team ${await strip.getAttribute('data-team-number')} | ${await strip.getAttribute('data-team')}`);
+  }
   ok(JSON.stringify(own) === JSON.stringify(JOINED.map(([n, name]) => `${n} | ${name}`)),
-    `each team's own screen shows its number beside its name (${own.join(', ')})`);
+    `each team's own page carries its number and name, paired as the host's (${own.join(', ')})`);
   await host.click('[data-testid="host-tab-teams"]');
   await host.waitForSelector('[data-testid="teams-table"] tr');
   // ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears): before
@@ -143,7 +147,7 @@ function rankProblems(rows, want = wantRanks(rows)) {
   // Two teams lock and play; the third is closed so it never computes or posts.
   for (const p of [wcTeam, glTeam]) {
     await lockAndConfirm(p);
-    await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   }
   await slow.close();
 
@@ -152,7 +156,7 @@ function rankProblems(rows, want = wantRanks(rows)) {
   await host.click('[data-testid="advance"]');
   await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '2', null, { timeout: 30000 });
   for (const p of [wcTeam, glTeam]) {
-    await p.waitForFunction(() => /year 1 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), null, { timeout: 180000 });
+    await p.waitForFunction(() => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === '1', null, { timeout: 180000 });
   }
 
   // The first advance completes 2027, year 1, and it is the latest known year
@@ -175,14 +179,14 @@ function rankProblems(rows, want = wantRanks(rows)) {
   // A second year: the two live teams lock and post year 2, known at once.
   for (const p of [wcTeam, glTeam]) {
     await lockAndConfirm(p);
-    await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   }
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForTimeout(300);
   await host.click('[data-testid="advance"]');
   await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '3', null, { timeout: 30000 });
   for (const p of [wcTeam, glTeam]) {
-    await p.waitForFunction(() => /year 2 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), null, { timeout: 180000 });
+    await p.waitForFunction(() => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === '2', null, { timeout: 180000 });
   }
 
   await host.click('[data-testid="host-tab-teams"]');

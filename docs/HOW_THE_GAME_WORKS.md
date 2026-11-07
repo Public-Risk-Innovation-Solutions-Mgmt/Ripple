@@ -27,6 +27,13 @@ Both show: Introduction · Rate Indication · Annual Statement · Decisions · D
   History · Market Survey. No Year Walkthrough; the Rate Indication hides "How the [year] rate was built".
 - **Viewers** (`/view/<code>`, or a 6-digit PIN from the lobby). One team's six tabs, read-only.
 
+**The team's status strip** (above the tabs) shows only the team's viewer PIN, and an error message when something
+fails (a lock that did not go through, a refresh or a year that failed). Nothing else: no team name or number, lines,
+room code, year, lock state, "Saved", who is still deciding or which year is posted. The lock button still reads
+"Waiting for host" once the team has locked. A viewer's strip keeps all of these (the team's number and name, lines,
+room code, year, locked or still deciding, who is still deciding and the computed year), as that is how a viewer
+follows the team.
+
 The lobby (`/`) lists open and running events with Join or Watch. Only a signed-in admin sees "Play Solo" and
 "Host an Event", but `/solo` itself is open to anyone.
 
@@ -146,6 +153,9 @@ appear nowhere on a team's screens. The server stores them, the team's game play
 only the host sees them, in the Teams columns and the Charts line. A team sees their effect in its own figures and
 in the Market Survey's shares.
 
+**Nor any market explanation.** With the market on, no note on the Decisions page or the Market Survey explains it,
+and the sliders read the same as in every other room: "Non-Renewal" and "New Members".
+
 **Private:** decisions are not shown to other teams, and full statements stay the team's own. The seed is shown
 only to the host and in Test player. But a viewer sees the watched team's decisions (section 7).
 
@@ -159,8 +169,9 @@ size.
 **Member risk.** Inside the loss draw the book is split into 100 notional members with random risk scores (30%
 spread), redrawn yearly. They only shape the year's randomness; nothing selects on them.
 
-**The sliders** (per line, 0–10% in 1% steps, default 0%): *Non-Renewal Assumption* and *New Members: Growth
-Assumption*.
+**The sliders** (per line, 0–10% in 1% steps, default 0%): *Non-Renewal* and *New Members*, in every room and in
+Single player. Under each, its premium in dollars: "Premium not renewed: $X" and "Expected premium from new
+members: $X".
 
 **The formula** (`bookUnderwriting.ts`), with book E, non-renewal a1, new business a2:
 

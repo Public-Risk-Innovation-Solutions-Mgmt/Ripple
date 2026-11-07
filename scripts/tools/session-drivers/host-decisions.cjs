@@ -65,7 +65,7 @@ async function join(ctx, code, name) {
   // Both teams lock year 1 and the host advances.
   for (const p of [a, b]) {
     await lockAndConfirm(p);
-    await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   }
 
   // ⚠ STILL NOTHING, EVEN THOUGH BOTH TEAMS HAVE LOCKED. This is the assertion
@@ -85,7 +85,7 @@ async function join(ctx, code, name) {
     null, { timeout: 30000 });
   for (const p of [a, b]) {
     await p.waitForFunction(
-      () => /year 1 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''),
+      () => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === '1',
       null, { timeout: 180000 });
   }
 
