@@ -8,12 +8,28 @@
 // loss over its expected ordinary loss, by the data scientist's method. On
 // every line:
 //
-//   1. THE SLIDER'S LEVELS ARE TRUE ON ORDINARY LOSSES, OUT OF SAMPLE: on games
-//      the derivation never drew, the table's CLF at each stop covers that
-//      share of line-years' ordinary loss ratio — the engine's own
+//   1. THE UNSTRETCHED TABLES ARE TRUE ON ORDINARY LOSSES, OUT OF SAMPLE: on
+//      games the derivation never drew, each line's BaselineCV table (the one
+//      filed under its BASELINE_CV, before the stretch) covers at each stop
+//      that share of line-years' ordinary loss ratio — the engine's own
 //      ordinaryFactor, realised over expected, before any shock's uplift —
 //      within 5pp; and "at expected" (CLF 1.000) covers what the table's own
 //      `expected` says.
+//   1b. AND THE TABLE IN FORCE IS STRETCHED AWAY FROM IT, IN THE STRETCH'S
+//      DIRECTION: on the same line-years the stretched table covers MORE than
+//      its label at every stop above Expected (70, 90, 95%) and LESS at the 30%
+//      stop below it.
+//
+//   ⚠ RESTATED AT wip/clf-stretch. Section 1 graded the table in force; the
+//   tables in force are now stretched (CLF_STRETCH_95) so that a funding
+//   level covers about its label on the year's WHOLE cost — ordinary losses,
+//   large claims, shocks, LAE — with no development, which the ordinary-loss
+//   tables bought only about half of. On ordinary losses alone the stretched
+//   table therefore over-covers above Expected and under-covers below it by
+//   design (measured at landing: WC 30% -21.8pp, 90% +9.9; GL -7.7 / +5.5;
+//   Property -12.1 / +7.8). The derivation the stretch starts from is still
+//   held to the ordinary-loss basis here, and the stretch itself is
+//   clf-stretch-check's.
 //
 //   ⚠ ORDINARY LOSSES, NOT THE WHOLE RETAINED LOSS, AND THAT IS THE RULING.
 //   The tables cover ordinary losses only, by design: shocks and large losses
@@ -134,6 +150,18 @@ function gradeLevels(played: Played, tables: Record<StaticClfLine, ClfTable>, ta
   }
 }
 
+// ---------------------------------------------------------------- 1b
+function gradeStretch(played: Played, tables: Record<StaticClfLine, ClfTable>, tag: string) {
+  for (const line of LINES) {
+    const xs = played.years[line].map(r => r.ratio);
+    const covered = (clf: number) => 100 * xs.filter(x => x <= clf).length / xs.length;
+    const errs = [30, 70, 90, 95].map(p => [p, covered(withTables(tables, () => staticClf(line, p / 100))) - p]);
+    const ok = errs.every(([p, e]) => (p < 50 ? e < 0 : e > 0));
+    check(ok, `${tag}1b. ${line}: the table in force over-covers ordinary losses above Expected and under-covers below, as the stretch makes it`,
+      errs.map(([p, e]) => `${p}% ${e >= 0 ? '+' : ''}${e.toFixed(1)}`).join(', '));
+  }
+}
+
 // ---------------------------------------------------------------- 2
 function gradeMargin(played: Played, stop: number, tag: string) {
   let worst = 0;
@@ -188,7 +216,9 @@ console.log(`THE FUNDING TABLES — ${GAMES} solo games x ${YEARS} years per lin
 const played = play(GAMES);
 const swappedPreGame = withTables(PREVIOUS, () => play(4));
 const firstFour = { ...played, preGame: Object.fromEntries(LINES.map(l => [l, played.preGame[l].slice(0, swappedPreGame.preGame[l].length)])) } as Played;
-gradeLevels(played, SHIPPED as Record<StaticClfLine, ClfTable>, '');
+const FILED = Object.fromEntries(LINES.map(l => [l, BASELINE_CV_TABLES[baselineCvKey(BASELINE_CV[l])][l]])) as Record<StaticClfLine, ClfTable>;
+gradeLevels(played, FILED, '');
+gradeStretch(played, SHIPPED as Record<StaticClfLine, ClfTable>, '');
 gradeMargin(played, RESERVE_MARGIN_CONFIDENCE, '');
 const loadPrice: Price = (_line, _k, expected) => expected * (1 + REINSURANCE_LOAD);
 gradeLoad(loadPrice, '');
@@ -209,6 +239,7 @@ controlFails('the member-engine tables', () => gradeLevels(played, PREVIOUS, '')
 const OFF_BY_FOUR = { WC: 0.04, GL: -0.04, Property: 0.04 } as Record<StaticClfLine, number>;
 const wrongCv = Object.fromEntries(LINES.map(l => [l, BASELINE_CV_TABLES[baselineCvKey(BASELINE_CV[l] + OFF_BY_FOUR[l])][l]])) as Record<StaticClfLine, ClfTable>;
 controlFails('each line graded against the table four points off its BaselineCV', () => gradeLevels(played, wrongCv, ''), '1.');
+controlFails('the unstretched tables in force', () => gradeStretch(played, FILED, ''), '1b.');
 controlFails('a margin read off the 95% stop', () => gradeMargin(played, 0.95, ''), '2.');
 controlFails('a load read off the table at 70%', () => gradeLoad((line, _k, e) => e * staticClf(line, 0.70), ''), '3.');
 controlFails('a pre-game funded at the 70% stop', () => gradePreGame(firstFour, swappedPreGame, l => staticClf(l, 0.70), ''), '4.');
@@ -218,4 +249,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — the slider\'s levels are true on ordinary losses out of sample, required capital reads the same table, and neither the load nor the pre-game reads one.');
+console.log('PASS — the unstretched tables are true on ordinary losses out of sample and the tables in force are stretched from them, required capital reads the same table, and neither the load nor the pre-game reads one.');

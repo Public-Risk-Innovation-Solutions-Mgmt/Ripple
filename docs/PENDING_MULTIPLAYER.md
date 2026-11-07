@@ -11,6 +11,80 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## The funding tables stretched, and the market's k for them (save key v49) — pr/clf-stretch
+
+Each line's funding (CLF) table is its BaselineCV table stretched about 1.0,
+`CLF = 1 + (CLF − 1) × k`, with k set so the 95% stop is `CLF_STRETCH_95`: WC
+1.30, GL 1.25, Property 1.25 (k = 2.871 / 1.436 / 1.800). Every stop moves in
+proportion; Expected stays a factor of exactly 1.0. Required capital reads the
+same table (its 80% stop), so it rises by the same k. Why, and the measurement
+behind each stop, is beside `CLF_STRETCH_95` in pricingParameters.ts: the
+unstretched tables describe ordinary losses only and bought about half their
+label on the year's whole cost.
+
+**What it does** on aws 7fc44f9 — the fixed ALAE load and the switched seeds
+in (20 fixed-seed scenarios, five years, 100 worlds, shocks on, defaults but
+funding; share of line-years with a combined ratio ≤ 100% at 70 / 80 / 90%
+funding — aws without the stretch in brackets):
+
+| | WC | GL | Property |
+|---|---|---|---|
+| Single player | 72 / 87 / 95 (48 / 57 / 69) | 69 / 79 / 89 (63 / 72 / 82) | 61 / 76 / 87 (50 / 59 / 72) |
+| Hosted, None | 68 / 85 / 95 (44 / 53 / 65) | 53 / 63 / 73 (48 / 56 / 66) | 57 / 73 / 85 (47 / 56 / 68) |
+| Hosted, Low | 38 / 62 / 87 (15 / 22 / 34) | 39 / 52 / 66 (33 / 42 / 55) | 51 / 67 / 83 (40 / 49 / 62) |
+| Hosted, Mid | 1 / 4 / 24 (0 / 0 / 1) | 12 / 20 / 37 (9 / 14 / 23) | 35 / 52 / 73 (25 / 34 / 47) |
+
+⚠ **WC now over-delivers by 2–7 points and Property under by about 3.** The
+stops were chosen on aws a7d480d (single player WC 63 / 80 / 92, GL 67 / 78 /
+88, Property 63 / 78 / 90), before the fixed ALAE load and the seed switch.
+They are kept as set, not re-fitted.
+
+2027 rate at Expected / 70 / 80 / 90%: WC 3.58 / 3.89 / 4.10 / 4.40, GL 4.97 /
+5.31 / 5.56 / 5.91, Property 0.28 / 0.30 / 0.32 / 0.34 (per $100). Hosted GL and
+Property sit below single player because the host's shock draw fires more
+events.
+
+**Not a fix for adverse development.** Development raises the year's cost
+rather than its spread; at Mid, WC still loses surplus in most scenarios at
+70% funding (13 of 20 below zero). That wants a development loading in the
+rate, by level.
+
+**Capital status.** With required capital up by k, WC's status falls most at
+Expected, where nothing else moves: scenario-averaged line-years Strong /
+Adequate / Thin / Deficient, single player 97 / 0 / 0 / 3 → 93 / 4 / 0 / 3,
+hosted None 98 / 0 / 0 / 2 → 82 / 10 / 5 / 3, hosted Low 88 / 4 / 3 / 5 → 52 /
+13 / 4 / 31. Property in single player 53 / 25 / 4 / 18 → 47 / 26 / 6 / 21; GL
+barely moves. At 80% funding the higher premium builds surplus and the
+statuses come back to where they were. Status is shown and narrated only (the
+Year Walkthrough's capital stage, the downloads); nothing in play reads it.
+
+**The market's k, set for the stretched tables.** The market (aws #84–#87)
+was calibrated twice by the market-measurement chat: first on these stretched
+tables (test/clf-stretch-market, dc2d426: Medium WC 0.600 / GL 0.618 /
+Property 0.617, Low half, High double), then rescaled to the unstretched tables
+aws still had (Medium WC 6.159 / GL 1.364 / Property 2.242), noted as about 10×
+too strong on WC once the stretch lands. It lands here, so `MARKET_K` goes back
+to the stretched values; the reason is beside it in pricingParameters.ts.
+`market-step-check` is restated to them, with two controls (aws's rescaled k,
+and a Low that is not half of Medium, each refused) and the source broken by
+hand (Medium WC 6.159: exit 1). The market reaches only hosted rooms with the
+market on: no baseline here plays one, and the funding figures above (a hosted
+room with no market input) are identical on aws ef009cb.
+
+**Built on its own** (pr/clf-stretch, rebased onto aws ef009cb — the market
+in): FAST 96/96 (the sweep alone, `market-step-check` among them) and SLOW
+4/4, the manifest held; typecheck clean; lint identical to aws (its 14 errors
+and 7 warnings, none in a changed file); `clf-stretch-check` (new, FAST) with
+three controls and the source broken by hand (WC at 1.25: exit 1);
+`baseline-cv-table-check` and `funding-table-check` restated to the stretched
+table, each with a control; VALUE_IDENTITY_v95, SOLO_EXPORT_GUARD_v125 and
+RENDER_IDENTITY_v127, each control reproduced on aws first (v94, v124, v126)
+and every move attributed in the check's own note; all 35 session drivers with
+the admin-token hook (`market-competition` 29/29, `market-survey` 106/106);
+the contract harness on every pass (562/562 local, http, DynamoDB and the
+built handler; admin 33/33; race probes).
+
+---
 ## Fifteen scenarios' seeds re-picked (save key v45) — pr/seed-switch
 
 `SCENARIO_SEEDS` for 14, 20, 4, 1, 6, 3, 5, 10, 12, 8, 15, 11, 19, 9 and 17

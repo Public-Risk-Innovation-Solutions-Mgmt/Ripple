@@ -1145,7 +1145,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the Version row (save key v47 -> v48; v46 is still pr/clf-stretch's). 48
 // lines differ (shown and raw), every one the Version row; the 24 statements
 // match.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v124.json');
+// v125: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25; and the market's k set for them, which the guard's
+// single-player games never reach), rebased onto aws ef009cb, which reproduces
+// v124 here 48 of 48 first. 36 of 48 move, each text-diffed against the
+// control (GUARD_TEXT_DIR both sides):
+//   the 12 default Results files (Expected funding, a factor of 1.0): the save
+//   version (riskpool_gamestate_v48 -> v49), and only the rows that read
+//   required capital — Reserve Risk Margin Needed (WC MAMC6EA4 2026
+//   $3,412,297 -> $9,796,068), Excess Available Surplus, Excess Capital Ratio
+//   and Excess Capital Status — with the Year Walkthrough sheet's capital stage
+//   and the year codes; no premium, loss or surplus row;
+//   the 12 squeezed Results files and their 12 statements (each line at its
+//   lowest stop, the stretched table's lower 30% column): Selected CLF and the
+//   premium, rate, admin, ratio, income, surplus and asset rows built on it,
+//   the capital rows, and on the Year Walkthrough sheet the stages that quote
+//   them (pricing, premium billed, admin, investment income, capital, surplus,
+//   decisions, the dividend stage's surplus available, and the booking stage's
+//   working, which quotes the CLF — its booking bias stays 0.00%). No loss,
+//   claim, reserve or development figure moves. The 12 default statements do
+//   not move: no capital row is on them. (The same moves as at v120, on
+//   7fc44f9, before the market.)
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v125.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

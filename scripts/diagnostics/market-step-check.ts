@@ -22,7 +22,8 @@
 //    book − out + in; untaken dropped = dropped − taken.
 // 3. THE SPEC'S NUMBERS: the buckets ÷ 1.02 average 1.00; the full skew's
 //    average leaver is 0.90 / 0.80 / 0.70; dropped members average 1.5 − ½ ×
-//    the share; the calibrated k; one pair's willing leavers inside k ×
+//    the share; the calibrated k (on the stretched funding tables, with two
+//    controls); one pair's willing leavers inside k ×
 //    (gap − 1%)² × 4 / (N − 1) ± 20%.
 // 4. THE ENGINE TAKES IT: a team's game played on its stored result ends the
 //    year on the book the step gave it (less the engine's drop), and a game with
@@ -399,9 +400,18 @@ async function main() {
   }
   ok([0.01, 0.05, 0.10].every(a => Math.abs(droppedMix(a).reduce((s, p, i) => s + p * MARKET_BUCKETS[i], 0) - (1.5 - 0.5 * a)) < 1e-6),
     'dropped members average 1.5 − ½ × the share dropped (1.495 / 1.475 / 1.45)');
-  ok(MARKET_K.medium.WC === 6.159 && MARKET_K.medium.GL === 1.364 && MARKET_K.medium.Property === 2.242
-    && LINES.every(l => Math.abs(MARKET_K.low[l] - MARKET_K.medium[l] / 2) < 0.001 && Math.abs(MARKET_K.high[l] - MARKET_K.medium[l] * 2) < 0.001),
-    'k is the calibrated one: Medium WC 6.159 / GL 1.364 / Property 2.242, Low half, High double');
+  // RESTATED AT pr/clf-stretch: k is the one measured on the stretched funding
+  // tables (Medium WC 0.600 / GL 0.618 / Property 0.617), which land with it; it
+  // was aws's interim rescale to the unstretched tables (6.159 / 1.364 / 2.242).
+  const kIsStretched = (K: typeof MARKET_K) => K.medium.WC === 0.600 && K.medium.GL === 0.618 && K.medium.Property === 0.617
+    && LINES.every(l => Math.abs(K.low[l] - K.medium[l] / 2) < 1e-12 && Math.abs(K.high[l] - K.medium[l] * 2) < 1e-12);
+  ok(kIsStretched(MARKET_K), 'k is the calibrated one, on the stretched tables: Medium WC 0.600 / GL 0.618 / Property 0.617, Low half, High double');
+  {
+    const UNSTRETCHED = { low: { WC: 3.080, GL: 0.682, Property: 1.121 }, medium: { WC: 6.159, GL: 1.364, Property: 2.242 }, high: { WC: 12.318, GL: 2.728, Property: 4.484 } };
+    control('k rescaled to the unstretched tables (Medium WC 6.159 / GL 1.364 / Property 2.242) is refused', kIsStretched(UNSTRETCHED) ? 0 : 1);
+    const lowNotHalf = { ...MARKET_K, low: { ...MARKET_K.low, GL: MARKET_K.medium.GL * 0.6 } };
+    control('a Low that is not half of Medium is refused', kIsStretched(lowNotHalf) ? 0 : 1);
+  }
   ok(MARKET_FULL_SKEW_GAP === 0.10 && MARKET_MIN_GAP === 0.01 && MARKET_LEAVER_CAP === 0.15 && MARKET_COUNT_SPREAD === 0.20
     && MARKET_RIVAL_SCALE === 4 && MARKET_OUTSIDE_SUPPLY === 0.02 && MARKET_BOOK_RISK_FADE === 0.50,
     'full skew at 10%, no pull below 1%, the 15% cap, ±20%, × 4 over the rivals, 2% outside supply, 50% fade');
