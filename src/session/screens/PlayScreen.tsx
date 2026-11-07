@@ -45,7 +45,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, SessionError as SessionErrorClass, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
@@ -94,10 +94,10 @@ function RoleChoice({ code, role, status, currentYear }: {
           : 'border-slate-200 bg-white'}`}
       >
         <div className="flex items-center gap-2">
-          <span className={lateForTeams ? 'text-slate-600' : 'text-blue-600'}>
+          <span className={lateForTeams ? 'text-black' : 'text-blue-600'}>
             {lateForTeams ? <Lock size={14} /> : <Users size={14} />}
           </span>
-          <p className={`text-sm font-semibold ${lateForTeams ? 'text-slate-600' : 'text-slate-900'}`}>Team Leader</p>
+          <p className={`text-sm font-semibold ${lateForTeams ? 'text-black' : 'text-slate-900'}`}>Team Leader</p>
           {lateForTeams && (
             <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">UNAVAILABLE</span>
           )}
@@ -114,7 +114,7 @@ function RoleChoice({ code, role, status, currentYear }: {
             type="button"
             data-testid="switch-to-player"
             onClick={() => navigate(`/join/${code}`)}
-            className="mt-2 text-xs font-medium text-blue-700 underline"
+            className="mt-2 text-xs font-medium text-brand-600"
           >
             Join as a team instead
           </button>
@@ -136,7 +136,7 @@ function RoleChoice({ code, role, status, currentYear }: {
             type="button"
             data-testid="switch-to-viewer"
             onClick={() => navigate(`/view/${code}`)}
-            className="mt-2 text-xs font-medium text-blue-700 underline"
+            className="mt-2 text-xs font-medium text-brand-600"
           >
             Watch instead
           </button>
@@ -173,7 +173,7 @@ export function RecoveryCodeModal({ code, onClose }: { code: string; onClose: ()
           <button
             type="button"
             onClick={() => { void navigator.clipboard?.writeText(code).then(() => setCopied(true)); }}
-            className="text-slate-600 hover:text-slate-700"
+            className="text-black hover:text-slate-700"
             aria-label="Copy recovery code"
           >
             <Copy size={16} />
@@ -184,7 +184,7 @@ export function RecoveryCodeModal({ code, onClose }: { code: string; onClose: ()
           type="button"
           data-testid="recovery-code-saved"
           onClick={onClose}
-          className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+          className="mt-5 w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
         >
           I&rsquo;ve saved it
         </button>
@@ -226,6 +226,11 @@ export default function PlayScreen({ code, role }: Props) {
   // so the baseline is the same decisionsForYear() seed regardless of which
   // one actually populates the form. Set once per year, beside seededYear.
   const baselineDecisions = useRef<DecisionSet | null>(null);
+  // ⚠ A SEPARATE ACTIVITY SIGNAL, NOT A DATA DIFF — "clicked Next past this
+  // tab" means the team reviewed it, whether or not anything on it actually
+  // changed from carry-forward. Same lifetime as baselineDecisions: reset
+  // once per year, beside it.
+  const reviewedViaNext = useRef<Set<LineView>>(new Set());
 
   const [activeTab, setActiveTab] = useState<TabId>('decisions');
   const [lineView, setLineView] = useState<LineView>('pool');
@@ -274,6 +279,7 @@ export default function PlayScreen({ code, role }: Props) {
     // switch is whether anything is scheduled (shockLosses.gameShocksOn).
     const carryForward = decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0);
     baselineDecisions.current = carryForward;
+    reviewedViaNext.current = new Set();
     // ⚠ A SAVED DRAFT WINS OVER CARRY-FORWARD, THE FIRST TIME THIS YEAR IS
     // SEEDED. This runs exactly once per year transition, before anything is
     // held locally for that year yet, so the draft (if any) is always "newer
@@ -292,22 +298,36 @@ export default function PlayScreen({ code, role }: Props) {
 
   // ---- per-tab activity, for the Decisions sub-menu's indicator -----------
   //
-  // ⚠ TWO SIGNALS SO FAR, EACH KEYED TO ITS OWN TAB: a line's reinsurance
-  // selection (WC/GL/Property) and Pool's investment allocation — both
-  // compared against carry-forward, not against each other. More signals can
-  // OR into either side later; this is deliberately a first slice, not the
-  // finished rule. `undefined` while there is no baseline yet (still
-  // loading) — GameShell renders nothing in that case rather than a
-  // misleading "0 of N".
+  // ⚠ SIGNALS SO FAR, EACH OR'D TOGETHER PER TAB: a line's reinsurance
+  // selection, its funding confidence level (the slider OR the Expected
+  // toggle — either one moving counts, same as the funding panel's own
+  // "changed from Expected" read), and Pool's investment allocation, each
+  // compared against carry-forward — PLUS "clicked Next past this tab"
+  // (reviewedViaNext), which is not a data comparison at all. More signals
+  // can OR in later; this is deliberately a first slice, not the finished
+  // rule. `undefined` while there is no baseline yet (still loading) —
+  // GameShell renders nothing in that case rather than a misleading "0 of N".
   const lineActivity: Partial<Record<LineView, boolean>> | undefined = decisions && baselineDecisions.current
     ? {
-        pool: JSON.stringify(decisions.assetAllocation) !== JSON.stringify(baselineDecisions.current.assetAllocation),
-        ...Object.fromEntries((you?.lines ?? []).map(line => [
-          line,
-          decisions.byLine[line]?.reinsuranceOption !== baselineDecisions.current!.byLine[line]?.reinsuranceOption,
-        ])),
+        pool: reviewedViaNext.current.has('pool')
+          || JSON.stringify(decisions.assetAllocation) !== JSON.stringify(baselineDecisions.current.assetAllocation),
+        ...Object.fromEntries((you?.lines ?? []).map(line => {
+          const mine = decisions.byLine[line];
+          const base = baselineDecisions.current!.byLine[line];
+          return [line, (
+            reviewedViaNext.current.has(line)
+            || mine?.reinsuranceOption !== base?.reinsuranceOption
+            || mine?.fundingAtExpected !== base?.fundingAtExpected
+            || mine?.fundingConfidenceLevel !== base?.fundingConfidenceLevel
+          )];
+        })),
       }
     : undefined;
+
+  /** TabNav's onNext — "I reviewed this tab," independent of whether its data changed. */
+  function handleLineReviewed(line: LineView) {
+    reviewedViaNext.current.add(line);
+  }
 
   // ---- auto-save the current year's draft (Mike's guide, Step 5) ----------
   //
@@ -429,7 +449,7 @@ export default function PlayScreen({ code, role }: Props) {
 
   if (loading && !room) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-slate-600">
+      <div className="flex min-h-screen items-center justify-center text-black">
         <Loader2 className="animate-spin" size={18} />
         <span className="ml-2 text-sm">Finding room {code}…</span>
       </div>
@@ -439,7 +459,7 @@ export default function PlayScreen({ code, role }: Props) {
   if (error?.code === 'ROOM_NOT_FOUND' || !room) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-black">
           No room with code <span className="font-mono font-semibold">{code}</span>.
         </p>
       </div>
@@ -451,6 +471,14 @@ export default function PlayScreen({ code, role }: Props) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 p-6">
         <div className="mx-auto w-full max-w-[480px] pt-10">
+          <button
+            type="button"
+            data-testid="back-to-lobby"
+            onClick={() => navigate('/')}
+            className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <ArrowLeft size={14} /> Back to Lobby
+          </button>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Room {code}</p>
           <h1 className="text-2xl font-semibold text-slate-800">{room.eventName}</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -562,7 +590,7 @@ export default function PlayScreen({ code, role }: Props) {
                       data-testid="submit-reclaim"
                       disabled={reclaiming || !reclaimName.trim() || !reclaimCode.trim()}
                       onClick={() => { void reclaim(); }}
-                      className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"
+                      className="flex-1 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"
                     >
                       {reclaiming ? 'Reclaiming…' : 'Reclaim'}
                     </button>
@@ -577,7 +605,7 @@ export default function PlayScreen({ code, role }: Props) {
             // joined there is nothing to watch, and saying so beats an empty box.
             <div data-testid="viewer-picker" className="mt-4 space-y-2">
               {room.teams.length === 0 && (
-                <p data-testid="no-teams" className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-600">
+                <p data-testid="no-teams" className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-black">
                   No teams have joined yet.
                 </p>
               )}
@@ -592,7 +620,7 @@ export default function PlayScreen({ code, role }: Props) {
                 >
                   <span>
                     <span className="font-medium">{teamLabel(t)}</span>
-                    <span className="ml-2 text-xs text-slate-600">{t.lines.join(' + ')}</span>
+                    <span className="ml-2 text-xs text-black">{t.lines.join(' + ')}</span>
                   </span>
                   <span className="text-xs">{claiming === t.name ? 'Opening…' : 'watch'}</span>
                 </button>
@@ -618,7 +646,7 @@ export default function PlayScreen({ code, role }: Props) {
                   name, which is the part that was actually useful. */}
               <div>
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs text-black">
                   Set by the host for this game. Your pool's history and claims are built from these.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2" data-testid="room-lines">
@@ -639,13 +667,13 @@ export default function PlayScreen({ code, role }: Props) {
                 data-testid="join-team"
                 disabled={nameDraft.trim().length === 0 || claiming !== null}
                 onClick={() => { void enter(nameDraft.trim()); }}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+                className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
               >
                 {claiming !== null ? 'Joining…' : 'Join as this team'}
               </button>
 
               {room.teams.length > 0 && (
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-black">
                   Already in: {room.teams.map(t => `${teamLabel(t)} (${t.lines.join('+')})`).join(', ')}
                 </p>
               )}
@@ -664,7 +692,7 @@ export default function PlayScreen({ code, role }: Props) {
         <p className="mt-3 text-sm font-medium" data-testid="game-building">
           Building {you.teamName}'s opening position…
         </p>
-        <p className="mt-1 text-xs text-slate-600">
+        <p className="mt-1 text-xs text-black">
           Three pre-game years are simulated in this browser, from the room's seed.
         </p>
         {game.error && (
@@ -689,6 +717,7 @@ export default function PlayScreen({ code, role }: Props) {
       initialMembers={game.initialMembers}
       currentDecisions={decisions}
       lineActivity={lineActivity}
+      onLineReviewed={handleLineReviewed}
       onDecisionsChange={isViewer ? () => {} : setDecisions}
       activeTab={activeTab}
       onSelectTab={setActiveTab}
@@ -737,19 +766,19 @@ export default function PlayScreen({ code, role }: Props) {
                 them and offers nothing to change. */}
             <span className="text-slate-500" data-testid="my-lines">
               {(you.lines ?? []).join(' + ')}
-              <span className="ml-1 text-slate-600">(fixed)</span>
+              <span className="ml-1 text-black">(fixed)</span>
             </span>
-            <span className="text-slate-600">room <span className="font-mono">{code}</span></span>
+            <span className="text-black">room <span className="font-mono">{code}</span></span>
             {/* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
                 A viewer never holds a PIN of its own — see JoinResponse.pin — so
                 there is nothing here to show one. */}
             {!isViewer && active.role === role && active.pin && (
-              <span className="flex items-center gap-1 text-slate-600" data-testid="team-pin">
+              <span className="flex items-center gap-1 text-black" data-testid="team-pin">
                 viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
                 <button
                   type="button"
                   onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
-                  className="text-slate-600 hover:text-slate-600"
+                  className="text-black hover:text-black"
                   aria-label="Copy viewer PIN"
                 >
                   <Copy size={12} />
@@ -793,19 +822,19 @@ export default function PlayScreen({ code, role }: Props) {
             )}
 
             {isViewer && (
-              <span className="text-slate-600" data-testid="viewer-basis">
+              <span className="text-black" data-testid="viewer-basis">
                 decisions as last locked
               </span>
             )}
 
             {!complete && outstanding.length > 0 && (
-              <span className="text-slate-600">
+              <span className="text-black">
                 still deciding: <span data-testid="outstanding">{outstanding.join(', ')}</span>
               </span>
             )}
 
             {game.processedYear !== null && (
-              <span className="text-slate-600" data-testid="posted-year">
+              <span className="text-black" data-testid="posted-year">
                 year {game.processedYear} result {isViewer ? 'computed' : 'posted'}
               </span>
             )}
@@ -821,6 +850,15 @@ export default function PlayScreen({ code, role }: Props) {
             {game.error && (
               <span data-testid="game-error" className="text-red-600">{game.error}</span>
             )}
+
+            <button
+              type="button"
+              data-testid="back-to-lobby"
+              onClick={() => navigate('/')}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <ArrowLeft size={13} /> Back to Lobby
+            </button>
           </div>
         </div>
       }

@@ -43,9 +43,17 @@ interface TabNavProps<T extends string> {
   showArrows?: boolean;
   /** Rendered after the tab list and before the Next arrow — e.g. a progress badge. */
   trailing?: React.ReactNode;
+  /**
+   * ⚠ FIRED ONLY BY THE NEXT ARROW, NOT BY onSelect IN GENERAL — a caller that
+   * wants to treat "clicked Next" as its own signal (distinct from switching
+   * tabs by clicking one directly, or stepping Previous) needs a hook that
+   * does not also fire for those. Called with the CURRENT (about-to-be-left)
+   * tab still active, before `onSelect` advances it.
+   */
+  onNext?: (current: T) => void;
 }
 
-export default function TabNav<T extends string>({ tabs, activeTab, onSelect, stickyTop = 60, zIndex = 30, showArrows = false, trailing }: TabNavProps<T>) {
+export default function TabNav<T extends string>({ tabs, activeTab, onSelect, stickyTop = 60, zIndex = 30, showArrows = false, trailing, onNext }: TabNavProps<T>) {
   const index = tabs.findIndex(t => t.id === activeTab);
   const step = (delta: number) => {
     const tab = tabs[index + delta];
@@ -81,7 +89,7 @@ export default function TabNav<T extends string>({ tabs, activeTab, onSelect, st
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50'
                   }`}
               >
-                <span className={activeTab === tab.id ? 'text-blue-600' : 'text-gray-600'}>{tab.icon}</span>
+                <span className={activeTab === tab.id ? 'text-blue-600' : 'text-black'}>{tab.icon}</span>
                 {tab.label}
               </button>
             ))}
@@ -90,7 +98,7 @@ export default function TabNav<T extends string>({ tabs, activeTab, onSelect, st
           {showArrows && (
             <button
               type="button"
-              onClick={() => step(1)}
+              onClick={() => { onNext?.(activeTab); step(1); }}
               disabled={index < 0 || index >= tabs.length - 1}
               aria-label="Next"
               className="shrink-0 rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-30"
