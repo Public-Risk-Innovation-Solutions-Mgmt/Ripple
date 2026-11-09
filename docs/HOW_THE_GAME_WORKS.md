@@ -203,9 +203,8 @@ Members move between the room's teams on price, by formula — there are no indi
 1. **Fade.** Each team's book risk moves 50% back towards 1.00.
 2. **Pair gap** = the dearer team's whole rate (risk control and reinsurance included) ÷ the cheaper team's − 1.
 3. **Willing leavers** = k × (pair gap − 1%)² per cheaper rival, averaged over the N − 1 rivals and × 4, drawn
-   ±20%, capped at 15% of the book. k per line: Low WC 3.080 / GL 0.682 / Property 1.121; Medium 6.159 / 1.364 /
-   2.242; High 12.318 / 2.728 / 4.484 (calibrated on the funding tables now on `aws`; to be recalibrated if the
-   stretched tables of #72 land).
+   ±20%, capped at 15% of the book. k per line: Medium WC 0.600 / GL 0.618 / Property 0.617; Low half of
+   Medium, High double (calibrated on the stretched funding tables below).
 4. **Leaver quality** from five risk buckets (0.60 / 0.80 / 1.00 / 1.25 / 1.60, each ÷ 1.02), tilting towards the
    best as the gap grows; at a 10%+ gap the average leaver is 0.90 (Low), 0.80 (Medium), 0.70 (High). Dropped
    members average about 1.5×.
@@ -229,7 +228,9 @@ struck on its book before the moves, so the rate it locked with is the rate it i
 - **Pure premium:** the last five complete accident years, a year behind (2027 uses 2021–2025), developed to
   ultimate, shock dollars removed, trended (WC 4%, GL 8%, Property 5% a year), plus ALAE (11% / 15% / 3.5%) and
   ULAE (5%). Before history exists, the expected loss cost.
-- **Funding factor:** 1.00 at "Expected" (the default), otherwise from a table by funding level (30–90%).
+- **Funding factor:** 1.00 at "Expected" (the default), otherwise from a table by funding level (30–90%). Each
+  line's table is stretched about 1.00 so its 95% stop is WC 1.30, GL 1.25, Property 1.25; in year 1 that puts 30%
+  funding about 8–10% below Expected's rate and 90% about 19–23% above. Required capital reads the same table.
 - **Reinsurance** is added at its price, outside the divisor.
 - **Pricing never sees shocks:** a shock-free twin of the game supplies the experience.
 

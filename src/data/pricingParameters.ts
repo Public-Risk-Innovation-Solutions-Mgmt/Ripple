@@ -2601,14 +2601,25 @@ export const MARKET_DEFAULT_LEVEL: MarketLevel = 'medium';
  * ⚠ CALIBRATED ON THE STRETCHED FUNDING TABLES (pr/clf-stretch, #72:
  * CLF_STRETCH_95, WC 1.30 / GL and Property 1.25), WHICH THIS BRANCH LANDS.
  * The market-measurement chat first measured and agreed the market's
- * behaviour on the stretched tables (test/clf-stretch-market, dc2d426: five
- * and sixteen teams from 30% to 90% funding on fixed-seed scenarios 7 and 12,
- * five years, Medium) at k = WC 0.600 / GL 0.618 / Property 0.617; Low is half
- * of Medium and High double. On the stretched tables a funding level's rate
- * sits further from its neighbours' than on the unstretched ones, so the same
- * pull needs a smaller k: the measurement put the dearest team's share at
- * 17.6 → 10.5 over five years at Medium on scenario 7, the cheapest's 21.9 →
- * 28.0, and book risk 0.983 / 1.051.
+ * behaviour on the stretched tables (five and sixteen teams from 30% to 90%
+ * funding on fixed-seed scenarios 7 and 12, five years, Medium) at k = WC
+ * 0.600 / GL 0.618 / Property 0.617; Low is half of Medium and High double. On
+ * the stretched tables a funding level's rate sits further from its
+ * neighbours' than on the unstretched ones, so the same pull needs a smaller k:
+ * the measurement put the dearest team's share at 17.6 → 10.5 over five years
+ * at Medium on scenario 7, the cheapest's 21.9 → 28.0, and book risk 0.983 /
+ * 1.051.
+ *
+ * RE-CHECKED ON aws's CURRENT GAME (test/clf-stretch-market, dc2d426): the
+ * rescale aws used, inverted — k_stretched = k_aws × (the dearest team's year-1
+ * pull sum, aws's tables ÷ stretched), five-team room 30 / 50 / Expected / 70 /
+ * 90%, scenarios 7 and 12 (identical) — gives pull ratios WC 10.26, GL 2.21,
+ * Property 3.64 and lands on exactly these k. In ten hosted games of sixteen
+ * teams (eight player types, five years, Medium, Low adverse development,
+ * shocks on) they move members about as aws's k moved them on aws's tables
+ * (Premium-priced and reinsured teams lose 2.5–4.5% of a book a year to price,
+ * none at the 15% cap); aws's k on the stretched tables instead put WC at the
+ * cap in 253 team-years of 800.
  *
  * WHY HERE: aws carried k rescaled to the unstretched BaselineCV tables (WC
  * 6.159 / GL 1.364 / Property 2.242 at Medium) only while #72 was open, to keep
