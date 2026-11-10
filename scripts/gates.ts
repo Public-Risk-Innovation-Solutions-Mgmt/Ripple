@@ -342,6 +342,9 @@ const FAST: string[] = [
                                      //         every sheet in the workbook's order from its own page,
                                      //         headers and page numbers, every row and figure the
                                      //         statement's, negatives red — each with a failing control
+  'statement-decisions-check',       //   4s   the Annual Statement's Decisions section is the recorded
+                                     //         decisions, every scope and year, history years included —
+                                     //         three failing controls
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1

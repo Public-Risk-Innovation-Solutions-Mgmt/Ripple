@@ -376,6 +376,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Year Walkthrough; their text (RENDER_TEXT_DIR), with the save key
 // normalized, is identical on both sides — the only change is
 // "riskpool_gamestate_v45" -> "riskpool_gamestate_v47". No key added or removed.
+// v128: THE ANNUAL STATEMENT'S DECISIONS SECTION AND STICKY INDEX
+// (pr/statement-decisions, from aws ef009cb; numbered past every render
+// baseline on any branch — v127 is pr/clf-stretch's). The control ran first:
+// aws ef009cb's own build reproduced v126, 174 of 174. 26 of 174 move — every
+// Annual Statement screen, and nothing else. Word-diffed against ef009cb's own
+// text (RENDER_TEXT_DIR): on each of the 26, exactly two insertions and nothing
+// removed or changed — the index ("SECTIONS" and its seven entries) and the
+// Decisions section after the Reinsurance section. No key added or removed.
 const BASELINE = process.env.RENDER_BASELINE
 //
 // ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
@@ -1800,11 +1808,13 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Expected premium from new members". No figure moved; no key added or
 // removed. (The player's status strip, also changed here, is a hosted screen
 // this does not render.)
-// v127: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// v129: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
 // GL and Property 1.25; and the market's k set for them, which no screen here
-// shows), rebased onto aws ef009cb, which reproduced v126 174 of 174 here
-// first. 36 of 174 move, each word-diffed against the control (RENDER_TEXT_DIR
-// both sides). The harness plays at Expected (a factor of 1.0), so every move
+// shows). First captured as v127 on aws ef009cb; renumbered past aws's v128
+// and recaptured with aws f02bb15 (#88) merged in. aws f02bb15 reproduced v128
+// 174 of 174 here first. The same 36 of 174 keys move as at v127, each
+// word-diffed against the control (RENDER_TEXT_DIR both sides), with the same
+// words. The harness plays at Expected (a factor of 1.0), so every move
 // is the stretched table read where it is shown:
 //   the Year Walkthrough (26): the save version (riskpool_gamestate_v48 ->
 //   v49), and at y2 the capital stage — the margin factor (GL CLF at 80%
@@ -1814,7 +1824,7 @@ const BASELINE = process.env.RENDER_BASELINE
 //   the Rate Indication (10): each funding level's rate (GL 80% 5.374 -> 5.483,
 //   +8.6% -> +10.8% over Expected). Its Expected rate does not move.
 // No premium, loss or surplus figure moves. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v127.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v129.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

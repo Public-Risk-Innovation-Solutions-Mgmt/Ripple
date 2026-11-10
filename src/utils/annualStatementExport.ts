@@ -30,6 +30,7 @@ import {
   type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
 import type { GameState, LineView } from '../types/simulation';
+import { buildDecisionsTable, DECISIONS_TITLE, type DecisionFormat, type DecisionsTable } from './statementDecisions';
 
 /** The figures' Excel number formats: the screen's units and decimals, negatives red. */
 export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
@@ -106,6 +107,53 @@ function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
   ws.columns = [{ width: 2 }, { width: 42 }, ...Array.from({ length: 2 + ts.years.length }, () => ({ width: 12 }))];
 }
 
+/** The Decisions section's number formats; text cells carry none. */
+const DECISION_NUMBER_FORMAT: Record<Exclude<DecisionFormat, 'text'>, string> = {
+  pct0: '0%', pct1: '0.0%', dollars: STATEMENT_NUMBER_FORMAT.dollars,
+};
+
+/**
+ * THE DECISIONS SECTION, below the template's last row (utils/statementDecisions):
+ * a blank row, its title, a blank, the header of Prior and the years, then a row
+ * per decision — labels in B, Prior in C (blank: decisions do not combine), the
+ * years in D to H, I blank, every column lined down the section as the
+ * program-year sections are, the header and the foot closed. A percentage or a
+ * dollar figure is a number under its format (dollars in thousands, as every
+ * figure on the sheet); a cover's name is text. Returns the last row written.
+ */
+export function fillDecisions(ws: Worksheet, table: DecisionsTable, firstRow: number): number {
+  const thin = { style: 'thin' as const };
+  // `firstRow` is the template's last row: a blank after it, the title, a blank, then the header.
+  ws.getCell(firstRow + 2, 2).value = DECISIONS_TITLE;
+  const header = firstRow + 4;
+  const last = header + table.rows.length;
+  for (let row = header; row <= last; row++) {
+    for (let c = 2; c <= STATEMENT_COLUMNS; c++) {
+      ws.getCell(row, c).border = {
+        left: thin, right: thin,
+        ...(row === header ? { top: thin, bottom: thin } : {}),
+        ...(row === last ? { bottom: thin } : {}),
+      };
+    }
+  }
+  ws.getCell(header, 2).value = 'Program Year:';
+  ws.getCell(header, 2).alignment = { horizontal: 'right' };
+  table.years.forEach((y, k) => { ws.getCell(header, 4 + k).value = y; });
+  table.rows.forEach((row, n) => {
+    const at = header + 1 + n;
+    if (row.kind === 'heading') { ws.getCell(at, 2).value = row.label; ws.getCell(at, 2).font = { bold: true }; return; }
+    ws.getCell(at, 2).value = `      ${row.label}`;
+    row.cells.forEach((c, k) => {
+      if (!c) return;
+      const cell = ws.getCell(at, 3 + k);
+      if (c.format === 'text' || c.value === undefined) { cell.value = c.text; cell.alignment = { horizontal: 'right' }; return; }
+      cell.value = c.format === 'dollars' ? Math.round(c.value / DOLLARS_PER_UNIT) : c.value;
+      cell.numFmt = DECISION_NUMBER_FORMAT[c.format];
+    });
+  });
+  return last;
+}
+
 /** Excel's serial day number for a calendar date (the 1900 system, past its leap-year bug). */
 function dateSerial(y: number, m: number, d: number): number {
   return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86_400_000);
@@ -127,7 +175,11 @@ async function loadExcelJS(): Promise<typeof import('exceljs')> {
 export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
-  for (const ts of statementsForView(gs, view, asOfYear)) fillSheet(wb.addWorksheet(SHEET_NAME(ts)), ts);
+  for (const ts of statementsForView(gs, view, asOfYear)) {
+    const ws = wb.addWorksheet(SHEET_NAME(ts));
+    fillSheet(ws, ts);
+    fillDecisions(ws, buildDecisionsTable(gs, ts), TEMPLATE_ROWS.length);
+  }
   // Copied into its own buffer of exactly the file's length: in Node, writeBuffer
   // hands back a Buffer that may be a slice of a larger shared pool.
   return new Uint8Array(await wb.xlsx.writeBuffer()).buffer as ArrayBuffer;

@@ -77,9 +77,11 @@ in): FAST 96/96 (the sweep alone, `market-step-check` among them) and SLOW
 and 7 warnings, none in a changed file); `clf-stretch-check` (new, FAST) with
 three controls and the source broken by hand (WC at 1.25: exit 1);
 `baseline-cv-table-check` and `funding-table-check` restated to the stretched
-table, each with a control; VALUE_IDENTITY_v95, SOLO_EXPORT_GUARD_v125 and
-RENDER_IDENTITY_v127, each control reproduced on aws first (v94, v124, v126)
-and every move attributed in the check's own note; all 35 session drivers with
+table, each with a control; VALUE_IDENTITY_v95, SOLO_EXPORT_GUARD_v127 and
+RENDER_IDENTITY_v129 (first captured as v125 and v127 on aws ef009cb,
+renumbered past aws's v126 and v128 and recaptured with aws f02bb15 merged
+in), each control reproduced on aws first (v94, v126, v128) and every move
+attributed in the check's own note; all 35 session drivers with
 the admin-token hook (`market-competition` 29/29, `market-survey` 106/106);
 the contract harness on every pass (562/562 local, http, DynamoDB and the
 built handler; admin 33/33; race probes).

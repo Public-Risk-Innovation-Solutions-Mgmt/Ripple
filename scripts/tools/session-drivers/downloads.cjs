@@ -98,18 +98,33 @@ async function downloadsByView(page, tag, lines) {
       if (!dl) { ok(false, `${tag}, ${view} view, ${ext}: no file arrived`); continue; }
       const file = await dl.path();
       let got = [];
-      if (ext === 'xlsx') got = XLSX.read(fs.readFileSync(file), { type: 'buffer' }).SheetNames;
-      else {
+      // THE DECISIONS SECTION (statementDecisions.ts): each sheet / statement ends with one, below the template.
+      const withDecisions = [];
+      if (ext === 'xlsx') {
+        const wb = XLSX.read(fs.readFileSync(file), { type: 'buffer' });
+        got = wb.SheetNames;
+        for (const sh of got) {
+          const ws = wb.Sheets[sh];
+          const range = XLSX.utils.decode_range(ws['!ref']);
+          let at = -1;
+          for (let r = 0; r <= range.e.r; r++) if (ws[XLSX.utils.encode_cell({ r, c: 1 })]?.v === 'Decisions') at = r;
+          const rows = [];
+          for (let r = at + 3; at >= 0 && r <= range.e.r; r++) rows.push(String(ws[XLSX.utils.encode_cell({ r, c: 1 })]?.v ?? '').trim());
+          if (at > 150 && rows.includes('Funding Level') && rows.includes('Aggregate Cover')) withDecisions.push(sh);
+        }
+      } else {
         const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(file)), standardFontDataUrl: fonts, isEvalSupported: false }).promise;
         for (let p = 1; p <= doc.numPages; p++) {
           const text = (await (await doc.getPage(p)).getTextContent()).items.map(it => it.str).join(' ');
           const m = text.match(/ - (Pool|Workers' Compensation|General Liability|Property) - Annual Statement as of 12\/31\/(\d{4})/);
           const sh = m ? VIEW_SHORT[m[1]] : '?';
           if (got.at(-1) !== sh) got.push(sh);
+          if (/Decisions Program Year:/.test(text) && /Funding Level/.test(text) && withDecisions.at(-1) !== sh) withDecisions.push(sh);
         }
       }
       ok(dl.suggestedFilename() === `Annual_Statement_${v}_${year}.${ext}` && got.join(',') === want.join(','),
         `${tag}, ${view} view: "${button}" holds the view's statements (${want.join(', ')})`, `${dl.suggestedFilename()}: ${got.join(', ')}`);
+      ok(withDecisions.join(',') === want.join(','), `${tag}, ${view} view: "${button}" ends each statement with its Decisions section`, withDecisions.join(', ') || 'none');
     }
   }
 }

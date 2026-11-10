@@ -109,6 +109,7 @@ import { programYearsOf, statementYears } from '../../src/utils/resultsStatement
 import ExcelJS from 'exceljs';
 import { ALL_YEARS_COLUMN, allYearsFormula, buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet, LineView, ResultSet } from '../../src/types/simulation';
+import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from '../../src/utils/statementDecisions';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = path.join(__dirname, '../../docs/Annual Statement Example v2.xlsx');
@@ -705,10 +706,42 @@ const expectedAllYears = (r: number) => {
   return a.startsWith('=') ? `=${allYearsFormula(r + 1)}` : a;
 };
 
-function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
+/**
+ * THE DECISIONS SECTION, below the template's last row (utils/statementDecisions):
+ * a blank, its title in B, a blank, the header (the years as numbers in D–H),
+ * then a row per heading and decision. Each cell must be the table's: a number
+ * under its format (dollars in thousands), or the table's text. Rows of the
+ * sheet it occupies: 3 + 1 + the table's rows.
+ */
+const decisionsRowCount = (t: DecisionsTable) => 4 + t.rows.length;
+function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable): string[] {
+  const out: string[] = [];
+  const T = expectedRows.length;
+  if (labelAt(ws, T + 1) !== DECISIONS_TITLE) out.push(`B${T + 2}: "${labelAt(ws, T + 1)}", not the Decisions title`);
+  if (labelAt(ws, T) !== null || labelAt(ws, T + 2) !== null) out.push(`the Decisions title not set off by blank rows`);
+  const h = T + 3;
+  t.years.forEach((y, k) => { const c = cellOf(ws, h, 3 + k); if (c?.t !== 'n' || Number(c.v) !== y) out.push(`row ${h + 1}: year ${k} "${c?.v}" ≠ ${y}`); });
+  t.rows.forEach((row, n) => {
+    const r = h + 1 + n;
+    if ((labelAt(ws, r) ?? '').trim() !== row.label) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${row.label}"`);
+    if (row.kind === 'heading') return;
+    row.cells.forEach((want, k) => {
+      const c = cellOf(ws, r, 2 + k);
+      if (!want) { if (c && c.v !== undefined && c.v !== '') out.push(`row ${r + 1} (${row.label}) col ${k}: "${c.v}" where it should be blank`); return; }
+      if (want.format === 'text' || want.value === undefined) { if (c?.v !== want.text) out.push(`row ${r + 1} (${row.label}) col ${k}: "${c?.v}" ≠ "${want.text}"`); return; }
+      const v = want.format === 'dollars' ? Math.round(want.value / 1000) : want.value;
+      if (c?.t !== 'n' || !near(Number(c.v), v)) out.push(`row ${r + 1} (${row.label}) col ${k}: ${c?.v} ≠ ${v}`);
+    });
+  });
+  return out;
+}
+
+function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement, decisions?: DecisionsTable): string[] {
   const out: string[] = [];
   const range = XLSX.utils.decode_range(ws['!ref']!);
-  if (range.e.r + 1 !== expectedRows.length) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}`);
+  const rowsWanted = expectedRows.length + (decisions ? decisionsRowCount(decisions) : 0);
+  if (range.e.r + 1 !== rowsWanted) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}${decisions ? ` + Decisions ${decisionsRowCount(decisions)}` : ''}`);
+  if (decisions) out.push(...decisionsDiffs(ws, decisions));
   expectedRows.forEach(r => {
     if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${isInsertedRow(r) ? '' : labelAt(tws, tRowOf(r))}")`);
     const wantBlank = !isInsertedRow(r) && blankAt(tws, tRowOf(r));
@@ -796,7 +829,7 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   await ex.xlsx.load(bytes);
   const tag = `${g.id}, year ${gs.lockedResults.length}`;
   check(wb.SheetNames.join(',') === 'Pool,WC,GL,Property', `B. ${tag}: a sheet for the pool and one per line`, wb.SheetNames.join(','));
-  const diffs = wb.SheetNames.flatMap((s, i) => layoutDiffs(wb.Sheets[s], buildTemplateStatement(gs, SCOPES[i])).map(d => `${s} ${d}`));
+  const diffs = wb.SheetNames.flatMap((s, i) => { const ts = buildTemplateStatement(gs, SCOPES[i]); return layoutDiffs(wb.Sheets[s], ts, buildDecisionsTable(gs, ts)).map(d => `${s} ${d}`); });
   check(diffs.length === 0, `B. ${tag}: every sheet matches the template label for label, blank for blank and All Years formula for formula (${expectedRows.length} rows, ${templateFormulas} formulas), figures numbers in their formats`, diffs.slice(0, 3).join(' · '));
   const bdiffs = ex.worksheets.flatMap(ws => borderDiffs(ws).map(d => `${ws.name} ${d}`));
   check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–I × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
@@ -823,7 +856,7 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
     for (const view of viewsOf(gs)) {
       const wb = await sheetsFor(gs, view);
       bad.push(...sheetSetDiff(wb.SheetNames, gs, view));
-      wb.SheetNames.forEach(sh => { for (const d of layoutDiffs(wb.Sheets[sh], buildTemplateStatement(gs, sh === 'Pool' ? 'pool' : sh as LineView))) bad.push(`${view} ${sh} ${d}`); });
+      wb.SheetNames.forEach(sh => { const ts = buildTemplateStatement(gs, sh === 'Pool' ? 'pool' : sh as LineView); for (const d of layoutDiffs(wb.Sheets[sh], ts, buildDecisionsTable(gs, ts))) bad.push(`${view} ${sh} ${d}`); });
     }
     check(bad.length === 0, `B. ${name}: each view's download holds exactly its statements (${viewsOf(gs).map(v => `${v}: ${expectedSheets(gs, v).join('+')}`).join('; ')}), each the template cell for cell`, bad.slice(0, 3).join(' · '));
   }
@@ -862,6 +895,13 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   check(layoutDiffs(dropped, ts).length > 0, 'B control — one blank row dropped: the layout check fails', layoutDiffs(dropped, ts)[0]);
   const noInserted = shifted(all.filter(r => !isInsertedRow(r)));
   check(layoutDiffs(noInserted, ts).length > 0, 'B control — General Admin Expense\'s own "% of Premium" row left out: the layout check fails', layoutDiffs(noInserted, ts)[0]);
+  // THE DECISIONS SECTION: the real sheet passes with its table; one decision changed, and the section cut off, must each fail.
+  const table = buildDecisionsTable(g1, ts);
+  check(layoutDiffs(base, ts, table).length === 0, 'B. the WC sheet as built: the template and its Decisions section, cell for cell', layoutDiffs(base, ts, table)[0]);
+  const fundingAt = expectedRows.length + 4 + table.rows.findIndex(r => r.kind === 'decision' && r.key === 'WC.funding');
+  const offDecision: XLSX.WorkSheet = { ...base, [XLSX.utils.encode_cell({ r: fundingAt, c: 5 })]: { t: 'n', v: 0.99, z: '0%' } };
+  check(layoutDiffs(offDecision, ts, table).some(d => /Funding Level/.test(d)), 'B control — one decision changed (WC\'s Funding Level in one year): the check fails, on that row', layoutDiffs(offDecision, ts, table)[0] ?? 'NOTHING FIRED');
+  check(layoutDiffs(shifted(all), ts, table).length > 0, 'B control — the Decisions section cut off: the check fails', layoutDiffs(shifted(all), ts, table)[0] ?? 'NOTHING FIRED');
   // Each deliberate label change undone (the template's old text kept), and an undeclared one: every one must fail.
   const rowOfTemplate = (t: number) => TEMPLATE_ROW_OF.findIndex((x, i) => x === t && !isInsertedRow(i));
   const undone = LABEL_CHANGES.map(c => {

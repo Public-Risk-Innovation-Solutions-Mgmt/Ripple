@@ -19,6 +19,13 @@ game an "Edit game" button opens the host's mid-game panel (section 2), with the
 
 Both show: Introduction · Rate Indication · Annual Statement · Decisions · Decision History · Year Walkthrough.
 
+**The Annual Statement** (every mode) lays out the template's sections — Net Income Statement, Balance Sheet,
+Underwriting, Contributions, Program Year Totals, Reinsurance — over Prior and five years, then a **Decisions**
+section over the same years: funding level, Non-Renewal, New Members, per-claim cover, aggregate cover, risk control
+and dividend / (assessment) per line, and on the Pool view the asset mix and each line's. Every value is the year's
+recorded decision; the history years before play show the prior board's. A sticky index links each section and
+marks the one in view. The Excel and PDF downloads carry the Decisions section too.
+
 **Hosted.** A host runs an event for teams on their own devices; viewers watch a team.
 
 - **Host** (`/host`, admin sign-in). Tabs: Game Setup · Teams · Charts · Decisions. Creates the room, follows the

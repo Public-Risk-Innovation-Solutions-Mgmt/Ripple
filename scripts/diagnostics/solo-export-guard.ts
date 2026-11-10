@@ -1145,11 +1145,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the Version row (save key v47 -> v48; v46 is still pr/clf-stretch's). 48
 // lines differ (shown and raw), every one the Version row; the 24 statements
 // match.
-// v125: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// v126: THE ANNUAL STATEMENT'S DECISIONS SECTION (pr/statement-decisions, from
+// aws ef009cb; numbered past every export baseline on any branch — v125 is
+// pr/clf-stretch's). The control ran first: aws ef009cb reproduced v124 on all
+// 48 keys. 24 of 48 move — exactly the 24 Annual Statement keys (stmt|…); no
+// other export moves. Text-diffed against ef009cb's own text (GUARD_TEXT_DIR):
+// 1,398 lines added, every one in a Decisions section below a sheet's template
+// rows (its title, header, and a row per decision); 42 lines changed, each a
+// sheet's border listing, and each keeps every border it had and adds only
+// borders at row 158 and below (the section's lines). No template row, figure,
+// label or border above the section moves; no line is removed.
+// v127: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
 // GL and Property 1.25; and the market's k set for them, which the guard's
-// single-player games never reach), rebased onto aws ef009cb, which reproduces
-// v124 here 48 of 48 first. 36 of 48 move, each text-diffed against the
-// control (GUARD_TEXT_DIR both sides):
+// single-player games never reach). First captured as v125 on aws ef009cb;
+// renumbered past aws's v126 and recaptured with aws f02bb15 (#88, the
+// Statement's Decisions section) merged in. aws f02bb15 reproduces v126 here 48
+// of 48 first. The same 36 of 48 keys move as at v125, each text-diffed
+// against the control (GUARD_TEXT_DIR both sides), and no line of the
+// Decisions section (or its borders) moves:
 //   the 12 default Results files (Expected funding, a factor of 1.0): the save
 //   version (riskpool_gamestate_v48 -> v49), and only the rows that read
 //   required capital — Reserve Risk Margin Needed (WC MAMC6EA4 2026
@@ -1166,7 +1179,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   claim, reserve or development figure moves. The 12 default statements do
 //   not move: no capital row is on them. (The same moves as at v120, on
 //   7fc44f9, before the market.)
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v125.json');
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v127.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

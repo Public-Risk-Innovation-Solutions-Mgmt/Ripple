@@ -27,6 +27,7 @@ import {
   TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
 } from './annualStatementTemplate';
 import type { GameState, LineView } from '../types/simulation';
+import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from './statementDecisions';
 
 /** Landscape Letter, in points. */
 export const PDF_PAGE = { width: 792, height: 612 } as const;
@@ -143,13 +144,77 @@ function drawRow(doc: Doc, row: TemplateRow, i: number, y: number, ts: TemplateS
   }
 }
 
+/** The Decisions section's rows as the PDF lays them out: its title, the header, then each row. */
+export type PdfDecisionLine =
+  | { kind: 'title' }
+  | { kind: 'header' }
+  | { kind: 'row'; n: number };
+/** Each page's Decisions lines, for one statement: the title and header open the section, and open every page it runs onto. */
+export function pdfDecisionsPlan(table: DecisionsTable): PdfDecisionLine[][] {
+  const per = Math.floor((BOTTOM - TOP) / PDF_ROW_HEIGHT) - 2;
+  const pages: PdfDecisionLine[][] = [];
+  for (let n = 0; n < table.rows.length || pages.length === 0; n += per) {
+    pages.push([{ kind: 'title' }, { kind: 'header' }, ...table.rows.slice(n, n + per).map((_, k) => ({ kind: 'row' as const, n: n + k }))]);
+  }
+  return pages;
+}
+/** One Decisions cell's text, column c (B = 2 … I = 9), as the PDF writes it. */
+export function pdfDecisionCellText(table: DecisionsTable, line: PdfDecisionLine, c: number): string {
+  if (line.kind === 'title') return c === 2 ? DECISIONS_TITLE : '';
+  if (line.kind === 'header') return c === 2 ? 'Program Year:' : c >= 4 && c <= 8 ? String(table.years[c - 4] ?? '') : '';
+  const row = table.rows[line.n];
+  if (row.kind === 'heading') return c === 2 ? row.label : '';
+  if (c === 2) return row.label;
+  if (c === 9) return '';
+  return pdfFigureText(row.cells[c - 3]?.text ?? '');
+}
+
+function drawDecisions(doc: Doc, table: DecisionsTable, lines: PdfDecisionLine[], red: [number, number, number]) {
+  let y = TOP;
+  lines.forEach((line, k) => {
+    const h = PDF_ROW_HEIGHT;
+    const lastRow = k === lines.length - 1;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    if (line.kind !== 'title') {
+      for (let c = 2; c <= 9; c++) {
+        const x = colX(c), w = colW(c);
+        doc.line(x, y, x, y + h);
+        doc.line(x + w, y, x + w, y + h);
+        if (line.kind === 'header') { doc.line(x, y, x + w, y); doc.line(x, y + h, x + w, y + h); }
+        if (lastRow) doc.line(x, y + h, x + w, y + h);
+      }
+    }
+    const base = y + h - 3;
+    const row = line.kind === 'row' ? table.rows[line.n] : null;
+    for (let c = 2; c <= 9; c++) {
+      const text = pdfDecisionCellText(table, line, c);
+      if (!text) continue;
+      const bold = line.kind !== 'row' || row?.kind === 'heading';
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      doc.setTextColor(...(c > 2 && text.startsWith('-') ? red : [0, 0, 0] as [number, number, number]));
+      const x = colX(c), w = colW(c);
+      // A cover's name can be wider than its column: drawn smaller to fit, never cut.
+      const size = Math.min(PDF_FONT_SIZE, PDF_FONT_SIZE * (w - 2 * PAD) / Math.max(1, doc.getTextWidth(text)));
+      doc.setFontSize(size);
+      if (c === 2) {
+        if (line.kind === 'header') doc.text(text, x + w - PAD, base, { align: 'right' });
+        else doc.text(text, x + PAD + (row?.kind === 'decision' ? INDENT : 0), base);
+      } else if (line.kind === 'header') doc.text(text, x + w / 2, base, { align: 'center' });
+      else doc.text(text, x + w - PAD, base, { align: 'right' });
+      doc.setFontSize(PDF_FONT_SIZE);
+    }
+    y += h;
+  });
+}
+
 /**
  * The PDF of these statements, one after another, each from a new page.
  * `negativeRgb` is the negatives' colour — red; only annual-statement-pdf-check's
  * control passes another, to prove the check reads it.
  */
 export async function buildStatementsPdf(statements: TemplateStatement[], poolName: string,
-  { negativeRgb = RED }: { negativeRgb?: [number, number, number] } = {}): Promise<ArrayBuffer> {
+  { negativeRgb = RED, decisions = [] }: { negativeRgb?: [number, number, number]; decisions?: DecisionsTable[] } = {}): Promise<ArrayBuffer> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter', compress: true });
   doc.setProperties({ title: `Annual Statement - ${poolName}` });
@@ -164,6 +229,15 @@ export async function buildStatementsPdf(statements: TemplateStatement[], poolNa
       headers.push(pdfHeaderText(poolName, ts));
       let y = TOP;
       for (const i of rows) { drawRow(doc, TEMPLATE_ROWS[i], i, y, ts, negativeRgb); y += heightOf(i); }
+    }
+    // The statement's Decisions section, from a new page, after its last.
+    const table = decisions[statements.indexOf(ts)];
+    if (table) {
+      for (const lines of pdfDecisionsPlan(table)) {
+        doc.addPage('letter', 'landscape');
+        headers.push(pdfHeaderText(poolName, ts));
+        drawDecisions(doc, table, lines, negativeRgb);
+      }
     }
   }
   // Every page's header and footer, once the page count is known.
@@ -188,5 +262,6 @@ export async function buildStatementsPdf(statements: TemplateStatement[], poolNa
  * line's, on the Pool view.
  */
 export async function buildAnnualStatementPdf(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
-  return buildStatementsPdf(statementsForView(gs, view, asOfYear), gs.setup.poolName);
+  const statements = statementsForView(gs, view, asOfYear);
+  return buildStatementsPdf(statements, gs.setup.poolName, { decisions: statements.map(ts => buildDecisionsTable(gs, ts)) });
 }
