@@ -1145,7 +1145,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the Version row (save key v47 -> v48; v46 is still pr/clf-stretch's). 48
 // lines differ (shown and raw), every one the Version row; the 24 statements
 // match.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v124.json');
+// v126: THE ANNUAL STATEMENT'S DECISIONS SECTION (pr/statement-decisions, from
+// aws ef009cb; numbered past every export baseline on any branch — v125 is
+// pr/clf-stretch's). The control ran first: aws ef009cb reproduced v124 on all
+// 48 keys. 24 of 48 move — exactly the 24 Annual Statement keys (stmt|…); no
+// other export moves. Text-diffed against ef009cb's own text (GUARD_TEXT_DIR):
+// 1,398 lines added, every one in a Decisions section below a sheet's template
+// rows (its title, header, and a row per decision); 42 lines changed, each a
+// sheet's border listing, and each keeps every border it had and adds only
+// borders at row 158 and below (the section's lines). No template row, figure,
+// label or border above the section moves; no line is removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v126.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -376,6 +376,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Year Walkthrough; their text (RENDER_TEXT_DIR), with the save key
 // normalized, is identical on both sides — the only change is
 // "riskpool_gamestate_v45" -> "riskpool_gamestate_v47". No key added or removed.
+// v128: THE ANNUAL STATEMENT'S DECISIONS SECTION AND STICKY INDEX
+// (pr/statement-decisions, from aws ef009cb; numbered past every render
+// baseline on any branch — v127 is pr/clf-stretch's). The control ran first:
+// aws ef009cb's own build reproduced v126, 174 of 174. 26 of 174 move — every
+// Annual Statement screen, and nothing else. Word-diffed against ef009cb's own
+// text (RENDER_TEXT_DIR): on each of the 26, exactly two insertions and nothing
+// removed or changed — the index ("SECTIONS" and its seven entries) and the
+// Decisions section after the Reinsurance section. No key added or removed.
 const BASELINE = process.env.RENDER_BASELINE
 //
 // ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
@@ -1800,7 +1808,7 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Expected premium from new members". No figure moved; no key added or
 // removed. (The player's status strip, also changed here, is a hosted screen
 // this does not render.)
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v126.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v128.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -43,6 +43,7 @@ import {
   ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, figureText, showsPrior, shownFigure, templateStatements, TEMPLATE_ROWS, type TemplateStatement,
 } from '../../src/utils/annualStatementTemplate';
 import { buildAnnualStatementPdf, buildStatementsPdf } from '../../src/utils/annualStatementPdf';
+import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from '../../src/utils/statementDecisions';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineView } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -140,10 +141,24 @@ function expectedRows(ts: TemplateStatement): string[][] {
   });
   return out;
 }
+/**
+ * THE DECISIONS SECTION'S ROWS, after the statement's (utils/statementDecisions):
+ * its title, the header of the years, then a row per heading and decision —
+ * from the table, cell by cell. ⚠ What the table holds against the recorded
+ * decisions is statement-decisions-check's; this checks the PDF carries the table.
+ */
+function expectedDecisionRows(t: DecisionsTable): string[][] {
+  const out: string[][] = [[DECISIONS_TITLE, '', '', '', '', '', '', ''], ['Program Year:', '', ...t.years.map(String), '']];
+  for (const r of t.rows) {
+    if (r.kind === 'heading') out.push([r.label, '', '', '', '', '', '', '']);
+    else out.push([r.label, ...r.cells.map(c => dash(c?.text ?? '')), '']);
+  }
+  return out;
+}
 const RED = '#dc2626';
 
 /** Every way the PDF differs from the statements it should carry. */
-async function pdfDiffs(bytes: ArrayBuffer, statements: TemplateStatement[]): Promise<string[]> {
+async function pdfDiffs(bytes: ArrayBuffer, statements: TemplateStatement[], gs: GameState): Promise<string[]> {
   const out: string[] = [];
   const pages = await readPdf(bytes);
   pages.forEach((p, k) => {
@@ -157,7 +172,7 @@ async function pdfDiffs(bytes: ArrayBuffer, statements: TemplateStatement[]): Pr
     const mine: Page[] = [];
     while (at < pages.length && pages[at].header === head) mine.push(pages[at++]);
     if (mine.length === 0) { out.push(`${ts.scopeName}: no page with its header (next page reads "${pages[at]?.header ?? 'nothing'}")`); continue; }
-    const got = mine.flatMap(p => p.rows), want = expectedRows(ts);
+    const got = mine.flatMap(p => p.rows), want = [...expectedRows(ts), ...expectedDecisionRows(buildDecisionsTable(gs, ts))];
     if (got.length !== want.length) out.push(`${ts.scopeName}: ${got.length} rows on its pages, the statement has ${want.length}`);
     want.forEach((w, r) => {
       const g = got[r];
@@ -202,7 +217,7 @@ for (const g of games) for (const view of (g.everyView ? ['pool', ...g.gs.setup.
   const statements = expectedFor(g.gs, view, g.asOf);
   const bytes = await buildAnnualStatementPdf(g.gs, g.asOf, view);
   const pages = await readPdf(bytes);
-  const diffs = await pdfDiffs(bytes, statements);
+  const diffs = await pdfDiffs(bytes, statements, g.gs);
   negatives += pages.flatMap(p => p.runs).filter(r => r.rgb.toLowerCase() === RED).length;
   check(diffs.length === 0, `${g.name}, ${view} view: ${statements.length} sheet(s) (${statements.map(s => s.scopeName).join(', ')}) on ${pages.length} pages, every row and figure the statement's, negatives red`, diffs.slice(0, 3).join(' · '));
 }
@@ -212,21 +227,30 @@ console.log('\ncontrols');
 {
   const gs = games[1].gs;
   const statements = templateStatements(gs);
+  const tables = (sts: TemplateStatement[], g: GameState = gs) => ({ decisions: sts.map(ts => buildDecisionsTable(g, ts)) });
   // One figure off: one column of WC's Contributions Total Net Incurred.
   const off = statements.map(ts => ({ ...ts, figures: Object.fromEntries(Object.entries(ts.figures).map(([k, v]) => [k, [...v]])) }));
   off[1].figures['cy.incurred'][3] = (off[1].figures['cy.incurred'][3] ?? 0) + 7_000;
-  const e1 = await pdfDiffs(await buildStatementsPdf(off, POOL), statements);
+  const e1 = await pdfDiffs(await buildStatementsPdf(off, POOL, tables(off)), statements, gs);
   check(e1.length > 0, 'control — one figure off (WC, Contributions\' Total Net Incurred): the check fails', e1[0] ?? 'NOTHING FIRED');
-  const e2 = await pdfDiffs(await buildStatementsPdf(statements.filter(s => s.scope !== 'GL'), POOL), statements);
+  const e2 = await pdfDiffs(await buildStatementsPdf(statements.filter(s => s.scope !== 'GL'), POOL, tables(statements.filter(s => s.scope !== 'GL'))), statements, gs);
   check(e2.length > 0, 'control — a sheet left out (GL): the check fails', e2[0] ?? 'NOTHING FIRED');
-  const e3 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { negativeRgb: [0, 0, 0] }), statements);
+  const e3 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { negativeRgb: [0, 0, 0], ...tables(statements) }), statements, gs);
   check(e3.length > 0 && e3.every(e => / drawn /.test(e)), 'control — negatives drawn black: the check fails, on colour alone', e3[0] ?? 'NOTHING FIRED');
   // The wrong set: the Pool view's PDF on a line's view, and a one-line team's Pool PDF with the line's statement too.
-  const e4 = await pdfDiffs(await buildAnnualStatementPdf(gs, undefined, 'pool'), expectedFor(gs, 'GL'));
+  const e4 = await pdfDiffs(await buildAnnualStatementPdf(gs, undefined, 'pool'), expectedFor(gs, 'GL'), gs);
   check(e4.length > 0, 'control — the Pool view\'s PDF taken for the GL view: the check fails', e4[0] ?? 'NOTHING FIRED');
   const one = games[games.length - 1].gs;
-  const e5 = await pdfDiffs(await buildStatementsPdf(templateStatements(one), POOL), expectedFor(one, 'pool'));
+  const e5 = await pdfDiffs(await buildStatementsPdf(templateStatements(one), POOL, tables(templateStatements(one), one)), expectedFor(one, 'pool'), one);
   check(e5.length > 0, 'control — a one-line team\'s Pool PDF with the line\'s statement too (the old set): the check fails', e5[0] ?? 'NOTHING FIRED');
+  // THE DECISIONS SECTION: left out, and one decision off.
+  const e6 = await pdfDiffs(await buildStatementsPdf(statements, POOL), statements, gs);
+  check(e6.length > 0, 'control — the Decisions section left out: the check fails', e6[0] ?? 'NOTHING FIRED');
+  const offTables = tables(statements).decisions.map(t => ({ ...t, rows: t.rows.map(r => ({ ...r })) }));
+  const wcFunding = offTables[1].rows.find(r => r.kind === 'decision' && r.key === 'WC.funding');
+  if (wcFunding && wcFunding.kind === 'decision') wcFunding.cells = wcFunding.cells.map((c, k) => (k === 3 ? { text: '99%', format: 'pct0' as const, value: 0.99 } : c));
+  const e7 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { decisions: offTables }), statements, gs);
+  check(e7.length > 0 && e7.some(e => /Funding Level/.test(e)), 'control — one decision off (WC\'s Funding Level in one year): the check fails, on that row', e7[0] ?? 'NOTHING FIRED');
 }
 
 console.log(failures.length === 0 ? '\nANNUAL STATEMENT PDF PASS' : `\nFAIL — ${failures.length}: ${failures.join('; ')}`);
