@@ -1155,7 +1155,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // sheet's border listing, and each keeps every border it had and adds only
 // borders at row 158 and below (the section's lines). No template row, figure,
 // label or border above the section moves; no line is removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v126.json');
+// v128: OUTSIDE MEMBERS BY THE WIDE TAPER (pr/market-l1, from aws f02bb15;
+// numbered past every export baseline on any branch — v127 is pr/clf-stretch's).
+// The control ran first: aws f02bb15 reproduced v126 on all 48 keys. 24 of 48
+// move — the 24 Results files, each only by its Version row (save key v48 ->
+// v50; v49 is pr/clf-stretch's). Text-diffed against f02bb15's own text
+// (GUARD_TEXT_DIR): 48 lines differ (shown and raw), every one the Version row;
+// the 24 statements match. The market step this changes runs only in hosted
+// rooms with the market on, which no export here plays.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v128.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
