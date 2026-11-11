@@ -16,10 +16,13 @@
 //    every stored input must be what the team posted (or, stale, its last lock).
 // 2. THE RULES, on every stored result: leavers out = good leavers in; nobody
 //    beyond its appetite; nobody leaves the cheapest team; good leavers only to
-//    a team cheaper by more than 1%; outside supply only at or below the room's
-//    average rate; dropped members only to a team that accepts them and never
-//    back to their own; willing leavers within the 15% cap; the book after = the
-//    book − out + in; untaken dropped = dropped − taken.
+//    a team cheaper by more than 1%; OUTSIDE SUPPLY BY THE WIDE TAPER — none to a
+//    team 20% or more above the room's average rate, and among the teams not
+//    filled to their appetite, outside intake ÷ taper weight the same for all
+//    (the supply is shared by weight); every team's outside newcomers on a line
+//    the SAME MIX (one quality); no team takes another's dropped members;
+//    willing leavers within the 15% cap; the book after = the book − out + in;
+//    untaken dropped = dropped − taken.
 // 3. THE SPEC'S NUMBERS: the buckets ÷ 1.02 average 1.00; the full skew's
 //    average leaver is 0.90 / 0.80 / 0.70; dropped members average 1.5 − ½ ×
 //    the share; the calibrated k; one pair's willing leavers inside k ×
@@ -29,17 +32,21 @@
 //    no market input plays byte-identical to one without the field.
 //
 // CONTROLS, each of which must fail: a recompute without the fade; with the
-// pulls summed instead of averaged; with the team keys left out of the seeds; a
-// stored input tampered with; and stored results planted with each rule broken
-// (an intake past the appetite, a leaver from the cheapest team, outside supply
-// to a dear team, another team's dropped members taken in, a book that
-// does not add up).
+// pulls summed instead of averaged; with the team keys left out of the seeds;
+// with TODAY'S CUTOFF for outside supply (only at or below the average, cheapest
+// first, up to the whole appetite); with BEST-FIRST outside quality (the
+// cheapest takes the best of the draw); a stored input tampered with; and stored
+// results planted with each rule broken (an intake past the appetite, a leaver
+// from the cheapest team, outside supply to a team 25% over the average, outside
+// intake moved off the taper's shares, one team's newcomers better than the
+// others', another team's dropped members taken in, a book that does not add
+// up).
 // ============================================================================
 
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_OUTSIDE_SUPPLY,
-  MARKET_RIVAL_SCALE, type MarketLevel,
+  MARKET_OUTSIDE_QUALITY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, type MarketLevel,
 } from '../../src/data/pricingParameters';
 import type { CoverageLine } from '../../src/types/simulation';
 import type { MarketLockInput, StoredMarketYear, MarketTeamLineResult } from '../../src/session/contract';
@@ -117,7 +124,13 @@ function share(n: number, w: number[], rnd: () => number): number[] {
 }
 
 interface LineIn { rate: number; book: number; bookRisk: number; newMembers: number; nonRenewal: number }
-interface Variant { noFade?: boolean; summedPulls?: boolean; noTeamSeed?: boolean }
+interface Variant { noFade?: boolean; summedPulls?: boolean; noTeamSeed?: boolean; cutoff?: boolean; bestFirst?: boolean }
+
+/** The brief's taper: 1 at or below the average, 1 − (over ÷ 20%) above it, never below 0. */
+const taperWeight = (rate: number, avgRate: number) => {
+  const over = rate / avgRate - 1;
+  return over <= 0 ? 1 : Math.max(0, 1 - over / MARKET_OUTSIDE_TAPER);
+};
 
 function recomputeLine(level: Level, seed: string, year: number, line: CoverageLine,
   teams: { key: string; x: LineIn }[], untakenLast: number, v: Variant = {}) {
@@ -172,10 +185,40 @@ function recomputeLine(level: Level, seed: string, year: number, line: CoverageL
   const nNew = Math.round(supply / (roomBook / N / MARKET_MEMBERS_PER_BOOK));
   if (nNew > 0) {
     const rnd = draws(`${seed}|outside|${line}|${year}`);
-    const newcomers = Array.from({ length: nNew }, () => ({ e: supply / nNew, risk: RISKS[bucketOf([...MARKET_BUCKET_BASE_MIX], rnd())], to: -1 }))
-      .sort((a, b) => a.risk - b.risk);
-    for (const j of cheapestFirst) if (rate[j] <= avgRate + 1e-12) for (const m of newcomers) take(j, m);
-    for (const m of newcomers) if (m.to >= 0) { outside[m.to] += m.e; outsideRisk[m.to] += m.e * m.risk; }
+    const risks = Array.from({ length: nNew }, () => RISKS[bucketOf([...MARKET_BUCKET_BASE_MIX], rnd())]);
+    const each = supply / nNew;
+    const mix = risks.reduce((a, b) => a + b, 0) / nNew;
+    const intake = z();
+    if (v.cutoff) {
+      // CONTROL: today's cutoff — at or below the average, cheapest first, whole newcomers up to the appetite.
+      for (const j of cheapestFirst) if (rate[j] <= avgRate + 1e-12) {
+        for (let q = 0; q < nNew; q++) if (intake.reduce((a, b) => a + b, 0) + each <= supply + 1e-9 && each <= room[j] - intake[j] + 1e-9) intake[j] += each;
+      }
+    } else {
+      // The wide taper, solved as "fill the teams whose share would pass their room, share the rest by weight".
+      const w = rate.map(x => taperWeight(x, avgRate));
+      const filled = new Set<number>();
+      const cand = teams.map((_, j) => j).filter(j => w[j] > 0 && room[j] > 1e-9); // the teams with room left
+      for (;;) {
+        const free = cand.filter(j => !filled.has(j));
+        const rest = supply - [...filled].reduce((a, j) => a + room[j], 0);
+        const W = free.reduce((a, j) => a + w[j], 0);
+        const over = free.filter(j => W > 0 && rest * w[j] / W > room[j] + 1e-12);
+        if (!over.length) { for (const j of free) intake[j] = W > 0 ? rest * w[j] / W : 0; break; }
+        for (const j of over) filled.add(j);
+      }
+      for (const j of filled) intake[j] = room[j];
+    }
+    if (v.bestFirst) {
+      // CONTROL: best-first quality — the cheapest takes the best of the draw.
+      const sorted = [...risks].sort((a, b) => a - b);
+      let k = 0, part = 1;
+      for (const j of cheapestFirst) {
+        let need = intake[j] / each;
+        while (need > 1e-12 && k < sorted.length) { const t = Math.min(need, part); outsideRisk[j] += t * each * sorted[k]; need -= t; part -= t; if (part <= 1e-12) { k++; part = 1; } }
+      }
+    } else for (let j = 0; j < N; j++) outsideRisk[j] += intake[j] * mix;
+    for (let j = 0; j < N; j++) { outside[j] += intake[j]; room[j] -= intake[j]; }
   }
   // Non-renewed members: no team takes them; every one leaves the market (next year's refill).
   const dropped = z(), droppedTaken = z();
@@ -250,6 +293,13 @@ function ruleProblems(s: StoredMarketYear): string[] {
     if (Math.abs(sumOut - sumGood) > 1e-6 * Math.max(1, sumOut)) p.push(`${line}: leavers out ${sumOut} ≠ good leavers in ${sumGood}`);
     const dropped = names.reduce((a, n) => a + r(n).droppedExposure - r(n).droppedTaken, 0);
     if (Math.abs(dropped - (s.untakenDropped[line] ?? 0)) > 1e-6 * Math.max(1, dropped)) p.push(`${line}: untaken dropped ≠ dropped − taken`);
+    // The wide taper's shares: among the teams not filled to their appetite, outside intake ÷ weight is one number.
+    const open = names.filter(n => taperWeight(rate(n), avg) > 0 && r(n).inGood + r(n).inOutside + r(n).inDropped < r(n).appetite - 1e-6);
+    const per = open.map(n => r(n).inOutside / taperWeight(rate(n), avg));
+    if (per.length > 1 && Math.max(...per) - Math.min(...per) > 1e-6 * Math.max(1, ...per)) p.push(`${line}: outside supply not shared by the taper's weights`);
+    // The same mix: every team's outside newcomers on the line carry one quality.
+    const q = names.filter(n => r(n).inOutside > 0).map(n => r(n).qualityOutside!);
+    if (q.length > 1 && Math.max(...q) - Math.min(...q) > 1e-9) p.push(`${line}: outside newcomers' quality differs between teams`);
     for (const n of names) {
       const x = r(n), book = s.inputs[n].byLine[line]!.book, input = s.inputs[n].byLine[line]!;
       const intake = x.inGood + x.inOutside + x.inDropped;
@@ -259,7 +309,7 @@ function ruleProblems(s: StoredMarketYear): string[] {
       if (x.willingShare > MARKET_LEAVER_CAP + 1e-12) p.push(`${n} ${line}: willing leavers past the cap`);
       if (x.leftShare > x.willingShare + 1e-9) p.push(`${n} ${line}: more left than wanted to`);
       if (x.inGood > 0 && !names.some(m => rate(m) / rate(n) - 1 > MARKET_MIN_GAP && r(m).outExposure > 0)) p.push(`${n} ${line}: good leavers with no team dearer by over 1% losing any`);
-      if (x.inOutside > 0 && rate(n) > avg + 1e-12) p.push(`${n} ${line}: outside supply to a team above the average rate`);
+      if (x.inOutside > 0 && rate(n) >= avg * (1 + MARKET_OUTSIDE_TAPER) - 1e-12) p.push(`${n} ${line}: outside supply to a team 20% or more above the average rate`);
       if (x.inDropped > 0 || x.droppedTaken > 0) p.push(`${n} ${line}: another team's non-renewed members taken in`);
       if (Math.abs(x.bookAfter - (book - x.outExposure + intake)) > 1e-6 * Math.max(1, book)) p.push(`${n} ${line}: book after ≠ book − out + in`);
       if (x.droppedTaken > x.droppedExposure + 1e-9) p.push(`${n} ${line}: more of its dropped members taken than it dropped`);
@@ -373,6 +423,17 @@ async function main() {
   control('a recompute without the book risk fade disagrees', differences(y2.result, recomputeYear(M.code, M.seed, y2, y1, { noFade: true }).result).length);
   control('a recompute with the pulls summed, not averaged over the rivals × 4, disagrees', differences(y1.result, recomputeYear(M.code, M.seed, y1, undefined, { summedPulls: true }).result).length);
   control('a recompute with the team keys left out of the seeds disagrees', differences(y1.result, recomputeYear(M.code, M.seed, y1, undefined, { noTeamSeed: true }).result).length);
+  {
+    // Today's rules, each on its own, must disagree with what the room stores — in every year and level together.
+    let cut = 0, best = 0;
+    for (const level of ['low', 'medium', 'high'] as Level[]) for (let y = 1; y <= 4; y++) {
+      const st = stored[level], s = st.years[String(y)], prev = st.years[String(y - 1)];
+      cut += differences(s.result, recomputeYear(st.code, st.seed, s, prev, { cutoff: true }).result).length;
+      best += differences(s.result, recomputeYear(st.code, st.seed, s, prev, { bestFirst: true }).result).length;
+    }
+    control('a recompute with today\'s cutoff for outside supply (at or below the average, cheapest first) disagrees', cut);
+    control('a recompute with best-first outside quality (the cheapest takes the best of the draw) disagrees', best);
+  }
   const tampered: StoredMarketYear = JSON.parse(JSON.stringify(y1));
   tampered.inputs.Elm.byLine.WC!.rate *= 0.9;
   control('a stored rate tampered with no longer reproduces the stored result', differences(y1.result, recomputeYear(M.code, M.seed, tampered, undefined).result).length);
@@ -381,9 +442,79 @@ async function main() {
   const plant = (f: (s: StoredMarketYear) => void) => { const s: StoredMarketYear = JSON.parse(JSON.stringify(y1)); f(s); return ruleProblems(s).length; };
   control('an intake past the appetite is refused', plant(s => { const x = s.result.Alder.WC! as { inGood: number; appetite: number }; x.inGood = x.appetite * 2; }));
   control('a leaver from the cheapest team is refused', plant(s => { (s.result.Alder.WC as { willingShare: number }).willingShare = 0.02; }));
-  control('outside supply to a team above the average rate is refused', plant(s => { (s.result.Elm.WC as { inOutside: number }).inOutside = 1; }));
+  control('outside supply to a team 25% over the average rate is refused', plant(s => {
+    const names = Object.keys(s.result).filter(n => s.result[n].WC);
+    const others = names.filter(n => n !== 'Elm').reduce((a, n) => a + s.inputs[n].byLine.WC!.rate, 0);
+    // Elm's rate set so it sits 25% over the room's average (with itself in it): r = 1.25 × (others + r) / N.
+    const N = names.length;
+    s.inputs.Elm.byLine.WC!.rate = 1.25 * others / (N - 1.25);
+    const x = s.result.Elm.WC as { inOutside: number; bookAfter: number; appetite: number };
+    x.appetite = Math.max(x.appetite, 1); x.inOutside = 1; x.bookAfter += 1;
+  }));
+  {
+    // One team's outside newcomers made better than the others' on a line where at least two took some.
+    let problems = 0;
+    for (let y = 1; y <= 4 && !problems; y++) for (const line of LINES) {
+      const s: StoredMarketYear = JSON.parse(JSON.stringify(M.years[String(y)]));
+      const took = Object.keys(s.result).filter(k => (s.result[k][line]?.inOutside ?? 0) > 0);
+      if (took.length < 2) continue;
+      (s.result[took[0]][line] as { qualityOutside: number }).qualityOutside *= 0.9;
+      problems = ruleProblems(s).length;
+      break;
+    }
+    control('one team\'s outside newcomers better than the others\' is refused', problems);
+  }
   control('another team\'s dropped members taken in are refused', plant(s => { (s.result.Cedar.WC as { inDropped: number }).inDropped = 0.5; }));
   control('a book that does not add up is refused', plant(s => { (s.result.Birch.GL as { bookAfter: number }).bookAfter *= 1.01; }));
+
+  // ============================================================================
+  // 2b. A SUPPLY-SHORT LINE — where the taper's shares decide who gets what
+  // ============================================================================
+  // The room above rarely runs short of outside members (its appetites are small),
+  // so here every team wants 10% and the supply is 2% of the room: the engine's
+  // result must be the recompute's, the shares must follow the weights, and moving
+  // intake off them must be refused.
+  console.log('\n2b. A supply-short line: the wide taper decides the shares');
+  {
+    const { runMarketStep } = await import('../../src/utils/market/marketStep');
+    const f = [0.92, 0.97, 1.00, 1.03, 1.08, 1.30];
+    const keys = f.map((_, i) => `T${i + 1}`);
+    const avgF = f.reduce((a, b) => a + b, 0) / f.length;
+    const lineIn = (i: number) => ({ rate: 4 * f[i], book: 100, bookRisk: 1, newMembers: 0.10, nonRenewal: 0 });
+    const eng = runMarketStep({ level: 'medium', seed: 'SHORT|7', year: 1, lines: ['WC'],
+      teams: keys.map((key, i) => ({ key, lines: { WC: lineIn(i) } })), untakenDroppedLastYear: {} });
+    const re = recomputeLine('medium', 'SHORT|7', 1, 'WC', keys.map((key, i) => ({ key, x: lineIn(i) })), 0);
+    const engRes: StoredMarketYear['result'] = {}, reRes: StoredMarketYear['result'] = {};
+    for (const k of keys) { engRes[k] = { WC: eng.teams[k].WC! }; reRes[k] = { WC: re.res[k] }; }
+    const d = differences(engRes, reRes);
+    ok(d.length === 0, 'the engine\'s supply-short line is the recompute\'s, field by field', d.slice(0, 4).join('; '));
+    const s: StoredMarketYear = { year: 1, level: 'medium', missing: [], result: engRes, untakenDropped: { WC: eng.untakenDropped.WC ?? 0 },
+      inputs: Object.fromEntries(keys.map((k, i) => [k, { teamNumber: i + 1, fromYear: 1, stale: false, byLine: { WC: { rate: 4 * f[i], book: 100, newMembers: 0.10, nonRenewal: 0 } } }])) };
+    const x = (i: number) => engRes[keys[i]].WC!;
+    const all = [0, 1, 2, 3, 4, 5];
+    // The cheapest fill on dearer teams' leavers first; the outside supply then fills who it can and shares the rest.
+    const open = all.filter(i => taperWeight(f[i], avgF) > 0 && x(i).inGood + x(i).inOutside < x(i).appetite - 1e-6);
+    const full = all.filter(i => taperWeight(f[i], avgF) > 0 && !open.includes(i));
+    const per = open.map(i => x(i).inOutside / taperWeight(f[i], avgF));
+    const supply = all.reduce((a, i) => a + x(i).inOutside, 0);
+    ok(open.length >= 2 && open.includes(4) && ruleProblems(s).length === 0 && Math.max(...per) - Math.min(...per) < 1e-9 * Math.max(...per)
+      && full.every(i => Math.abs(x(i).inGood + x(i).inOutside - x(i).appetite) < 1e-6) && x(5).inOutside === 0
+      && Math.abs(supply - 0.02 * 600) < 1e-9,
+      `the supply (${supply.toFixed(2)}, 2% of the room) is all given: ${full.map(i => keys[i]).join(', ')} filled to their appetites, `
+      + `${open.map(i => `${keys[i]} ${x(i).inOutside.toFixed(3)} at weight ${taperWeight(f[i], avgF).toFixed(3)}`).join(', ')} — intake ∝ weight; `
+      + `the team ${(100 * (f[5] / avgF - 1)).toFixed(0)}% over the average gets none; the rules hold`);
+    const q = [0, 1, 2, 3, 4].map(i => x(i).qualityOutside!);
+    ok(Math.max(...q) - Math.min(...q) < 1e-12, `every team's outside newcomers carry the same quality (${q[0].toFixed(4)})`);
+    const moved: StoredMarketYear = JSON.parse(JSON.stringify(s));
+    const a = moved.result[keys[open[0]]].WC! as { inOutside: number; bookAfter: number }, b = moved.result[keys[open[1]]].WC! as { inOutside: number; bookAfter: number };
+    const dd = a.inOutside * 0.25;
+    a.inOutside -= dd; a.bookAfter -= dd; b.inOutside += dd; b.bookAfter += dd;
+    control('outside intake moved off the taper\'s shares (a quarter of one open team\'s, to another) is refused', ruleProblems(moved).length);
+    const cutRe = recomputeLine('medium', 'SHORT|7', 1, 'WC', keys.map((key, i) => ({ key, x: lineIn(i) })), 0, { cutoff: true });
+    const cutRes: StoredMarketYear['result'] = {};
+    for (const k of keys) cutRes[k] = { WC: cutRe.res[k] };
+    control('today\'s cutoff on the supply-short line disagrees with the engine', differences(engRes, cutRes).length);
+  }
 
   // ============================================================================
   // 3. THE SPEC'S NUMBERS
@@ -405,6 +536,13 @@ async function main() {
   ok(MARKET_FULL_SKEW_GAP === 0.10 && MARKET_MIN_GAP === 0.01 && MARKET_LEAVER_CAP === 0.15 && MARKET_COUNT_SPREAD === 0.20
     && MARKET_RIVAL_SCALE === 4 && MARKET_OUTSIDE_SUPPLY === 0.02 && MARKET_BOOK_RISK_FADE === 0.50,
     'full skew at 10%, no pull below 1%, the 15% cap, ±20%, × 4 over the rivals, 2% outside supply, 50% fade');
+  {
+    const { outsideWeight } = await import('../../src/utils/market/marketStep');
+    const pts: [number, number][] = [[0.80, 1], [1.00, 1], [1.05, 0.75], [1.10, 0.5], [1.15, 0.25], [1.20, 0], [1.40, 0]];
+    ok(MARKET_OUTSIDE_TAPER === 0.20 && MARKET_OUTSIDE_QUALITY === 'same mix'
+      && pts.every(([x, w]) => Math.abs(outsideWeight(x, 1) - w) < 1e-12 && Math.abs(taperWeight(x, 1) - w) < 1e-12),
+      'the wide taper: weight 1 at or below the average, 0.75 / 0.5 / 0.25 at 5 / 10 / 15% over, 0 from 20% over; the same mix');
+  }
   {
     // One dear team, four rivals at one rate: four pulls of k(g − 1%)², averaged over the 4 rivals × 4, ± 20%.
     const gap = 0.06, ks = MARKET_K.medium.WC * (gap - 0.01) ** 2 * 4 / 4 * 4;

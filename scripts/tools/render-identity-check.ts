@@ -1808,7 +1808,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Expected premium from new members". No figure moved; no key added or
 // removed. (The player's status strip, also changed here, is a hosted screen
 // this does not render.)
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v128.json');
+// v130: OUTSIDE MEMBERS BY THE WIDE TAPER (pr/market-l1, from aws f02bb15;
+// numbered past every render baseline on any branch — v129 is pr/clf-stretch's).
+// The control ran first: aws f02bb15 reproduced v128 174 of 174. 26 of 174 move,
+// word-diffed against f02bb15's own text (RENDER_TEXT_DIR on both sides): every
+// Year Walkthrough screen, each only by its save version
+// ("riskpool_gamestate_v48" -> "riskpool_gamestate_v50"; v49 is
+// pr/clf-stretch's). No figure moved; no key added or removed. The market step
+// this changes runs only in hosted rooms with the market on, which this does not
+// render.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v130.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
