@@ -217,7 +217,12 @@ Members move between the room's teams on price, by formula — there are no indi
    members average about 1.5×.
 5. **Matching**, never past a team's appetite: (a) good leavers go to cheaper teams, weighted by how much cheaper,
    the cheapest picking the best first; (b) outside supply — 2% of the room's book plus last year's dropped
-   members, about average risk — goes only to teams at or below the room's average rate, cheapest first. No team
+   members, about average risk — is shared by a **wide taper**: every team is eligible, with weight 1 at or below
+   the room's average rate, falling in a straight line to 0 at 20% above it. Each team gets the supply by weight,
+   capped at its appetite, and what a full team cannot take passes to the others by weight. Every team's outside
+   newcomers carry the **same mix** (the average risk of the year's draw); the cheapest no longer pick the best.
+   This replaced a cutoff (only teams at or below the average, cheapest first, up to the whole appetite), under
+   which a team just over the average got almost nothing while one just under filled its appetite. No team
    takes another's dropped members: they leave the market and are refilled by the next year's outside supply.
    Unmatched leavers stay (and start fresh next year).
 6. **Results.** Exposure moves with the members; the new book risk is the exposure-weighted risk of who stayed and

@@ -2683,16 +2683,58 @@ export const MARKET_BOOK_RISK_FADE = 0.50;
 /**
  * OUTSIDE SUPPLY — genuinely new members each year, 2% of the room's book on
  * the line PLUS the dropped members nobody took the year before, at about
- * average risk (the even mix), offered only to teams priced at or below the
- * room's average rate, cheapest first. Measured: a closed room left 47–76% of
- * appetite unfilled, and with 5% non-renewal 50–69% of intake was other teams'
- * dropped members; 2% filled most of the gap, 3% let supply reach the dearest
- * team (its share back up 1.3 points) and weakened the price signal; offering it
- * only at or below average keeps it from rescuing a dear team. The refill keeps
- * cheap teams that grow hard off dropped members (their dropped intake 15–43% →
- * 1–7%).
+ * average risk (the even mix), shared among the teams by MARKET_OUTSIDE_TAPER.
+ * Measured: a closed room left 47–76% of appetite unfilled, and with 5%
+ * non-renewal 50–69% of intake was other teams' dropped members; 2% filled most
+ * of the gap, 3% let supply reach the dearest team (its share back up 1.3
+ * points) and weakened the price signal. The refill keeps cheap teams that grow
+ * hard off dropped members (their dropped intake 15–43% → 1–7%).
  */
 export const MARKET_OUTSIDE_SUPPLY = 0.02;
+
+/**
+ * THE WIDE TAPER — how the outside supply is shared. Every team is eligible:
+ * weight 1 at or below the room's average rate, then 1 − (rate ÷ average − 1) ÷
+ * 20%, reaching 0 at 20% above the average. The supply goes out by weight, each
+ * team capped at its New Members appetite; what a full team cannot take passes
+ * to the rest, again by weight.
+ *
+ * IT REPLACES A CUTOFF. Before, only teams at or below the average took outside
+ * members, cheapest first, each up to its whole appetite — so a team 0.3% under
+ * the average grew 26% in five years and one 0.3% over grew 2%. Measured in
+ * hosted rooms of 16 (10 games, five years, Medium; test/clf-stretch-market with
+ * the stretched tables and their k, and development Low at test ranges): in a
+ * 45–90% funding ladder the cutoff gave the team 0.5% under the average 15.5%
+ * five-year growth and the one 1.5% over it nothing; the taper gives them 13.0%
+ * and 12.1%, fading to 4.5% for a team 14% over. In a room of four funding levels
+ * × four reinsurance choices, the team whose cover took it just over the average
+ * went from 2.7% to 12.1%. Rank, combined ratio and rate stability did not move
+ * (every team's rate rose 6.2–7.6% a year with a 2.4–2.6-point spread under both
+ * rules). Chosen over a zero point at 10% above the average (the dearest teams
+ * got nothing, a smaller cliff at +10%) and over half the supply shared evenly
+ * (a team 2% over grew as much as one 17% over). Below the average the taper
+ * shares evenly; the cheapest teams still grow most, from dearer teams' leavers.
+ * RE-MEASURED ON aws's OWN TABLES AND k (pr/market-l1, f02bb15: the same two
+ * rooms, development Low, 10 games, no shocks and two): rates spread less
+ * (45% funding 4.8% under the average, 90% 7.5% over). The cutoff gave the team
+ * at the average (65%) 12.6% five-year growth and the one 0.8% over (70%)
+ * nothing; the taper gives 12.2% and 11.6%, fading to 7.6% for the team 7.5%
+ * over. In the funding × cover room, 60% with both covers (0.7% over) went from
+ * 0 to 11.1%. Rates, combined ratio and rank as before (rates +6.4–6.9% a year
+ * under both rules).
+ */
+export const MARKET_OUTSIDE_TAPER = 0.20;
+
+/**
+ * OUTSIDE NEWCOMERS' QUALITY — THE SAME MIX for every team: each team's share of
+ * the year's outside supply carries the average risk of the year's draw. Before,
+ * the cheapest team picked the best first, which left the team nearest the cutoff
+ * the worst of the draw: measured (as MARKET_OUTSIDE_TAPER), book risk 0.976 for
+ * the cheapest against 1.010–1.022 at the edge, a penalty for being the
+ * last eligible team rather than for price. Under the same mix every team that
+ * takes newcomers sits at 1.00 on them, and price still decides how many it gets.
+ */
+export const MARKET_OUTSIDE_QUALITY = 'same mix' as const;
 
 /**
  * NON-RENEWED MEMBERS LEAVE THE MARKET. The dropping team keeps today's relief
@@ -3016,10 +3058,28 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Outside supply', {
         value: `${MARKET_OUTSIDE_SUPPLY * 100}% of the room's book + last year's untaken dropped members`,
         unit: 'per line, per year',
-        what: 'New members from outside the room, at about average risk, offered only to teams at or below the room\'s '
-          + 'average rate, cheapest first.',
+        what: 'New members from outside the room, at about average risk, shared among the teams by the wide taper.',
         basis: 'CHOSEN',
         note: 'Measured: a closed room left 47–76% of appetite unfilled; 3% let supply reach the dearest team.',
+      }],
+      ['Outside supply taper', {
+        value: `full weight at or below the room's average rate, falling to 0 at ${MARKET_OUTSIDE_TAPER * 100}% above it`,
+        unit: 'weight on the outside supply',
+        what: 'Every team is eligible for outside members; each gets the supply by weight, capped at its New Members '
+          + 'appetite, with what a full team cannot take passed to the rest.',
+        basis: 'CHOSEN',
+        note: 'Replaces a cutoff at the average (cheapest first, up to the whole appetite). Measured in rooms of 16: '
+          + 'a team just over the average went from 0–2.7% five-year growth to 12%; rank, combined ratio and rate '
+          + 'stability unchanged.',
+      }],
+      ['Outside newcomers\' quality', {
+        value: MARKET_OUTSIDE_QUALITY,
+        unit: 'risk of each team\'s outside newcomers',
+        what: 'Every team\'s outside newcomers carry the average risk of the year\'s draw; the cheapest no longer pick '
+          + 'the best first.',
+        basis: 'CHOSEN',
+        note: 'Measured: best-first left the edge team the worst newcomers (book risk 1.010–1.022 against 0.976 for '
+          + 'the cheapest); the same mix puts every team at 1.00 on them.',
       }],
       ['Book risk fade', {
         value: `${MARKET_BOOK_RISK_FADE * 100}% towards 1.00 a year`,

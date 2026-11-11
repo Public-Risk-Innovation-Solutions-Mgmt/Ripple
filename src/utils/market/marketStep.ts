@@ -23,8 +23,15 @@
 //         answer cheapest first, taking the best askers; repeated until nothing
 //         more matches. Unmatched leavers stay (and start fresh next year).
 //      b. outside supply: MARKET_OUTSIDE_SUPPLY × the room's book plus last
-//         year's untaken dropped members, at the even mix, to teams priced at or
-//         below the room's average rate, cheapest first, best first.
+//         year's untaken dropped members, drawn at the even mix, SHARED BY A WIDE
+//         TAPER: every team is eligible, weight 1 at or below the room's average
+//         rate and 1 − (its rate ÷ the average − 1) ÷ MARKET_OUTSIDE_TAPER (20%)
+//         above it, 0 from 20% above. Each team gets the supply × its weight ÷ the
+//         weights of the teams with room left, never past its appetite; what a
+//         full team cannot take passes to the others, again by weight, until the
+//         supply or the room runs out. Every team's newcomers carry the SAME MIX
+//         (MARKET_OUTSIDE_QUALITY): the average risk of the year's draw, not the
+//         cheapest picking the best first.
 //      c. non-renewed members (each team's Non-Renewal × its book after a and b)
 //         are taken by NO team: they leave the market, and next year's outside
 //         supply refills them (3b). Their quality — tilted to the worst, mean
@@ -37,7 +44,7 @@
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_OUTSIDE_SUPPLY,
-  MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel,
+  MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel,
 } from '../../data/pricingParameters';
 import type { CoverageLine } from '../../types/simulation';
 
@@ -57,6 +64,13 @@ const tilt = (theta: number): number[] => {
   const t = w.reduce((a, b) => a + b, 0);
   return w.map(x => x / t);
 };
+/**
+ * A team's weight for outside supply (the wide taper): 1 at or below the room's average rate, falling in a
+ * straight line to 0 at MARKET_OUTSIDE_TAPER (20%) above it.
+ */
+export const outsideWeight = (rate: number, average: number): number =>
+  Math.max(0, Math.min(1, 1 - (rate / average - 1) / MARKET_OUTSIDE_TAPER));
+
 /** The θ whose tilted mix averages `target` (bisection; the mean falls as θ rises). */
 const solveTheta = (target: number): number => {
   let lo = -200, hi = 200;
@@ -288,20 +302,38 @@ function runLine(input: MarketStepInput, line: CoverageLine,
     inGood[m.to] += m.e; inGoodM[m.to] += m.e * m.risk;
   }
 
-  // 3b. OUTSIDE SUPPLY — 2% of the room plus last year's untaken non-renewals, to teams at or below the average rate
+  // 3b. OUTSIDE SUPPLY — 2% of the room plus last year's untaken non-renewals, shared by the wide taper
   const room = E.reduce((a, b) => a + b, 0);
   const unit = room / N / MARKET_MEMBERS_PER_BOOK;
   const supply = MARKET_OUTSIDE_SUPPLY * room + Math.max(0, input.untakenDroppedLastYear[line] ?? 0);
   const nOut = Math.round(supply / unit);
   if (nOut > 0) {
+    // The year's newcomers, drawn at the even mix; every team's share carries their average risk (the same mix).
     const rnd = seededRandom(`${seed}|outside|${line}|${year}`);
-    const e = supply / nOut;
-    const opool = Array.from({ length: nOut }, () => ({ e, risk: MARKET_BUCKETS[pick(BASE, rnd())], to: -1 }))
-      .sort((a, b) => a.risk - b.risk);
-    for (const j of byPrice.filter(j => r[j] <= avg + 1e-12)) {
-      for (const m of opool) if (m.to < 0 && fits(j, m.e)) { m.to = j; rem[j] -= m.e; }
+    let drawn = 0;
+    for (let q = 0; q < nOut; q++) drawn += MARKET_BUCKETS[pick(BASE, rnd())];
+    const sameMix = drawn / nOut;
+    const weight = r.map(x => outsideWeight(x, avg));
+    const got = Array(N).fill(0) as number[];
+    let left = supply;
+    let open = byPrice.filter(j => weight[j] > 0 && rem[j] > 1e-9);
+    while (left > 1e-9 && open.length > 0) {
+      const W = open.reduce((a, j) => a + weight[j], 0);
+      let given = 0;
+      const still: number[] = [];
+      for (const j of open) {
+        const g = Math.min(rem[j] - got[j], left * weight[j] / W);
+        got[j] += g; given += g;
+        if (rem[j] - got[j] > 1e-9) still.push(j);
+      }
+      left -= given;
+      if (still.length === open.length) break; // nobody filled: the supply is all given
+      open = still;
     }
-    for (const m of opool) if (m.to >= 0) { inOut[m.to] += m.e; inOutM[m.to] += m.e * m.risk; }
+    for (let j = 0; j < N; j++) {
+      if (got[j] <= 0) continue;
+      rem[j] -= got[j]; inOut[j] += got[j]; inOutM[j] += got[j] * sameMix;
+    }
   }
 
   // 3c. NON-RENEWED MEMBERS — no team takes them. Each team's Non-Renewal × its
