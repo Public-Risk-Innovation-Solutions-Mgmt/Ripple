@@ -1163,7 +1163,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (GUARD_TEXT_DIR): 48 lines differ (shown and raw), every one the Version row;
 // the 24 statements match. The market step this changes runs only in hosted
 // rooms with the market on, which no export here plays.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v128.json');
+// v129: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25; and the market's k set for them, which the guard's
+// single-player games never reach). First captured as v125 on aws ef009cb;
+// renumbered past aws's baselines and recaptured twice — as v127 with aws
+// f02bb15 (#88) merged in, and now as v129 with aws 371472b (#89, the wide
+// taper). aws 371472b reproduces v128 here 48 of 48 first. The same 36 of 48
+// keys move as at v125 and v127, each text-diffed against the control
+// (GUARD_TEXT_DIR both sides) — the same 46,148 changed lines as at v127 but
+// for the save version — and no line of the Decisions section moves:
+//   the 12 default Results files (Expected funding, a factor of 1.0): the save
+//   version (riskpool_gamestate_v50 -> v51), and only the rows that read
+//   required capital — Reserve Risk Margin Needed (WC MAMC6EA4 2026
+//   $3,412,297 -> $9,796,068), Excess Available Surplus, Excess Capital Ratio
+//   and Excess Capital Status — with the Year Walkthrough sheet's capital stage
+//   and the year codes; no premium, loss or surplus row;
+//   the 12 squeezed Results files and their 12 statements (each line at its
+//   lowest stop, the stretched table's lower 30% column): Selected CLF and the
+//   premium, rate, admin, ratio, income, surplus and asset rows built on it,
+//   the capital rows, and on the Year Walkthrough sheet the stages that quote
+//   them (pricing, premium billed, admin, investment income, capital, surplus,
+//   decisions, the dividend stage's surplus available, and the booking stage's
+//   working, which quotes the CLF — its booking bias stays 0.00%). No loss,
+//   claim, reserve or development figure moves. The 12 default statements do
+//   not move: no capital row is on them. (The same moves as at v120, on
+//   7fc44f9, before the market.)
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v129.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
