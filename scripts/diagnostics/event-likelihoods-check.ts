@@ -60,6 +60,14 @@
 // range fails rather than moving the expectation. Each section has a CONTROL
 // that breaks the thing it guards at runtime, requires the section to FAIL,
 // and restores it.
+//
+// ⚠ RESTATED FOR pr/pregame-65: the default decisions now carry the prior
+// board's covers ($19M xs $1M, aggregate 125/50), which follow the game's
+// offer. Section 2's games and pages read the defaults on the game's own
+// shock switch (gameShocksOn), as the app does; read bare (shocks assumed on),
+// the COVERS_IN_EVERY_GAME-off control handed a shocks-off game a cover it is
+// not offered and the engine refused it (it threw, not failed). Nothing else
+// changed.
 // ============================================================================
 
 import { COVERS_IN_EVERY_GAME, SHOCK_T_CLAIM_RANGE, SHOCK_COST_TREND, T_COVER_FREQUENCY } from '../../src/data/pricingParameters';
@@ -162,10 +170,14 @@ function playTo(shocksOff: boolean): GameState {
     ? { setup: { ...settings, shockTiming: 'host' } as GameSetupSettings, instance: generateGameInstance('7', seedFromInstanceId('7'), []) }
     : openSoloInstance(settings);
   const { poolState, priorHistory } = runPriorHistory(instance, setup);
+  // ⚠ THE DEFAULTS ON THE GAME'S OWN SHOCK SWITCH, as the app builds them
+  // (pr/pregame-65): they now carry the prior board's covers, which follow the
+  // offer — with the covers not in every game and the shocks off, None.
+  const shocks = gameShocksOn(setup, instance);
   let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1,
-    isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
+    isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1, shocks), priorHistory });
   for (let y = 1; y < YEARS; y++) {
-    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), [])), currentYearNumber: y + 1 };
+    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y, shocks)), [])), currentYearNumber: y + 1 };
   }
   return gs;
 }
@@ -180,12 +192,12 @@ function sectionPage(): string[] {
     const ls = gs.poolState.lines[l];
     const y = gs.currentYearNumber;
     const g = Math.pow(1 + TREND[l], y - 1) * ((ls.bookExposure ?? 0) * exposureFactor(l, y)) / (ls.shockCostBaseExposure ?? NaN);
-    const ri = buildRateIndication(gs, l, defaultDecisionSet(y), y);
+    const ri = buildRateIndication(gs, l, defaultDecisionSet(y, gameShocksOn(gs.setup, gs.instance)), y);
     if (!ri?.eventLikelihoods) { out.push(`${l} year ${y}: no Event Likelihoods with ${tag}`); continue; }
     out.push(...sameTable(ri.eventLikelihoods, l, g, `${tag} year ${y} (coming)`));
     // A played year: its cover prices on the page are quoted on its rated book alone, at the trend's growth.
     const py = y - 1;
-    const past = buildRateIndication(gs, l, defaultDecisionSet(y), py);
+    const past = buildRateIndication(gs, l, defaultDecisionSet(y, gameShocksOn(gs.setup, gs.instance)), py);
     if (past?.eventLikelihoods) out.push(...sameTable(past.eventLikelihoods, l, Math.pow(1 + TREND[l], py - 1), `${tag} year ${py} (played)`));
     else out.push(`${l} year ${py}: no Event Likelihoods on a played year with ${tag}`);
   }

@@ -22,6 +22,16 @@
 //      places it DO cede through it, so the check is not vacuous — a declined
 //      Property tower costs and recovers nothing, and the aggregate is unwired.
 //
+// ⚠ RESTATED FOR pr/pregame-65. The play defaults now carry the prior board's
+// covers — $19M xs $1M per claim and the 125/50 aggregate cover on attritional
+// losses (PLAY_DEFAULTS) — so "the default" is no longer None. 6's None arm is
+// now games that hold None EXPLICITLY (per-claim None, aggregate cover None),
+// and still cedes nothing on any layer; the declined Property tower declines
+// both covers, so it costs and recovers nothing. And the default itself is
+// graded: on $19M xs $1M each year cedes exactly min(max(x - $1M, 0), $19M)
+// over its occurrences. New control: the $38M xs $2M games read as if the
+// default's $19M xs $1M were bought must fail it.
+//
 // ⚠ RESTATED FOR THE SHOCKS LANDING (wip/shocks, 2ae5c1a). The tower is cut
 // at $1M, $2M, $10M, $20M and $40M on every line (four layers, top $40M) for
 // the per-occurrence T covers ('$9M xs $1M', '$8M xs $2M', '$18M xs $2M',
@@ -243,11 +253,16 @@ const byLayerOf = (rows: ResultSet[], line: 'WC' | 'GL') => rows.reduce((acc, r)
   r.byLine[line].cededByLayer.forEach((v, i) => { acc[i] += v; });
   return acc;
 }, REINSURANCE_TOWER[line].map(() => 0));
+// None held explicitly — per-claim and aggregate (the default is the prior board's covers since pr/pregame-65).
+const withNone = (d: DecisionSet): DecisionSet => ({
+  ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: 'none', aggregateCover: 'none' }])) as DecisionSet['byLine'],
+});
 const defaults = GAMES.flatMap(id => play(id, 10));
+const nones = GAMES.flatMap(id => play(id, 10, withNone));
 const fulls = GAMES.flatMap(id => play(id, 10, withOption(() => '$38M xs $2M')));
 const lows = GAMES.flatMap(id => play(id, 10, withOption(() => '$9M xs $1M')));
 const declined = GAMES.slice(0, 2).flatMap(id => play(`${id}-DECLINE`, 5, d => ({
-  ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, reinsuranceOption: 'none' } },
+  ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, reinsuranceOption: 'none', aggregateCover: 'none' } },
 })));
 {
   check(LINES.every(l => fullTowerOption(l) === '$39M xs $1M'), '6. the widest cover is $39M xs $1M on every line — every layer of the tower',
@@ -264,16 +279,21 @@ const declined = GAMES.slice(0, 2).flatMap(id => play(`${id}-DECLINE`, 5, d => (
       occ += (lr.occurrences ?? []).length;
     }
     occAll += occ;
-    const d = byLayerOf(defaults, line), f = byLayerOf(fulls, line), w = byLayerOf(lows, line);
+    const d = byLayerOf(nones, line), f = byLayerOf(fulls, line), w = byLayerOf(lows, line);
     console.log(`  ${line}: ${occ} occurrences over ${fulls.length} years; None by layer ${d.map(fmt$).join(' | ')}; `
       + `$38M xs $2M ${f.map(fmt$).join(' | ')}; $9M xs $1M ${w.map(fmt$).join(' | ')}`);
     check(occ > 0 && ceded <= gross + 1, `6. ${line}: on $38M xs $2M ceded never exceeds the occurrences`, `${fmt$(ceded)} of ${fmt$(gross)}`);
-    check(d.every(v => v === 0), `6. ${line}: the default (None) cedes nothing on any layer`);
+    check(d.every(v => v === 0), `6. ${line}: None, held, cedes nothing on any layer`);
     check(unplacedLayerSilent(f, 0), `6. ${line}: $1M xs $1M, outside $38M xs $2M, cedes nothing`);
   }
   const worstFull = worstCededGap(fulls, 2e6, 38e6);
   check(occAll > 0 && worstFull < 1, '6. on $38M xs $2M each year cedes exactly min(max(x - $2M, 0), $38M) over its occurrences',
     `worst ${fmt$(worstFull)}`);
+  // The default since pr/pregame-65: the prior board's $19M xs $1M, exactly its layer.
+  const worstDefault = worstCededGap(defaults, 1e6, 19e6);
+  const cededDefault = defaults.reduce((a, r) => a + r.byLine.WC.cededByLayer.reduce((x, y) => x + y, 0) + r.byLine.GL.cededByLayer.reduce((x, y) => x + y, 0), 0);
+  check(cededDefault > 0 && worstDefault < 1, '6. the default ($19M xs $1M) cedes exactly min(max(x - $1M, 0), $19M) each year over its occurrences',
+    `ceded ${fmt$(cededDefault)}, worst ${fmt$(worstDefault)}`);
   // Not vacuous: the same games on $9M xs $1M cede through that layer.
   const lowBottom = byLayerOf(lows, 'WC')[0] + byLayerOf(lows, 'GL')[0];
   check(lowBottom > 0, '6. the same games on $9M xs $1M DO cede through $1M xs $1M', fmt$(lowBottom));
@@ -323,6 +343,10 @@ check(!refused(() => 0),
 check(worstCededGap(lows, 2e6, 38e6) >= 1, 'control: the $9M xs $1M games, read as if $38M xs $2M were bought, are caught by 6',
   fmt$(worstCededGap(lows, 2e6, 38e6)));
 check(!flatAcrossClf([0, 0]), 'control: a cover that costs $0 at both levels (NaN) is caught by 5');
+check(worstCededGap(fulls, 1e6, 19e6) >= 1, 'control: the $38M xs $2M games, read as if the default $19M xs $1M were bought, are caught by 6',
+  fmt$(worstCededGap(fulls, 1e6, 19e6)));
+check(!byLayerOf(defaults, 'WC').concat(byLayerOf(defaults, 'GL')).every(v => v === 0),
+  'control: the default games (now covered) read as the None arm are caught by 6');
 check(!declinedSilent([...declined.map(r => r.byLine.Property), { reinsuranceCost: 1, reinsuranceRecovery: 0 }]),
   'control: a declined tower that charges $1 is caught by 6');
 

@@ -1188,7 +1188,49 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   claim, reserve or development figure moves. The 12 default statements do
 //   not move: no capital row is on them. (The same moves as at v120, on
 //   7fc44f9, before the market.)
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v129.json');
+// v130: THE PRIOR BOARD AT 65% WITH ITS COVERS AND DRAWN GROWTH, NEW PAID-IN
+// CAPITAL, PLAY DEFAULTS AT 65% WITH THE COVERS, NEW SCENARIO SEEDS
+// (pr/pregame-65, on aws 80da701; see VALUE_IDENTITY_v96). aws 80da701
+// reproduces v129 here 48 of 48 first. All 48 keys move. Text-diffed
+// (GUARD_TEXT_DIR both sides), each part measured alone with the others
+// switched back at run time; with all four switched back only the save version
+// (v51 -> v52) and the Year Walkthrough's Decisions codes move — the default
+// decisions now carry an explicit aggregateCover key, which the code hashes.
+//   CAPITAL alone: surplus, cash, investments, investment income and return,
+//   net income, and the capital rows that read surplus (Excess Available
+//   Surplus, Excess Capital Ratio and Status); on the statements Paid in
+//   Capital, Earned Surplus, Net Worth, Assets, Invested / Uninvested,
+//   Investment and Net Operating Income, Operating Ratio and the two surplus
+//   ratios; the walkthrough's surplus, investment, dividend and capital stages.
+//   THE HISTORY alone: those, plus the rates, pure premiums and premium the
+//   pre-game's experience sets, admin, the reserves and LAE the history leaves
+//   (beginning / ending net reserve, paid, case and IBNR, loss expense
+//   reserves) and the ratios on them; on the statements every premium, loss,
+//   LAE, reserve and rate row; the walkthrough's pricing, premium, admin, LAE,
+//   reserves and development stages. No Decisions row moves.
+//   THE PLAY DEFAULTS alone: Funding Confidence Level (Expected -> 65%) and
+//   Selected CLF, the Reinsurance Program (None -> $19M xs $1M), Reinsurance
+//   Cost and Recovery, Expected Losses net of reinsurance, Net Ultimate and
+//   Net Incurred Loss, Current-Year Net Reserve, and everything downstream; on
+//   the statements the Decisions section's Funding Level, Per-Claim Cover and
+//   Aggregate Cover (every played year 65% / $19M xs $1M / 125% / 50%) and the
+//   reinsurance block; on the walkthrough the decisions and reinsurance
+//   stages, where the aggregate cover's rows (its attachment, exhaustion,
+//   limit, premium and recovery on attritional losses) now appear every year
+//   because the default holds it — rows added, none removed, 240 a file.
+//   THE SEEDS alone: nothing (the guard plays its own ids).
+// No row is removed. The New Members and Non-Renewal rows do not move: the
+// guard's games start in 2026 and show played years only, where the defaults
+// stay 0.
+//   THE YEAR WALKTHROUGH'S MEMBER CHARGE RATE (the src fix this branch carries;
+//   see year-walkthrough-check): on the 24 Results files' walkthrough sheet
+//   the pricing stage's "Rate per $100 (member charge rate)" is renamed "Rate
+//   per $100 as struck (on the book before it moves)" with its working line,
+//   and the premium stage gains "Reinsurance per $100 of the book billed" and
+//   "Rate per $100 (member charge rate)" with a working line; the stage and year
+//   codes follow. No figure moves here: the guard's games never move their
+//   books, so struck and billed are the same book.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v130.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

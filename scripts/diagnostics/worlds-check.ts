@@ -43,6 +43,15 @@
 //      world's own ordinary year under the A (solo-shock-schedule-check has the
 //      rest).
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now hold the prior board's
+// 125/50 aggregate cover on every line. Section 2 rebuilds the Decisions panel
+// as game/derivations.ts calls it, and that rebuild never passed the line's
+// aggregate cover — harmless while the default was None; with the cover held
+// the rebuilt quote fell short of the charged rate by its price (Y1 WC $978,925
+// charged against $686,250 quoted). The rebuild now passes it, as the real
+// panel does — not a src change: the panel and the engine already agreed. New
+// control: the panel rebuilt without the aggregate cover must fail.
+//
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
 // to fail. A control that passes is a check that cannot.
@@ -289,6 +298,8 @@ let panelBase = (ls: GameState['poolState']['lines'][CoverageLine]) =>
 
 console.log('\n--- 2. one rate, identical across worlds, struck from the averaged history ---');
 // A function, so the controls can re-run it with a piece broken.
+// The control's break: the panel quoted without the line's aggregate cover (pr/pregame-65).
+let panelOmitsAggregateCover = false;
 function section2() {
   const bad: string[] = [];
   let struckOk = true; const struckBad: string[] = [];
@@ -366,6 +377,8 @@ function section2() {
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
         yearNumber: y, members: { exposure, risk: 1, ...panelBase(ls) }, exposure,
         layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
+        // The line's aggregate cover, as the real panel passes it (game/derivations.ts) — pr/pregame-65.
+        ...(d.aggregateCover !== undefined && !panelOmitsAggregateCover ? { aggregateCover: d.aggregateCover } : {}),
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,
@@ -529,6 +542,16 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   });
   check(wrong.newStack?.finalRatePer100 !== W[0].lockedResults[2].byLine.GL.finalRatePer100,
     'control: a panel quoting a package the team did not buy does not match the charged rate');
+  // The panel quoted without the line's aggregate cover — what this gate's own
+  // reconstruction did before pr/pregame-65 — must fail section 2's panel check.
+  {
+    const before = failures.length;
+    const saved = console.log; console.log = () => {};
+    panelOmitsAggregateCover = true;
+    try { section2(); } finally { panelOmitsAggregateCover = false; console.log = saved; }
+    const caught = failures.splice(before).some(f => f.startsWith('the Decisions panel on the averaged state'));
+    check(caught, 'control: a panel that leaves out the aggregate cover the team holds is caught');
+  }
   // ⚠ THE SHOCKS LANDING'S BILL — each fails when broken.
   // A world billed the struck per-$100 rate on its moved book (the retired bill: the cover ~5% over).
   {

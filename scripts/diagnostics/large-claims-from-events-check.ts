@@ -40,8 +40,10 @@
 //      no shock record of any kind, and the nine covers still offered.
 //   4. ONLY THE EVENTS' T: a hosted game with Nuclear Verdict (#7), Pandemic
 //      (#9) and Legislation (#4, no T) scheduled, and two single player games
-//      on the catalogue (scenario 19: Legislation (no T) in year 2, Wildfire
-//      in year 4; scenario 11: Nuclear Verdict in year 3). Every shock
+//      on the catalogue (scenario 13: Winterstorm and Legislation (no T) in
+//      year 2, Social Inflation in year 3; scenario 11: Wildfire and Social
+//      Inflation in year 4, Winterstorm in year 5 — restated, see SOLO_IDS).
+//      Every shock
 //      claim belongs to a firing whose event has a T level on its line, sits at
 //      that level, inside the range x the year's growth factor (and exactly the
 //      firing's draw there), one per line per firing, in the firing year, the
@@ -65,12 +67,24 @@
 // trend x book growth. It shows wherever the book has grown (here 5% new
 // members a year); event-likelihoods-check's games add none, so it passes.
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now carry the prior
+// board's covers — per-claim $19M xs $1M and the aggregate cover 125/50 on
+// attritional losses. (a) 3.'s shocks-off default is $19M xs $1M (it was None);
+// a control puts None back and must fail 3. (b) The games here buy the per-claim
+// covers only — aggregate cover None (perClaimOnly) — because 5. compares each
+// struck reinsurance charge with the per-claim cover's optionPrice, and the
+// aggregate cover's price would sit beside it in the same charge. (The default
+// set is built with the shocks on, so its 125/50 cover would also be refused by
+// quoteNewRateStack in the COVERS_IN_EVERY_GAME-off control's shocks-off game.)
+// (c) 4.'s solo games move from scenarios 19 and 11 to 13 and 11 — 19's new
+// seed draws no event in five years (see SOLO_IDS).
+//
 // ⚠ EACH SECTION HAS CONTROLS that break the thing it guards at runtime,
 // require the section to FAIL, and restore it.
 // ============================================================================
 
 import {
-  COVERS_IN_EVERY_GAME, R_MODEL, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, WORLD_COUNT,
+  COVERS_IN_EVERY_GAME, REINSURANCE_DEFAULT_OPTION, R_MODEL, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, WORLD_COUNT,
 } from '../../src/data/pricingParameters';
 import { SHOCK_EVENTS, eventLines, firingsStartingIn, gameShocksOn, tClaimSize } from '../../src/utils/shockLosses';
 import { defaultReinsuranceOption, optionPrice, reinsuranceOptionIds, tCoverPrice } from '../../src/utils/reinsuranceOptions';
@@ -203,8 +217,14 @@ const YEARS = 5;
 interface Run { setup: GameSetupSettings; began: GameState[]; end: GameState; perWorld: LineResultSet[][][] }
 /** A cover per line-year, rotating so every option is bought; 5% new members a year so the book grows. */
 const coverOf = (l: CoverageLine, y: number) => BRIEF_COVERS[(y + 3 * LINES.indexOf(l)) % BRIEF_COVERS.length][0];
-const decide = (y: number): DecisionSet => {
+/** The defaults with the per-claim cover alone — aggregate cover None (pr/pregame-65; see the header). */
+const perClaimOnly = (y: number): DecisionSet => {
   const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l].aggregateCover = 'none';
+  return d;
+};
+const decide = (y: number): DecisionSet => {
+  const d = perClaimOnly(y);
   for (const l of LINES) { d.byLine[l].reinsuranceOption = coverOf(l, y); d.byLine[l].newMembers = 0.05; }
   return d;
 };
@@ -230,9 +250,13 @@ const SCHEDULE: ScheduledShock[] = [
   { shockId: '#7', yearNumber: 2 }, { shockId: '#4', yearNumber: 2 }, { shockId: '#9', yearNumber: 3 }, { shockId: '#7', yearNumber: 5 },
 ];
 const T_LESS = '#4';
-// Single player on the catalogue (SOLO_SHOCKS): scenario 19 draws #4 in year 2
-// and #3 (Wildfire) in year 4; scenario 11 draws #7 (Nuclear Verdict) in year 3.
-const SOLO_IDS = ['19', '11'];
+// Single player on the catalogue (SOLO_SHOCKS): scenario 13 draws #2 (Winterstorm)
+// and #4 (Legislation, no T) in year 2, #8 (Social Inflation) and #10 (no T) in
+// year 3; scenario 11 draws #3 (Wildfire) and #8 in year 4 and #2 in year 5.
+// ⚠ RESTATED FOR pr/pregame-65's seeds: it was 19 (#4 year 2, #3 year 4) and 11
+// (#7 year 3); on the new seeds 19 draws nothing in five years, so 13 takes its
+// place — again a T-less event beside T-bearing ones in one solo game.
+const SOLO_IDS = ['13', '11'];
 let offRun: Run | null = null, onRun: Run | null = null;
 const soloRuns = new Map<string, Run>();
 const offGame = () => (offRun ??= (() => { const g = hosted([]); return playFrom(g.setup, g.instance); })());
@@ -271,7 +295,8 @@ function sectionNoDraw(perWorldIn?: LineResultSet[][][]): string[] {
   for (const l of LINES) {
     const ids = reinsuranceOptionIds(l, gameShocksOn(run.setup, run.end.instance)).join('|');
     if (ids !== NINE) out.push(`${l}: the shocks-off game is offered ${ids}`);
-    if (defaultReinsuranceOption(l, false) !== 'none') out.push(`${l}: the shocks-off default is ${defaultReinsuranceOption(l, false)}`);
+    // The prior board's per-claim cover, carried (pr/pregame-65), shocks off too.
+    if (defaultReinsuranceOption(l, false) !== '$19M xs $1M') out.push(`${l}: the shocks-off default is ${defaultReinsuranceOption(l, false)}`);
   }
   const want = YEARS * WORLD_COUNT * LINES.length;
   if (rows !== want) out.push(`${rows} line-world-years read, ${want} played`);
@@ -404,14 +429,14 @@ function sectionEveryGame(): string[] {
       if (ids.join('|') !== NINE) { out.push(`${tag} ${l}: offered ${ids.join(', ')}`); }
       const g = briefFactor(gs, l, y);
       for (const id of ids) {
-        const d = defaultDecisionSet(y);
+        const d = perClaimOnly(y);
         d.byLine[l].reinsuranceOption = id;
         const struck = strikeRates(gs, d)[l];
         const want = optionPrice(l, id, g);
         if (!struck) { out.push(`${tag} ${l} ${id}: no rate struck`); continue; }
         if (!near(struck.quote.reinsuranceCost, want)) out.push(`${tag} year ${y} ${l} ${id}: struck $${struck.quote.reinsuranceCost.toFixed(2)}, optionPrice at growth ${g.toFixed(4)} $${want.toFixed(2)}`);
       }
-      const ri = buildRateIndication(gs, l, defaultDecisionSet(y), y);
+      const ri = buildRateIndication(gs, l, perClaimOnly(y), y);
       if (!ri) { out.push(`${tag} ${l}: no Rate Indication`); continue; }
       if (ri.reinsurance.map(x => x.id).join('|') !== NINE) out.push(`${tag} ${l}: the Rate Indication lists ${ri.reinsurance.map(x => x.id).join(', ')}`);
       if (!ri.eventLikelihoods) { out.push(`${tag} ${l} year ${y}: no Event Likelihoods`); continue; }
@@ -424,8 +449,8 @@ function sectionEveryGame(): string[] {
   // The shocks-off game's table is the shocks-on game's: one seed, one book.
   for (const l of LINES) {
     const y = off.end.currentYearNumber;
-    const a = buildRateIndication(off.end, l, defaultDecisionSet(y), y)?.eventLikelihoods;
-    const b = buildRateIndication(on.end, l, defaultDecisionSet(y), y)?.eventLikelihoods;
+    const a = buildRateIndication(off.end, l, perClaimOnly(y), y)?.eventLikelihoods;
+    const b = buildRateIndication(on.end, l, perClaimOnly(y), y)?.eventLikelihoods;
     if (JSON.stringify(a) !== JSON.stringify(b)) out.push(`${l} year ${y}: the shocks-off game's Event Likelihoods are not the shocks-on game's`);
   }
   if (charged === 0) out.push('no cover charged — nothing measured');
@@ -466,6 +491,10 @@ control('a fake shock claim injected into one world\'s results', () => () => {},
 });
 control('COVERS_IN_EVERY_GAME switched off (None alone offered with shocks off)', () => {
   COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; };
+}, () => sectionNoDraw());
+control('None put back as the default per-claim cover (before pr/pregame-65)', () => {
+  const defs = REINSURANCE_DEFAULT_OPTION as Record<string, string>;
+  const was = defs.WC; defs.WC = 'none'; return () => { defs.WC = was; };
 }, () => sectionNoDraw());
 
 check(sectionEvents(), `4. only the events' T: a hosted game (#7 years 2 and 5, #4 year 2, #9 year 3) and solo scenarios ${SOLO_IDS.join(' and ')} on the catalogue — every shock claim its firing's T level on its line, the draw x the year's growth, one per line per firing, in the firing year, alike in every world; NV one GL High; #4 none; no 'T'`,

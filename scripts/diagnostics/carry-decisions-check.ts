@@ -21,6 +21,13 @@
 //    resets a game in play to the defaults (new game and a save without a
 //    buffer only).
 //
+// ⚠ RESTATED FOR pr/pregame-65: the defaults are now 65% funding (not at
+// Expected) with the prior board's covers ($19M xs $1M, aggregate 125/50), so
+// year 1's set moves away from THEM — at Expected (true) where it used to move
+// off it, and aggregate covers 110/50, 150/50 and 110/50 (GL's 125/50 was the
+// new default, so it no longer differed). The per-claim cover was already
+// read as "any offered id but the default". Nothing else changed.
+//
 // CONTROLS, each of which must fail: the reset this replaced (defaults plus the
 // program list); a carry that drops one field (the aggregate cover); a carry
 // that keeps the played year's number; a carry that shares the played object;
@@ -86,7 +93,8 @@ function chosenSet(shocks: boolean): DecisionSet {
     d.byLine[l] = {
       ...d.byLine[l],
       fundingConfidenceLevel: [0.7, 0.8, 0.9][i],
-      fundingAtExpected: false,
+      // At Expected: the default is now 65% (pr/pregame-65), so true is the choice.
+      fundingAtExpected: true,
       nonRenewal: 0.01 * (i + 1),
       newMembers: 0.01 * (i + 2),
       dividendAmount: (2 + i) * 1_000_000,
@@ -94,7 +102,8 @@ function chosenSet(shocks: boolean): DecisionSet {
       riskControlPct: 0.01 * (i + 1),
       riskControlIncentivePct: 0.01 * (i + 1),
       reinsuranceOption: cover,
-      aggregateCover: ['agg-110-50', 'agg-125-50', 'agg-150-50'][i],
+      // Off the default 125/50 (pr/pregame-65) on every line.
+      aggregateCover: ['agg-110-50', 'agg-150-50', 'agg-110-50'][i],
       assetAllocation: { ...mix },
       loanRepaymentAggressiveness: [0.25, 0.75, 1][i],
     };
@@ -128,7 +137,7 @@ for (const [name, id, test] of [['single player', '3', false], ['Test player', '
   const dflt = leaves(defaultDecisionSet(1, shocks)), mine = leaves(year1);
   const unmoved = [...dflt.keys()].filter(p => p !== 'yearNumber' && same(dflt.get(p), mine.get(p)));
   ok(unmoved.length === 0, `${name}: year 1 differs from the defaults in all ${dflt.size - 1} of their fields`, unmoved.join(', '));
-  ok(LINES.every(l => mine.get(`byLine.${l}.aggregateCover`) !== undefined) && mine.get('riskControlProgramIds') !== '[]',
+  ok(LINES.every(l => ![undefined, 'none'].includes(mine.get(`byLine.${l}.aggregateCover`) as string)) && mine.get('riskControlProgramIds') !== '[]',
     `${name}: year 1 also buys an aggregate cover on every line and commits a risk-control program`);
 
   let next: DecisionSet = year1;

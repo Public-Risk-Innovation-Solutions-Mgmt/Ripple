@@ -17,6 +17,21 @@
 // components reveal it, so only the components are asserted.
 // ============================================================================
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now hold the prior board's
+// aggregate cover (125/50) beside the per-claim cover, and the engine charges
+// its price in reinsuranceCost. The panel is fed the line's aggregate cover as
+// the game's own panel feeds it (derivations.fundingConsequenceInput passes
+// the decision's aggregateCover); this file's panel calls omitted it, which read
+// as None while the cover was never bought by default. They now pass it.
+// And 1b reads the panel's reinsurance off its new-stack quote (newStack), as
+// it already reads the rate: the top-level reinsRatePer100 is the old stack's
+// quoteLineRates — the old panel's, rendered only with NEW_RATE_STACK off —
+// which never prices the aggregate cover, so at the new defaults it sat a whole
+// cover's price below the engine's charge. CONTROLS, run by hand on a copy
+// (this gate has no in-process controls): the old-stack figure put back fails
+// 1b on all three lines (WC 57,330x the bound); the aggregate cover dropped
+// from the panel's input fails 1b on all three lines.
+//
 // ============================================================================
 // ⚠ THIS GATE WAS RED FOR 62 COMMITS AND SIX DAYS, AND THE CAUSE WAS IN THIS
 // FILE. Recorded because the shape of the miss matters more than the miss.
@@ -164,7 +179,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
               yearNumber: y,
               members,
               exposure,
-              layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
+              layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption, aggregateCover: dec.aggregateCover,
               aggregateStopLevel: AGGREGATE_NOT_OFFERED,
               pricingAdjustment: lineState.rateLevel / 100,
               priorPurePremiumPer100: lineState.purePremiumPer100,
@@ -341,7 +356,7 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
             // With the moved book's risk, as towerMembers carries it (book units commit 5).
             members: BOOK_MODE ? { exposure, risk: 1 } : pre[line].members,
             exposure,
-            layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
+            layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption, aggregateCover: dec.aggregateCover,
             aggregateStopLevel: AGGREGATE_NOT_OFFERED,
             pricingAdjustment: ls.rateLevel / 100,
             priorPurePremiumPer100: ls.purePremiumPer100,
@@ -365,7 +380,10 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
         const cmp: Record<string, number> = {
           'expectedCededPer100 (stored)': rel(panel.expectedCededPer100, r.expectedCededPer100),
           'selectedFundingCLF (stored)': rel(panel.clf, r.selectedFundingCLF),
-          'reinsuranceCost (stored)': rel(panel.reinsRatePer100 * exposure * 10_000, r.reinsuranceCost),
+          // ⚠ The new stack's reinsurance where the panel priced one (pr/pregame-65):
+          // the top-level figure is the old stack's quoteLineRates, which has no
+          // aggregate cover; the engine charges the new stack's, cover included.
+          'reinsuranceCost (stored)': rel((panel.newStack?.reinsRatePer100 ?? panel.reinsRatePer100) * exposure * 10_000, r.reinsuranceCost),
         };
         for (const [k, v] of Object.entries(cmp)) worst[line][k] = Math.max(worst[line][k] ?? 0, v);
         // The two the panel CANNOT reproduce, measured as a plain relative gap
@@ -473,7 +491,7 @@ console.log('  the engine settles after it. Measured so the comment can state it
         const panel = computeFundingConsequence(
           dec.fundingConfidenceLevel, lineState.ratePer100, line, dec.fundingAtExpected,
           {
-            yearNumber: y, members, exposure, layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
+            yearNumber: y, members, exposure, layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption, aggregateCover: dec.aggregateCover,
             aggregateStopLevel: AGGREGATE_NOT_OFFERED, pricingAdjustment: lineState.rateLevel / 100,
             priorPurePremiumPer100: lineState.purePremiumPer100,
             lossTrend: inst.lossEnvironment.lossTrend,

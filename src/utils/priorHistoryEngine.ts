@@ -52,12 +52,13 @@ import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
 import { lossExpenseReserve } from './lossExpense';
 import {
-  FLAT_PRE_GAME, MEMBER_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, ADVERSE_DEVELOPMENT, PRIOR_HISTORY_YEARS, STARTING_CAPITAL,
+  FLAT_PRE_GAME, MEMBER_LEVEL, PRIOR_BOARD, PRIOR_DEVELOPMENT_DEFAULTS, ADVERSE_DEVELOPMENT, PRIOR_HISTORY_YEARS, STARTING_CAPITAL,
 } from '../data/pricingParameters';
+import { preGameNewMembers } from './bookUnderwriting';
 import { preGameAllocation } from './investmentEngine';
-import { confidenceAtClf, hasStaticClf } from '../data/clfTables';
+import { hasStaticClf, staticClf } from '../data/clfTables';
 import { withLifetimeDevelopment } from './hostDevelopment';
-import { defaultDecisionSet } from './decisionDefaults';
+import { atExpectedDecisionSet, defaultDecisionSet } from './decisionDefaults';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
 
@@ -214,7 +215,7 @@ export function simulateLineCandidate(
     isComplete: false,
     poolState: bootstrap,
     lockedResults: [],
-    currentDecisions: preGameDecisionSet(-(PRE_GAME_DEPTH - 1), gameShocksOn(setup, instance)),
+    currentDecisions: preGameDecisionSet(-(PRE_GAME_DEPTH - 1), gameShocksOn(setup, instance), instance.seed),
     priorHistory: [],
   };
 
@@ -234,7 +235,7 @@ export function simulateLineCandidate(
     // 200 marketplace members every year — the member loss ledger depends on it
     // and the appetite bar reads it — and the loss history, the reserve build
     // and the maturation years are untouched.
-    const processed = processYear(gs, preGameDecisionSet(y, gameShocksOn(setup, instance)), {
+    const processed = processYear(gs, preGameDecisionSet(y, gameShocksOn(setup, instance), instance.seed), {
       freezeMembership: true,
       flatPreGame: run === 'flat',
       preGameMarket: run === 'flat' ? 'flat' : 'drawn',
@@ -320,24 +321,30 @@ export function openingBandRatio(
 }
 
 /**
- * THE DECLARED YEARS' DECISIONS — the player's defaults, with the prior board
- * funding every pre-game year at Expected: a margin of exactly 0, on every
- * scenario and line. Nothing solves it.
+ * THE PRE-GAME YEARS' DECISIONS — the prior board's (PRIOR_BOARD), on every
+ * scenario and line: 65% funding on the line's table, New Members drawn
+ * around 5%, Non-Renewal 0 and the covers. Nothing solves it. They are the
+ * year's recorded decisions, so the Annual Statement's Decisions section
+ * shows them.
  *
- * ⚠ Everything else about the pre-game — renewals, intake, risk control, the
- * cover — stays on `defaultDecisionSet`, so the handed-over pool is one that
- * was run on the same settings the player starts from.
+ * ⚠ Everything else — risk control, dividends, assessments — stays on
+ * `defaultDecisionSet`, so the handed-over pool is one that was run on the
+ * same settings the player starts from.
  */
-// `shocks`: the game's switch — the prior board holds None while it is off.
-function preGameDecisionSet(yearNumber: number, shocks: boolean): DecisionSet {
+// `shocks`: the game's switch — the covers follow its offer, as the play defaults do.
+// `seed`: the game seed — the year's New Members are drawn on it (preGameNewMembers).
+function preGameDecisionSet(yearNumber: number, shocks: boolean, seed: number): DecisionSet {
   const d = defaultDecisionSet(yearNumber, shocks);
   for (const line of Object.keys(d.byLine) as CoverageLine[]) {
-    // A margin of 0 prices at Expected; no table is read for it. The confidence
-    // level is what it amounts to on the line's own table, recorded on the
-    // pre-game years' results for display and read for nothing else.
+    // ⚠ THE PRIOR BOARD (PRIOR_BOARD), RECORDED AS THE YEAR'S DECISIONS: 65% on
+    // the line's own (stretched) table — the margin its CLF at 65%, the level
+    // beside it — New Members as drawn, Non-Renewal 0, and the covers, which
+    // defaultDecisionSet already holds (PLAY_DEFAULTS carries them).
     d.byLine[line].fundingAtExpected = false;
-    d.byLine[line].fundingCushion = 0;
-    if (hasStaticClf(line)) d.byLine[line].fundingConfidenceLevel = confidenceAtClf(line, 1);
+    d.byLine[line].fundingCushion = hasStaticClf(line) ? staticClf(line, PRIOR_BOARD.fundingLevel) - 1 : 0;
+    if (hasStaticClf(line)) d.byLine[line].fundingConfidenceLevel = PRIOR_BOARD.fundingLevel;
+    d.byLine[line].nonRenewal = PRIOR_BOARD.nonRenewal;
+    d.byLine[line].newMembers = preGameNewMembers(seed, line, yearNumber);
     // ⚠ THE PRE-GAME HOLDS CASH AND BONDS ONLY (PRE_GAME_MARKET_DRAWS).
     d.byLine[line].assetAllocation = preGameAllocation();
   }
@@ -349,7 +356,7 @@ function preGameDecisionSet(yearNumber: number, shocks: boolean): DecisionSet {
 // SCENARIO'S FIXED SEED TAKES IT (wip/fixed-seed-scenarios).
 //
 // Each line starts the pre-game with STARTING_CAPITAL, paid in, and the prior
-// board funds every pre-game year at Expected (preGameDecisionSet). Its losses
+// board funds every pre-game year at 65% (preGameDecisionSet). Its losses
 // are drawn at true cost — no scenario multiple. Whatever surplus the last
 // year ends with is the opening: nothing is re-solved, re-drawn, floored,
 // guarded or set at run time. A scenario's character comes from its fixed seed
@@ -370,7 +377,8 @@ function runLinePreGame(
 
 /**
  * THE LINE'S YEAR-1 PREMIUM AT EXPECTED, struck on the opening: the default
- * decisions' rate on its opening ledger and book, times the book's year-1
+ * decisions' rate at Expected with no cover (atExpectedDecisionSet — the basis
+ * the seeds were chosen on) on its opening ledger and book, times the book's year-1
  * exposure — what the scenario's opening surplus is a fraction of. Off the new
  * rate stack (the dormant member path), the last pre-game year's charge.
  */
@@ -381,7 +389,7 @@ export function openingYear1Premium(
   /** The game's shock switch (shockLosses.gameShocksOn) — year 1's cover is priced on it. Absent is on. */
   shocks = true,
 ): number {
-  const struck = strikeBookRate(line, lineState, defaultDecisionSet(1, shocks).byLine[line], 1,
+  const struck = strikeBookRate(line, lineState, atExpectedDecisionSet(1, shocks).byLine[line], 1,
     { allMarketMembers: [], membershipHistory: {} },
     MEMBER_LEVEL.enabled ? undefined : 1,
     shocks);

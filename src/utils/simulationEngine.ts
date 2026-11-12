@@ -1226,7 +1226,7 @@ export function processLineYear(
   // ordinary draw (ordinaryLossFromMembers), never into expected loss.
   const bookMovement = bookMode
     ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership,
-      yearNumber, ctx.market)
+      yearNumber, ctx.market, instance.seed)
     : null;
   // ⚠ RETIRED AS A LINE-WIDE FACTOR (simple underwriting): the new-business
   // penalty is inside the book's lossFactor, in the draw. Kept at 1 for the

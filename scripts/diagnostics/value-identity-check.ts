@@ -1547,7 +1547,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // loss, reserve, development or ALAE field moves in either arm. (The same
 // change measured 8,113 on aws a7d480d as v92, before the ALAE load and the
 // seed switch.)
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v95.json');
+// v96: THE PRIOR BOARD AT 65% WITH ITS COVERS AND DRAWN GROWTH, NEW PAID-IN
+// CAPITAL, PLAY DEFAULTS AT 65% WITH THE COVERS, NEW SCENARIO SEEDS
+// (pr/pregame-65, on aws 80da701). The control ran first: aws 80da701
+// reproduced v95 exactly, and so did this branch with each part switched back
+// at run time (all four together). Against v95, 22,389 of 39,600 values move
+// across 90 fields; each part measured alone, the other three switched back:
+//   CAPITAL (WC $0, GL $8.06M, Property $8.53M): 5,142 values in 20 fields —
+//     surplus, assets, cash, investments and their income, and the capital
+//     adequacy fields that read surplus (first instance's opening surplus
+//     moves; no premium, rate, loss, reserve or claim field).
+//   THE HISTORY (the prior board at 65% with $19M xs $1M and the 125/50
+//     aggregate cover, New Members drawn around 5%, the book ending on the
+//     opening): 19,954 values in 76 fields — the pre-game's smaller, growing
+//     books and penalised new business change the experience the rate reads
+//     (newPurePremiumPer100 2.9361 -> 2.9498 on the first instance), so the
+//     rates, premium, admin, the opening reserves and LAE they leave, and the
+//     surplus, income and ratios that follow. Fifteen fields move only here:
+//     the pure premiums and first indications, gross case and IBNR reserves,
+//     and ALAE / ULAE / LAE incurred, paid and reserved.
+//   THE PLAY DEFAULTS (65% on each line's table, $19M xs $1M, aggregate
+//     125/50): 14,945 values in 75 fields — the funding CLF (1 -> 1.0637 on
+//     WC), the premium and charge it sets, the covers' cost (reinsuranceCost
+//     0 -> $0.98M) and their recoveries and ceded reserves, which move net
+//     losses and reserves, then surplus, income and the ratios. Fourteen
+//     fields move only here: the funding level and CLF, reinsurance cost,
+//     expected and actual recovery, ceded case, IBNR and development, net and
+//     booked net ultimate, current-year net reserve, the CLF-adjusted expected
+//     loss and Property's catastrophe capital (now behind a cover).
+//   THE SEEDS: nothing — this harness plays its own ids, not the scenarios.
+// The three parts' fields together are exactly the 90. Six baseline
+// identities (zero in v95) now leave zero because the default buys covers —
+// reinsuranceCost, expectedReinsuranceRecovery, reinsuranceRecovery,
+// caseReservesCeded, ibnrCeded, priorYearDevelopmentCeded — and the default
+// arm's fundingCLF / selectedFundingCLF leave 1, expectedToSurplus leaves 0 and
+// expectedCombinedRatio leaves 1 because it funds at 65%, not Expected: all
+// intended. No exposure, claim count or ground-up claim moves, and no field is
+// added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v96.json');
 
 function seedOf(id: string) {
   let h = 5381;

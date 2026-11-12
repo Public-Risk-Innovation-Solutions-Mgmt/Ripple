@@ -494,7 +494,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Admin charge per $100 (that rate × admin)', value: quote.adminRatePer100, kind: 'per100' },
       { label: 'Risk control charge per $100 (that rate × risk control)', value: quote.riskControlPer100, kind: 'per100' },
       { label: 'Reinsurance price per $100', value: quote.reinsRatePer100, kind: 'per100' },
-      { label: 'Rate per $100 (member charge rate)', value: quote.finalRatePer100, kind: 'per100' },
+      { label: 'Rate per $100 as struck (on the book before it moves)', value: quote.finalRatePer100, kind: 'per100' },
       { label: "Last year's rate per $100", value: p ? (p.finalRatePer100 ?? p.ratePer100) : null, kind: 'per100' },
       { label: 'Exposure priced on ($M)', value: pr.exposure, kind: 'exposure' },
     );
@@ -513,7 +513,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
           `Expense ratio = admin ${pct(quote.adminShare, 1)} + risk control ${pct(slider, 1)} = ${pct(quote.adminShare + slider, 1)} → divisor 1 − ${pct(quote.adminShare + slider, 1)} = ${quote.divisor.toFixed(2)}`,
           `Funding ${fundingText(d)} → CLF ${fac(quote.clf)} → rate = ${per100(quote.retainedPurePremiumPer100)} × ${fac(quote.clf)} ÷ ${quote.divisor.toFixed(2)} = ${per100(loaded)}`,
           `Of it: admin ${per100(quote.adminRatePer100)}, risk control ${per100(loaded)} × ${pct(slider, 1)} = ${per100(quote.riskControlPer100)}`,
-          `+ reinsurance ${per100(quote.reinsRatePer100)} = ${per100(quote.finalRatePer100)} per $100`,
+          `+ reinsurance ${per100(quote.reinsRatePer100)} = ${per100(quote.finalRatePer100)} per $100 as struck`,
         ],
       }),
       note: 'Struck once for the year on the book before it moves, from experience a year old (the pricing window).',
@@ -553,10 +553,22 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
 
   // ---- premium ----
   const billed = a.billedExposure ?? a.activeExposure;
+  // ⚠ THE COVER IS A FIXED PRICE IN DOLLARS, BILLED ON THE BOOK AFTER IT MOVES
+  // (simulationEngine: reinsuranceCost, "charged as itself"), so the member
+  // charge rate is the struck rate before reinsurance plus that price over the
+  // book billed — not the struck quote's per-$100 cover, which is the price over
+  // the book before it moved. They differ whenever a team moves its book while
+  // holding a cover. Shown here, after the book has moved, and the engine's own
+  // rate (a.finalRatePer100) is what it ties to. (pr/pregame-65 found it: its
+  // defaults hold the covers; on aws it showed for any team that moved its book
+  // with a cover.)
+  const coverPer100 = billed > 0 ? a.reinsuranceCost / (billed * 10_000) : 0;
   out.push({
     key: 'premium',
     rows: [
       { label: 'Exposure billed ($M)', value: billed, kind: 'exposure' },
+      { label: 'Reinsurance per $100 of the book billed', value: coverPer100, kind: 'per100' },
+      { label: 'Rate per $100 (member charge rate)', value: a.finalRatePer100 ?? a.ratePer100, kind: 'per100' },
       { label: 'Pool premium', value: a.poolPremium, kind: 'usd' },
       { label: 'Admin charged', value: a.adminExpense, kind: 'usd' },
       { label: 'Risk control charged', value: a.riskControlInvestment, kind: 'usd' },
@@ -566,6 +578,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     feed: feed({
       through: [titleOf('pricing'), titleOf('book')],
       working: [
+        `Reinsurance ${usd(a.reinsuranceCost)} for the year ÷ (${expM(billed)} × 10,000) = ${per100(coverPer100)} per $100 of the book billed`,
         `Member charge = rate ${per100(a.finalRatePer100 ?? a.ratePer100)} × ${expM(billed)} × 10,000 = ${usd(a.totalMemberCharge)}`,
         `= pool premium ${usd(a.poolPremium)} + admin ${usd(a.adminExpense)} + risk control ${usd(a.riskControlInvestment)} + reinsurance ${usd(a.reinsuranceCost)}`,
       ],

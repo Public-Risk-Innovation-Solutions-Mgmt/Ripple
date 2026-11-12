@@ -43,6 +43,13 @@
 //   5. THE QUOTE IS ADDITIVE: pool + admin + risk control + reinsurance equals the total the
 //      engine charges, which is the identity every downstream reader assumes.
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now fund at 65% (a CLF
+// above 1) with the prior board's covers, so at the defaults no line-year sits
+// at CLF 1 and assertion 3 had nothing to run on. The played games now fund WC
+// and Property at Expected (CLF 1) and leave GL at the default 65%, so 3 runs
+// on two lines every year and 2 ties the rate both at CLF 1 and above it —
+// asserted: line-years at CLF 1 and line-years above it both exist.
+//
 // ⚠ ASSERTION 1 AND 2 ARE RECOMPUTATIONS AND WOULD PASS AGAINST A WRONG
 // FORMULA IF THIS FILE COPIED IT. They do not copy it: they are written from
 // the DESIGN as stated in the brief — ground-up for the indication, retained
@@ -112,7 +119,12 @@ function play(): Row[] {
     };
     for (let y = 1; y <= YEARS; y++) {
       const d0 = defaultDecisionSet(y);
-      const d = { ...d0, byLine: { ...d0.byLine, GL: { ...d0.byLine.GL, riskControlIncentivePct: PLAYED_RC } } };
+      // WC and Property at Expected (CLF 1, for 3); GL at the default 65% (pr/pregame-65).
+      const d = { ...d0, byLine: {
+        WC: { ...d0.byLine.WC, fundingAtExpected: true },
+        GL: { ...d0.byLine.GL, riskControlIncentivePct: PLAYED_RC },
+        Property: { ...d0.byLine.Property, fundingAtExpected: true },
+      } };
       const p = processYear(gs, d);
       for (const line of LINES) {
         const r = p.result.byLine[line];
@@ -209,6 +221,8 @@ for (const r of rows) {
   }
 }
 if (checkedOrder === 0) fail('no line-year had CLF 1 — assertion 3 tested nothing');
+// And 2 tied the rate above CLF 1 too (GL at the default 65%).
+if (!rows.some(r => r.clf > 1 + 1e-9)) fail('no line-year above CLF 1 — assertion 2 never tied a funded rate');
 console.log(`  ${checkedOrder} line-year(s) at CLF 1.`);
 
 // --------------------------------------------------------------------------

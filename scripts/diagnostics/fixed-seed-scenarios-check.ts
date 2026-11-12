@@ -11,7 +11,9 @@
 //      room build it — has the seed's own text as its id, that text's hash as
 //      its seed, and N as `scenario`; a harness's bare id carries no scenario.
 //   2. NOTHING FITS THE OPENING: on every scenario and line the prior board
-//      funds every pre-game year at Expected (a margin of exactly 0), and the
+//      funds every pre-game year at its fixed 65% (PRIOR_BOARD; the margin
+//      exactly the line's CLF at 65% − 1 — restated for pr/pregame-65, was
+//      Expected, a margin of 0), never a margin solved to a target, and the
 //      opening surplus IS the played pre-game's last year-end — a single run
 //      from STARTING_CAPITAL on the scenario's own seed reproduces it to the
 //      bit. And the retired machinery is gone from the engine's source: no
@@ -38,7 +40,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SCENARIO_COUNT, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_SEEDS, SOLO_SHOCKS, STARTING_CAPITAL } from '../../src/data/pricingParameters';
+import { PRIOR_BOARD, SCENARIO_COUNT, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_SEEDS, SOLO_SHOCKS, STARTING_CAPITAL } from '../../src/data/pricingParameters';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { openingYear1Premium, runPriorHistory, simulateLineCandidate } from '../../src/utils/priorHistoryEngine';
 import { buildTeamGame } from '../../src/session/client/buildGame';
@@ -47,6 +49,7 @@ import { seedFromInstanceId } from '../../src/seedHash';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { openWorlds } from '../../src/utils/worlds';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { staticClf } from '../../src/data/clfTables';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState, PoolState, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -131,8 +134,8 @@ function gradeNoFit(fits: Fit[], src: Record<string, string>, tag: string) {
   const found = RETIRED.flatMap(([name, re]) => Object.entries(src).filter(([, code]) => re.test(code)).map(([f]) => `${name} in ${f}`));
   const targetReaders = Object.entries(src).filter(([f, code]) => f !== path.join('data', 'pricingParameters.ts') && /SCENARIO_PREMIUM_TO_SURPLUS|SCENARIO_RATIO_RANGE/.test(code)).map(([f]) => f);
   check(offMargin === 0 && offOpening === 0 && found.length === 0 && targetReaders.length === 0,
-    `${tag}2. nothing fits the opening: the prior board funds at Expected, the opening is the played year-end, the retired machinery is gone and no game code reads the targets`,
-    `${fits.length} line-scenarios: ${offMargin} with a margin, ${offOpening} off a single replay; retired names found: ${found.length ? found.join(', ') : 'none'}; target readers: ${targetReaders.length ? targetReaders.join(', ') : 'none'}`);
+    `${tag}2. nothing fits the opening: the prior board funds at its fixed 65%, the opening is the played year-end, the retired machinery is gone and no game code reads the targets`,
+    `${fits.length} line-scenarios: ${offMargin} off the 65% margin, ${offOpening} off a single replay; retired names found: ${found.length ? found.join(', ') : 'none'}; target readers: ${targetReaders.length ? targetReaders.join(', ') : 'none'}`);
 }
 const fitsOf = (margin = 0, forced = false): Fit[] => runs.flatMap(r => LINES.map(l => {
   const rows = [...(r.single.earlyPreGameHistory ?? []), ...r.single.priorHistory].map(x => x.byLine[l]!);
@@ -140,7 +143,8 @@ const fitsOf = (margin = 0, forced = false): Fit[] => runs.flatMap(r => LINES.ma
   const opened = r.single.poolState.lines[l].surplus;
   const premium = openingYear1Premium(r.single.instance, l, r.single.poolState.lines[l], rows[rows.length - 1], gameShocksOn(r.single.setup, r.single.instance));
   return {
-    cushions: rows.map(x => (x.decisions?.fundingCushion ?? NaN) + margin),
+    // Off the prior board's fixed margin (PRIOR_BOARD): 0 on every year.
+    cushions: rows.map(x => (x.decisions?.fundingCushion ?? NaN) + margin - (staticClf(l as 'WC', PRIOR_BOARD.fundingLevel) - 1)),
     opened: forced ? premium / SCENARIO_PREMIUM_TO_SURPLUS[l][r.n] : opened, replay,
   };
 }));

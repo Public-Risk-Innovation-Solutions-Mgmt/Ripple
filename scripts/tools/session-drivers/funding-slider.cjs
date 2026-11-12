@@ -4,10 +4,17 @@
 // and, on each line's Decisions page, walks the Funding Confidence Level
 // slider from its minimum to its maximum by the keyboard, one step at a time:
 //
-//   - the slider opens on Expected, labelled "Expected (~X%)";
+//   - the slider opens on the play default, 65%, labelled "(65%)";
 //   - it steps 30%, 35% … 90% — thirteen positions, 5% apart;
 //   - each position reads "(N%)" and nothing else (no "Above Average");
-//   - "Reset to Expected" puts it back on Expected, at the same X.
+//   - "Reset to Expected (~X%)" puts it on Expected, labelled "Expected (~X%)"
+//     at the X its button named.
+//
+// ⚠ RESTATED FOR pr/pregame-65: the play default is now 65% (PLAY_DEFAULTS),
+// not Expected, so the slider opens on "(65%)" and "Reset to Expected" is
+// offered from the start. The reset check reads X from the button's own label
+// rather than from an Expected opening that no longer exists. Against the aws
+// build (opens on Expected) the opening check fails, as it must.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/funding-slider.cjs
@@ -50,8 +57,7 @@ const ok = (cond, label, detail = '') => {
     const shown = async () => ((await box.locator('span.font-bold').first().innerText()) || '').trim();
 
     const opening = await shown();
-    const m = opening.match(/^Expected \(~(\d+)%\)$/);
-    ok(!!m, `${line}: opens on Expected, labelled "Expected (~X%)"`, opening);
+    ok(opening === '(65%)', `${line}: opens on the play default, labelled "(65%)"`, opening);
     const attrs = await input.evaluate(el => ({ min: el.min, max: el.max, step: el.step }));
     ok(attrs.min === '0.3' && attrs.max === '0.9' && attrs.step === '0.05', `${line}: the slider runs 30% to 90% in 5% steps`, JSON.stringify(attrs));
 
@@ -72,10 +78,12 @@ const ok = (cond, label, detail = '') => {
     const reset = page.getByRole('button', { name: /^Reset to Expected/ }).first();
     ok(await reset.count() > 0, `${line}: "Reset to Expected" is offered off Expected`);
     if (await reset.count() > 0) {
+      const named = ((await reset.innerText()) || '').trim().match(/^Reset to Expected \(~(\d+)%\)$/);
       await reset.click();
       await page.waitForTimeout(300);
       const back = await shown();
-      ok(m !== null && back === opening, `${line}: Reset returns to Expected at the same position`, back);
+      ok(named !== null && back === `Expected (~${named[1]}%)`, `${line}: Reset puts it on Expected, at the position its button named`, `${named ? named[0] : 'no (~X%) on the button'} -> ${back}`);
+      ok(await page.getByRole('button', { name: /^Reset to Expected/ }).count() === 0, `${line}: and on Expected the reset is no longer offered`);
     }
   }
 

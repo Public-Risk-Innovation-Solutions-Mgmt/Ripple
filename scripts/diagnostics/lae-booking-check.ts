@@ -54,9 +54,12 @@ const near = (a: number, b: number, rel = 1e-9) => Math.abs(a - b) <= rel * Math
 interface Played { gs: GameState; starts: GameState[]; opening: PoolState }
 
 // ⚠ SHOCKS LANDING (2ae5c1a): `shocks` may now be a SCHEDULE, played as the
-// solo game plays its catalogue draw, and `edit` sets the year's decisions — the
-// default decisions buy no cover (REINSURANCE_DEFAULT_OPTION 'none'), so a game
-// that is to cede anything must buy a T cover and meet a T claim.
+// solo game plays its catalogue draw, and `edit` sets the year's decisions — a
+// game that is to cede anything must buy a T cover and meet a T claim.
+// ⚠ RESTATED FOR pr/pregame-65: the default decisions now buy the prior
+// board's covers ($19M xs $1M and the aggregate cover 125/50), so the control
+// game that must cede nothing names None on both explicitly (noCover) rather
+// than relying on the defaults.
 function play(id: string, years: number, shocks: 'on' | 'off' | ScheduledShock[], edit: (d: DecisionSet) => void = () => {}): Played {
   const settings = { poolName: 'L', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings;
   const solo = openSoloInstance(settings);
@@ -250,7 +253,8 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // schedule at the default decisions (None) cedes nothing, which is exactly the
   // vacuous "0 of 0" the guard above exists to refuse.
   {
-    const bare = play('LAE3', 4, COVERED_SCHEDULE);
+    // No cover bought, named explicitly: the defaults now buy the prior board's (pr/pregame-65).
+    const bare = play('LAE3', 4, COVERED_SCHEDULE, d => { for (const l of LINES) { d.byLine[l].reinsuranceOption = 'none'; d.byLine[l].aggregateCover = 'none'; } });
     const bareLines = new Set<CoverageLine>();
     // A ceded cohort stays in the ledger, so the year-4 close shows any cession in the game.
     bare.gs.worlds!.forEach(w => LINES.forEach(l => {

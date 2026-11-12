@@ -51,6 +51,16 @@
 //      stable-scenarios commit 9; it was the fixed 14% cushion), and the
 //      pre-game is unchanged with the tables swapped.
 //
+//   ⚠ 4 RESTATED FOR pr/pregame-65: THE PRE-GAME NOW READS THE TABLE. The
+//      prior board funds every pre-game year at 65% on the line's own table
+//      in force (PRIOR_BOARD; the margin recorded is staticClf(line, 0.65) −
+//      1), so 4 now holds: every pre-game year charges CLF exactly the table
+//      in force at 65%, the same in every year of a game, and with the tables
+//      swapped for the previous ones the pre-game is charged the SWAPPED
+//      table at 65% — the premium moves with the table, as it must. Controls:
+//      a pre-game at the 70% stop, the board before (Expected, CLF 1), and the
+//      old claim (the pre-game unchanged with the tables swapped) each fail 4.
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: the member-engine tables, each
 // line graded against the BaselineCV table four points from its own (WC and
 // Property up to 10% and 12%, GL down to 6%), a margin off a different stop, a
@@ -66,7 +76,7 @@ import {
   BASELINE_CV_TABLES, GL_SUPPLIED, PROPERTY_DERIVED, RESERVE_MARGIN_CONFIDENCE, STATIC_CLF_TABLE, WC_SUPPLIED,
   baselineCvKey, crossingOf, staticClf, type ClfTable, type StaticClfLine,
 } from '../../src/data/clfTables';
-import { BASELINE_CV, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
+import { BASELINE_CV, PRIOR_BOARD, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -193,23 +203,27 @@ function gradeLoad(price: Price, tag: string) {
 }
 
 // ---------------------------------------------------------------- 4
-function gradePreGame(played: Played, swapped: Played, want: (line: StaticClfLine, p: PreGameYear) => number, tag: string) {
-  let worstClf = 0, worstSwap = 0, n = 0, spread = 0;
+// `want` / `wantSwapped`: the CLF each year should charge on the shipped and the swapped tables.
+function gradePreGame(played: Played, swapped: Played, want: (line: StaticClfLine, p: PreGameYear) => number,
+  wantSwapped: (line: StaticClfLine) => number, tag: string) {
+  let worstClf = 0, worstSwapClf = 0, n = 0, spread = 0, moved = 0;
   const margins: number[] = [];
   for (const line of LINES) {
     played.preGame[line].forEach((p, i) => {
       n++;
-      worstClf = Math.max(worstClf, Math.abs(p.clf - want(line, p)));
-      worstSwap = Math.max(worstSwap, Math.abs(swapped.preGame[line][i].premium / p.premium - 1));
-      const first = played.preGame[line].find(q => q.game === p.game)!;
+      worstClf = Math.max(worstClf, Math.abs(p.clf - want(line, p)), Math.abs(p.clf - (1 + p.margin)));
+      const q = swapped.preGame[line][i];
+      worstSwapClf = Math.max(worstSwapClf, Math.abs(q.clf - wantSwapped(line)));
+      if (q.premium !== p.premium) moved++;
+      const first = played.preGame[line].find(r => r.game === p.game)!;
       spread = Math.max(spread, Math.abs(p.margin - first.margin));
       margins.push(p.margin);
     });
   }
-  check(worstClf < 1e-12 && spread === 0 && worstSwap === 0 && n > 0,
-    `${tag}4. every pre-game year funds at CLF 1 + the prior board's one solved margin, and swapping the tables moves no pre-game premium`,
-    `${n} pre-game line-years, margins ${(Math.min(...margins) * 100).toFixed(1)}% to ${(Math.max(...margins) * 100).toFixed(1)}%; `
-    + `worst CLF off ${worstClf.toExponential(2)}, worst premium moved ${worstSwap.toExponential(2)}`);
+  check(worstClf < 1e-12 && spread === 0 && worstSwapClf < 1e-12 && moved > 0 && n > 0,
+    `${tag}4. every pre-game year funds at the table in force at ${PRIOR_BOARD.fundingLevel * 100}% (CLF 1 + the recorded margin, one margin a game), and on swapped tables at the swapped table's`,
+    `${n} pre-game line-years, margins ${(Math.min(...margins) * 100).toFixed(2)}% to ${(Math.max(...margins) * 100).toFixed(2)}%; `
+    + `worst CLF off ${worstClf.toExponential(2)}, on the swapped tables ${worstSwapClf.toExponential(2)}; ${moved} premiums moved by the swap`);
 }
 
 console.log(`THE FUNDING TABLES — ${GAMES} solo games x ${YEARS} years per line, seeds the derivation never drew`);
@@ -222,7 +236,9 @@ gradeStretch(played, SHIPPED as Record<StaticClfLine, ClfTable>, '');
 gradeMargin(played, RESERVE_MARGIN_CONFIDENCE, '');
 const loadPrice: Price = (_line, _k, expected) => expected * (1 + REINSURANCE_LOAD);
 gradeLoad(loadPrice, '');
-gradePreGame(firstFour, swappedPreGame, (_l, p) => 1 + p.margin, '');
+const AT_LEVEL = Object.fromEntries(LINES.map(l => [l, staticClf(l, PRIOR_BOARD.fundingLevel)])) as Record<StaticClfLine, number>;
+const SWAPPED_AT_LEVEL = withTables(PREVIOUS, () => Object.fromEntries(LINES.map(l => [l, staticClf(l, PRIOR_BOARD.fundingLevel)]))) as Record<StaticClfLine, number>;
+gradePreGame(firstFour, swappedPreGame, l => AT_LEVEL[l], l => SWAPPED_AT_LEVEL[l], '');
 
 // ---------------------------------------------------------------- controls
 console.log('\nCONTROLS — each must FAIL');
@@ -242,11 +258,13 @@ controlFails('each line graded against the table four points off its BaselineCV'
 controlFails('the unstretched tables in force', () => gradeStretch(played, FILED, ''), '1b.');
 controlFails('a margin read off the 95% stop', () => gradeMargin(played, 0.95, ''), '2.');
 controlFails('a load read off the table at 70%', () => gradeLoad((line, _k, e) => e * staticClf(line, 0.70), ''), '3.');
-controlFails('a pre-game funded at the 70% stop', () => gradePreGame(firstFour, swappedPreGame, l => staticClf(l, 0.70), ''), '4.');
+controlFails('a pre-game funded at the 70% stop', () => gradePreGame(firstFour, swappedPreGame, l => staticClf(l, 0.70), l => SWAPPED_AT_LEVEL[l], ''), '4.');
+controlFails('the board before pr/pregame-65 (Expected, CLF 1)', () => gradePreGame(firstFour, swappedPreGame, () => 1, () => 1, ''), '4.');
+controlFails('the old claim: the pre-game unchanged with the tables swapped', () => gradePreGame(firstFour, firstFour, l => AT_LEVEL[l], l => SWAPPED_AT_LEVEL[l], ''), '4.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — the unstretched tables are true on ordinary losses out of sample and the tables in force are stretched from them, required capital reads the same table, and neither the load nor the pre-game reads one.');
+console.log('PASS — the unstretched tables are true on ordinary losses out of sample and the tables in force are stretched from them, required capital reads the same table, the load reads none, and the pre-game funds at the table in force at 65%.');

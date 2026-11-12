@@ -14,10 +14,13 @@
 //      it ended — the seam into the declared three included.
 //   3. NO RESET AT THE OPENING: the opening surplus, and year 1's start in
 //      every world, is the last pre-game year's year-end.
-//   4. AT EXPECTED: every pre-game year funds at a margin of exactly 0 — the
-//      prior board at Expected (restated for the fixed-seed scenarios; it was
-//      one SOLVED margin, set on the scenario's designed history). The opening
-//      is where the played history ends (3), never a target.
+//   4. AT THE PRIOR BOARD'S 65%: every pre-game year funds at exactly the
+//      line's CLF at 65% − 1 (PRIOR_BOARD; restated for pr/pregame-65 — it was
+//      a margin of exactly 0, the prior board at Expected, and before the
+//      fixed-seed scenarios one SOLVED margin, set on the scenario's designed
+//      history). `margins` holds each year's margin off that fixed level, so 0
+//      every year. The opening is where the played history ends (3), never a
+//      target.
 //   5. FROM THE STARTING CAPITAL: every line's first pre-game year begins at
 //      STARTING_CAPITAL, paid in.
 //
@@ -28,13 +31,18 @@
 // 0's end) — and another scenario's earlier years spliced in front of this
 // one's declared years (the reset before 2023 — the seam jumps). (Restated:
 // both used a pre-game re-run at expected, which is now the game's own.)
+// pr/pregame-65 adds a control: the prior board back at Expected (a margin
+// of 0, as before) must fail 4.
 // ============================================================================
 
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { openingYear1Premium, PRE_GAME_DEPTH, runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
-import { SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL } from '../../src/data/pricingParameters';
+import { PRIOR_BOARD, SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL } from '../../src/data/pricingParameters';
+import { staticClf } from '../../src/data/clfTables';
+/** The prior board's fixed margin on a line: its CLF at 65% − 1 (PRIOR_BOARD). */
+const boardMargin = (l: CoverageLine) => staticClf(l as 'WC', PRIOR_BOARD.fundingLevel) - 1;
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine, GameSetupSettings, ResultSet } from '../../src/types/simulation';
 
@@ -111,7 +119,7 @@ function grade(chains: Chain[], tag: string) {
   const o = worst(openingMiss);
   check(o.m <= DOLLAR, `${tag}3. no reset at the opening`, `worst $${o.m.toFixed(6)} (${o.at})`);
   const z = worst(c => (c.label.endsWith('pool') ? 0 : marginSpread(c)));
-  check(z.m === 0, `${tag}4. every pre-game year funds at Expected — a margin of exactly 0`, `worst margin ${z.m.toExponential(2)} (${z.at})`);
+  check(z.m === 0, `${tag}4. every pre-game year funds at the prior board's 65% — exactly the line's CLF at 65% − 1`, `worst off it ${z.m.toExponential(2)} (${z.at})`);
   const p = worst(c => Math.abs((c.preGame[0]?.begin ?? Infinity) - c.paidIn));
   check(p.m <= 1e-6, `${tag}5. the pre-game begins at the starting capital`, `worst $${p.m.toExponential(2)} (${p.at})`);
 }
@@ -136,7 +144,8 @@ for (const id of SEEDS) {
       preGame: preGame.map(r => yearOf(r.byLine[line])),
       year1: worlds.map(w => yearOf(w.lockedResults[0].byLine[line])),
       opening: ls.surplus,
-      margins: preGame.map(r => r.byLine[line]!.decisions.fundingCushion ?? NaN),
+      // Off the prior board's fixed margin (PRIOR_BOARD): 0 every year.
+      margins: preGame.map(r => (r.byLine[line]!.decisions.fundingCushion ?? NaN) - boardMargin(line)),
       paidIn: STARTING_CAPITAL[line],
       floored: false,
     };
@@ -187,6 +196,10 @@ controlFails('the opening reset restored (the retired forced opening, premium / 
 controlFails('the reset before 2023 restored (seam spliced)', seamRestored, '2.');
 controlFails('a dividend paid outside income', chains.map(c => ({ ...c, preGame: c.preGame.map((y, i) => i === 2 ? { ...y, end: y.end - 1e5 } : y) })), '1.');
 controlFails('a margin changed in one pre-game year', chains.map(c => ({ ...c, margins: c.margins.map((m, i) => (i === 2 ? m + 0.01 : m)) })), '4.');
+controlFails('the prior board back at Expected (a margin of 0)', chains.map(c => {
+  const l = LINES.find(x => c.label.endsWith(` ${x}`));
+  return l ? { ...c, margins: c.margins.map(m => m - boardMargin(l)) } : c;
+}), '4.');
 controlFails('the prior board at a uniform 1% margin', chains.map(c => ({ ...c, margins: c.margins.map(m => m + 0.01) })), '4.');
 controlFails('a pre-game started from the old $15M', chains.map(c => ({ ...c, paidIn: c.paidIn * 3 })), '5.');
 controlFails('a pre-game year missing', chains.map(c => ({ ...c, preGame: c.preGame.slice(1) })), 'all ');
@@ -197,4 +210,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — surplus moves only by income, assessments and dividends from the first pre-game year into year 1, at Expected, with no reset at the opening.');
+console.log('PASS — surplus moves only by income, assessments and dividends from the first pre-game year into year 1, the prior board at its 65%, with no reset at the opening.');
