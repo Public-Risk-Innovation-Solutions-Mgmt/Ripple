@@ -107,7 +107,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
           <div className="flex items-center gap-3 min-w-0">
             <RippleMark size={32} className="flex-shrink-0" />
             <span className="font-bold text-lg leading-none text-white flex-shrink-0">RIPPLE</span>
-            <span className="text-black flex-shrink-0">|</span>
+            <span className="text-slate-500 flex-shrink-0">|</span>
             {/* Same slot, two occupants that never overlap: the tagline
                 before a game exists, the SIMULATED pool's own name once one
                 does. The pool-name branch is untouched — it names the game
@@ -115,7 +115,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
             {isStarted ? (
               <span className="text-slate-300 text-sm truncate min-w-0">{poolName}</span>
             ) : (
-              <span className="text-black text-sm truncate min-w-0">Every decision creates impact.</span>
+              <span className="text-slate-300 text-sm truncate min-w-0">Every decision creates impact.</span>
             )}
           </div>
 
@@ -208,7 +208,7 @@ function Chip({
 }) {
   return (
     <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
-      <span className="text-black text-xs">{label}</span>
+      <span className="text-white text-xs">{label}</span>
       <span data-testid={testId} className={`text-sm font-bold min-h-[1.25rem] ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
