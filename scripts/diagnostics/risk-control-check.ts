@@ -33,7 +33,7 @@
 //    The draw over 2,000 game seeds x 8 years x 3 lines: the mean of max(0, 1 +
 //    0.5 z) is 1.0043 (the floor's accepted lift) within four standard
 //    errors, about 2.3% of draws floor at zero, and the lines' draws are
-//    uncorrelated. (c) Across eight scenarios x six years at 5%: the expected
+//    uncorrelated. (c) Across all twenty scenarios x six years at 5%: the expected
 //    saving at the cuts the engine drew is the cost x the mean cut / m, within
 //    four standard errors of 1.0043; the realised losses + LAE saved are within
 //    10% of the cost.
@@ -49,6 +49,15 @@
 // world's own seed; m in proportion to the slider alone; the cut taken off
 // the shocks' dollars; the cut reaching an older accident year; m sized without
 // the LAE; the draw biased; the 0% game charged 1% in one year.
+//
+// ⚠ RESTATED FOR pr/pregame-65: 4(c) plays ALL TWENTY scenarios, not eight.
+// It is a sample mean over the scenarios' drawn cuts, and with the new seeds
+// scenarios 1-8 drew low: the true game read 0.916 (expected saving / cost)
+// and the broken one (m without the LAE) 1.056 — both inside the 4 standard
+// errors of 144 line-years, so the control passed. Over all twenty (360
+// line-years) the true game reads 1.006 against 1.0043 and the broken one
+// 1.161, caught on both counts. Nothing loosened; the sample is every
+// scenario rather than a chosen few.
 // ============================================================================
 
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -346,13 +355,13 @@ control('the cut taken off the shocks\' surge dollars too', () => { cutOnShocks 
 control('the cut reaching an older accident year', () => { cutOnOlder = true; return () => { cutOnOlder = false; }; }, () => sectionUntouched(off, on));
 
 SOLO_SHOCKS.enabled = false;
-const many = Array.from({ length: 8 }, (_, i) => soloGame(String(i + 1), at(0.05), 6));
+const many = Array.from({ length: 20 }, (_, i) => soloGame(String(i + 1), at(0.05), 6));
 SOLO_SHOCKS.enabled = true;
 check(sectionSizing([G, solo3, ...many.slice(0, 2)]), '4a. every charged line-year: m x expected normal losses x (1 + expected ALAE + ULAE) is the charge');
 control('m sized without the LAE', () => { mWithoutLae = true; return () => { mWithoutLae = false; }; }, () => sectionSizing([G]));
 check(sectionDraw(), '4b. the draw over 2,000 seeds x 8 years x 3 lines: mean cut / m 1.0043 (the floor), 2.3% floored, lines uncorrelated');
 control('the draw biased by +0.1', () => { drawBias = 0.1; return () => { drawBias = 0; }; }, sectionDraw);
-check(sectionNeutral(many), '4c. eight scenarios x six years at 5%: the expected saving at the drawn cuts is the cost x 1.0043; the realised saving within 10% of the cost');
+check(sectionNeutral(many), '4c. all twenty scenarios x six years at 5%: the expected saving at the drawn cuts is the cost x 1.0043; the realised saving within 10% of the cost');
 control('m sized without the LAE', () => { mWithoutLae = true; return () => { mWithoutLae = false; }; }, () => sectionNeutral(many));
 
 const zero = soloGame(SC, at(0), 3), absent = soloGame(SC, at(undefined), 3), one = soloGame(SC, y => (y === 2 ? withSlider(defaultDecisionSet(y), 0.01) : defaultDecisionSet(y)), 3);

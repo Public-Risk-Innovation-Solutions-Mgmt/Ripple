@@ -40,6 +40,15 @@
 //      attachment moved at runtime relabels the option, so the written-out
 //      wording fails.
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now CARRY the prior
+// board's 125/50 cover (PLAY_DEFAULTS), so the default writes aggregateCover
+// 'agg-125-50' on every line, shocks on or off. 1. now wants that written-out
+// default, and still None for an ABSENT choice (aggregateCoverOf on a record
+// with no field — old saves, a team that never chose). The 'absent' arm of
+// the games (4, 5) deletes the field from the default decisions, so it is
+// still a game that never chose — not one holding the new default. New
+// control: None put back as the default (the play default before) must fail 1.
+//
 // ⚠ THE BRIEF IS WRITTEN OUT HERE — options, loads, odds, surge ranges, the
 // ordinary-year CVs' inputs and the 2027 prices — not read from
 // pricingParameters, so a changed parameter fails rather than moving the
@@ -53,7 +62,7 @@
 // ============================================================================
 
 import {
-  AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, COVERS_IN_EVERY_GAME, R_MODEL, SOLO_SHOCKS, T_COVER_FREQUENCY,
+  AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, COVERS_IN_EVERY_GAME, PLAY_DEFAULTS, R_MODEL, SOLO_SHOCKS, T_COVER_FREQUENCY,
 } from '../../src/data/pricingParameters';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { buildYearWalkthrough } from '../../src/utils/yearWalkthrough';
@@ -151,8 +160,11 @@ function sectionOptions(): string[] {
     if (!o || o.attachment !== att || o.limit !== lim || o.load !== load) p.push(`${id}: ${JSON.stringify(o)}`);
   }
   for (const l of LINES) {
-    if (defaultLineDecisionSet(l).aggregateCover !== undefined) p.push(`${l}: the default writes aggregateCover`);
-    if (aggregateCoverOf(defaultLineDecisionSet(l)) !== 'none') p.push(`${l}: an absent choice does not read as None`);
+    // The play default: the prior board's 125/50, carried (pr/pregame-65), shocks on or off.
+    for (const shocks of [true, false]) {
+      if (defaultLineDecisionSet(l, shocks).aggregateCover !== 'agg-125-50') p.push(`${l}: the default (shocks ${shocks ? 'on' : 'off'}) is ${defaultLineDecisionSet(l, shocks).aggregateCover}, not 125/50`);
+    }
+    if (aggregateCoverOf({}) !== 'none') p.push(`${l}: an absent choice does not read as None`);
   }
   // In every game, shocks on or off: the same four, at the same prices.
   for (const shocks of [true, false]) {
@@ -175,10 +187,14 @@ function sectionOptions(): string[] {
   }
   return p;
 }
-check(sectionOptions(), 'four options, None the default and absent; all four in every game, shocks on or off, at the same prices');
+check(sectionOptions(), 'four options, 125/50 the default (the prior board\'s, carried) and None when absent; all four in every game, shocks on or off, at the same prices');
 control('the covers not in every game (COVERS_IN_EVERY_GAME off)', () => {
   const was = COVERS_IN_EVERY_GAME.enabled; COVERS_IN_EVERY_GAME.enabled = false;
   return () => { COVERS_IN_EVERY_GAME.enabled = was; };
+}, sectionOptions);
+control('None put back as the play default (the default before pr/pregame-65)', () => {
+  const pd = PLAY_DEFAULTS as { aggregateCover: string }; const was = pd.aggregateCover; pd.aggregateCover = 'none';
+  return () => { pd.aggregateCover = was; };
 }, sectionOptions);
 control('the 110/50 attachment at 1.15', () => {
   const o = AGGREGATE_COVER_OPTIONS[1] as { attachment: number }; const was = o.attachment; o.attachment = 1.15;
@@ -221,7 +237,11 @@ const YEARS = 5;
 function play(scenario: string, mode: 'cover' | 'absent' | 'none'): Played {
   const dec = (y: number) => {
     const d = defaultDecisionSet(y);
-    if (mode !== 'absent') for (const l of LINES) d.byLine[l].aggregateCover = mode === 'none' ? 'none' : OPTION_BY_YEAR[y - 1];
+    // 'absent': the field removed, so the game never chose (the default now carries 125/50).
+    for (const l of LINES) {
+      if (mode === 'absent') delete d.byLine[l].aggregateCover;
+      else d.byLine[l].aggregateCover = mode === 'none' ? 'none' : OPTION_BY_YEAR[y - 1];
+    }
     return d;
   };
   const { setup, instance } = openSoloInstance({ poolName: 'P', gameLength: YEARS, startingYear: 2027, instanceId: scenario, activeLines: LINES } as never);
@@ -243,6 +263,11 @@ function play(scenario: string, mode: 'cover' | 'absent' | 'none'): Played {
 // a Recession where it drew Social Inflation, so the large-claim control found
 // 0 problems when broken. 14 draws Social Inflation in year 5 (and two
 // Winterstorms); 8 now brings the surge, 13 Economic Inflation as before.
+// ⚠ RE-CHECKED AT pr/pregame-65 (all twenty seeds new), the same three kept:
+// over five years 8 draws Social Inflation in years 3 and 4, 14 in year 4, and
+// 13 a Winterstorm (the surge) and Legislation Change in year 2, Social
+// Inflation and Economic Inflation in year 3 — a large claim, a surge and
+// Economic Inflation between them, as section 3's controls need.
 const SCENARIOS = ['8', '13', '14'];
 const games = SCENARIOS.map(s => ({ s, cover: play(s, 'cover'), absent: play(s, 'absent'), none: play(s, 'none') }));
 book2027 = Object.fromEntries(LINES.map(l => {

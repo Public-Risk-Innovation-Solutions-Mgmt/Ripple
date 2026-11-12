@@ -7,6 +7,15 @@
 // the tab across the advance and asserts both sides of it.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
+//
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now carry the prior board's
+// covers, so a team locked on the defaults shows "$19M xs $1M + aggregate
+// stop-loss 125% / 50%" in the Reinsurance column (was None), and the funding
+// column reads 65%. The cover's name carries its terms as shares of expected
+// losses (125% / 50%), so the "real percentage" check reads every cell but the
+// Reinsurance one — the allocation bug it was added for lived in the
+// allocation column, which it still reads. Against the aws build (None,
+// Expected) the restated Reinsurance check fails, as it must.
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
@@ -131,9 +140,10 @@ async function join(ctx, code, name) {
      'and none reads "not recorded" — the posted rows carry their decisions block');
   // The Reinsurance column is each line's cover, by name (stable-scenarios
   // commit 6: the aggregate stop). Both teams locked on the defaults, so it
-  // reads the default cover's name — None, the default in every game, shocks
-  // on or off (REINSURANCE_DEFAULT_OPTION; this room schedules no shocks).
-  ok(rows.every(r => r[3] === 'None'),
+  // reads the default covers — the prior board's, carried (PLAY_DEFAULTS):
+  // $19M xs $1M and the aggregate cover 125% / 50%, in every game, shocks on or
+  // off (COVERS_IN_EVERY_GAME; this room schedules no shocks).
+  ok(rows.every(r => r[3] === '$19M xs $1M + aggregate stop-loss 125% / 50%'),
      `the Reinsurance column shows the package the team chose (${rows.map(r => r[3]).join(', ')})`);
   // Simple underwriting: the two underwriting sliders, by name, as percentages
   // — both teams locked on the defaults, 0% and 0%.
@@ -150,7 +160,9 @@ async function join(ctx, code, name) {
   // had been put through a fraction formatter. The driver PRINTED it and
   // asserted nothing, so it would have shipped. No percentage on this row can
   // exceed 100.
-  const pcts = rows.flatMap(r => [...r.join(' ').matchAll(/(\d+(?:\.\d+)?)%/g)].map(m => Number(m[1])));
+  // Every cell but the Reinsurance one, whose aggregate cover is named by its
+  // terms as shares of expected losses (125% / 50%) — not a decision's share.
+  const pcts = rows.flatMap(r => [...r.filter((_, i) => i !== 3).join(' ').matchAll(/(\d+(?:\.\d+)?)%/g)].map(m => Number(m[1])));
   const overflow = pcts.filter(v => v > 100);
   ok(overflow.length === 0,
      `every percentage on the row is a real percentage (worst ${Math.max(0, ...pcts)}%)`);

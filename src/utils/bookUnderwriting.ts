@@ -20,9 +20,10 @@
 // PRICING'S EXPECTED LOSS — the rate learns it through the experience.
 //
 // Every setting is in pricingParameters.ts, under UNDERWRITING. The book is
-// capped at FULL_MARKET_EXPOSURE. The pre-game neither renews, withdraws nor
-// underwrites: its book GROWS by PRE_GAME_BOOK_GROWTH a year into the opening
-// book (preGameBook), the growth at the penalty, with no decision in it.
+// capped at FULL_MARKET_EXPOSURE. The pre-game neither renews nor withdraws:
+// its book GROWS by the prior board's New Members each year (PRIOR_BOARD —
+// drawn around 5% per scenario, preGameNewMembers) into today's opening book
+// (preGameBook), the growth at the penalty.
 //
 // ⚠ IT RETURNS THE MEMBERSHIP ENGINE'S SHAPE. Everything downstream of movement
 // reads a MemberMovementResult; handing it one with an empty roster and the
@@ -34,8 +35,9 @@
 
 import {
   FULL_MARKET_EXPOSURE, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
-  OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS, R_MODEL,
+  OPENING_BOOK_EXPOSURE, PRIOR_BOARD, PRIOR_HISTORY_YEARS, R_MODEL,
 } from '../data/pricingParameters';
+import { deriveSubRng } from './random';
 import type { CoverageLine, MarketLineInput } from '../types/simulation';
 import type { MemberMovementResult } from './membershipEngine';
 
@@ -93,9 +95,30 @@ export type { MarketLineInput };
 /** The first pre-game year's number (2021): the pre-game runs to year 0. */
 const FIRST_PRE_GAME_YEAR = 1 - PRIOR_HISTORY_YEARS;
 
-/** The pre-game book in year `y` (≤ 0): the opening book x (1 + growth)^y. */
-export const preGameBook = (line: CoverageLine, y: number): number =>
-  OPENING_BOOK_EXPOSURE[line] * Math.pow(1 + PRE_GAME_BOOK_GROWTH, Math.min(0, y));
+/**
+ * THE PRIOR BOARD'S NEW MEMBERS IN PRE-GAME YEAR `y` (PRIOR_BOARD): a normal
+ * draw around newMembersMean with newMembersSpread, cut to the slider's range,
+ * on the game seed's own stream for the line and year. The first pre-game year
+ * (2021) has no book before it to grow from, so it adds none; played years
+ * (y > 0) are the team's and read 0 here.
+ */
+export function preGameNewMembers(seed: number, line: CoverageLine, y: number): number {
+  if (y <= FIRST_PRE_GAME_YEAR || y > 0) return 0;
+  const z = deriveSubRng(seed, y, `pregame_new_members_${line}`).normal(0, 1);
+  return Math.min(NEW_MEMBERS_SLIDER.max, Math.max(NEW_MEMBERS_SLIDER.min,
+    PRIOR_BOARD.newMembersMean + PRIOR_BOARD.newMembersSpread * z));
+}
+
+/**
+ * The pre-game book in year `y` (≤ 0): today's opening book in 2026, and each
+ * earlier year the next year's book over (1 + that next year's New Members) —
+ * so the history ends exactly on OPENING_BOOK_EXPOSURE whatever was drawn.
+ */
+export function preGameBook(line: CoverageLine, y: number, seed: number): number {
+  let book = OPENING_BOOK_EXPOSURE[line];
+  for (let k = 0; k > Math.max(FIRST_PRE_GAME_YEAR, Math.min(0, y)); k--) book /= 1 + preGameNewMembers(seed, line, k);
+  return book;
+}
 
 const lossFactorOf = (renewing: number, relief: number, written: number, after: number) =>
   after > 0 ? (renewing * (1 - relief) + written * (1 + NEW_BUSINESS_PENALTY)) / after : 1;
@@ -108,12 +131,14 @@ export function moveBook(
   frozen: boolean,
   yearNumber: number,
   market?: MarketLineInput,
+  /** The game seed — the pre-game's New Members are drawn on it (preGameNewMembers). Read only in the pre-game. */
+  seed = 0,
 ): BookMovement {
   if (market && !frozen) return moveBookByMarket(before, market, withdrawal);
-  // THE PRE-GAME GROWS INTO THE OPENING BOOK (PRE_GAME_BOOK_GROWTH), its growth new exposure at the penalty.
+  // THE PRE-GAME GROWS INTO THE OPENING BOOK by the prior board's New Members, its growth new exposure at the penalty.
   if (frozen && yearNumber <= 0) {
-    const after = preGameBook(line, yearNumber);
-    const prev = yearNumber > FIRST_PRE_GAME_YEAR ? preGameBook(line, yearNumber - 1) : after;
+    const after = preGameBook(line, yearNumber, seed);
+    const prev = yearNumber > FIRST_PRE_GAME_YEAR ? preGameBook(line, yearNumber - 1, seed) : after;
     const written = Math.max(0, after - prev);
     return {
       before: prev, renewedOff: 0, withdrawn: 0, written, after, newShare: after > 0 ? written / after : 0,

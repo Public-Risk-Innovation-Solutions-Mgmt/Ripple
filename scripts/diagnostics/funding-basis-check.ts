@@ -46,6 +46,16 @@
 // netting path (AGGREGATE_STOP + STOP_RECOVERY_OFF_CLAIMS_COST) switched on at
 // runtime and caught by 1; and to 6 a cover whose expected ceded came off the
 // pool premium, and a cover that charged nothing.
+//
+// ⚠ RESTATED FOR pr/pregame-65: THE GAMES ARE PINNED TO EXPECTED WITH NO
+// AGGREGATE COVER. The play defaults are now 65% funding with the prior
+// board's covers ($19M xs $1M and the 125/50 aggregate cover on attritional
+// losses). This gate is about the per-claim cover at CLF 1: its "None" arm
+// must buy nothing at all (6 found the 125/50 cover's price in it), and 3's
+// "at CLF 1.000" needs Expected. So every game here plays Expected
+// (fundingAtExpected), aggregate cover None, and the per-claim option named —
+// the defaults this gate was written against. New control: the None arm left
+// on the play defaults' aggregate cover must fail 6.
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -95,7 +105,7 @@ interface Row {
 // because it places nothing.
 const COVER = '$38M xs $2M';
 
-function play(g: number, years: number, option: string): ResultSet[] {
+function play(g: number, years: number, option: string, aggregate = 'none'): ResultSet[] {
   const id = `FBC${g}`;
   const inst = generateGameInstance(id, 6_300_000 + g * 4441);
   const setup = { poolName: 'F', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES };
@@ -106,7 +116,8 @@ function play(g: number, years: number, option: string): ResultSet[] {
   } as never as GameState;
   for (let y = 1; y <= years; y++) {
     const d = defaultDecisionSet(y);
-    for (const l of LINES) d.byLine[l] = { ...d.byLine[l], reinsuranceOption: option };
+    // At Expected, no aggregate cover — the defaults this gate was written against (pr/pregame-65).
+    for (const l of LINES) d.byLine[l] = { ...d.byLine[l], reinsuranceOption: option, fundingAtExpected: true, aggregateCover: aggregate };
     const p = processYear(gs, d);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
@@ -172,7 +183,7 @@ const grossFunded = (rs: Row[]) => rs.length > 0
   && rs.every(r => r.expectedCededPer100 === 0 && Math.abs(r.netPurePremiumPer100 - r.purePremiumPer100) <= 5e-5 + 1e-12);
 
 console.log('=== NET FUNDING BASIS CHECK — 60 games x 10 years, all defaults ===');
-console.log(`All-defaults = CLF 1.000 on WC/GL, with ${COVER} bought on every line (the shocks landing's default is None).\n`);
+console.log(`At Expected = CLF 1.000 on WC/GL, aggregate cover None, with ${COVER} bought on every line (the play defaults are 65% with the prior board's covers, pr/pregame-65).\n`);
 
 console.log('--- 1. poolPremium FUNDS THE GROSS PURE PREMIUM, A COVER BOUGHT — NOTHING NETS OFF (shocks landing) ---');
 for (const l of ['WC', 'GL', 'Property'] as const) {
@@ -390,6 +401,11 @@ check(!costIsFullPrice(pairs.GL.map((p, i) => ({ ...p, cover: { ...p.cover,
 'control: a cover whose expected ceded came off the pool premium is caught by 6');
 check(!costIsFullPrice(pairs.WC.map(p => ({ ...p, cover: { ...p.cover, reinsuranceCost: 0, totalMemberCharge: p.none.totalMemberCharge } }))),
   'control: a cover that charged nothing is caught by 6');
+{
+  // The None arm on the play defaults' aggregate cover (125/50), one game.
+  const onDefault = rowsOf(play(0, YEARS, 'none', 'agg-125-50')).Property.map((r, i) => ({ none: r, cover: rows.Property[i] }));
+  check(!costIsFullPrice(onDefault), 'control: the None arm left on the play defaults\' aggregate cover (125/50) is caught by 6');
+}
 
 console.log(failures === 0 ? '\nALL FUNDING-BASIS CHECKS PASS.'
   : `\n${RULE}\n${failures} CHECK(S) FAILED:\n  ${failed.join('\n  ')}\n${RULE}`);

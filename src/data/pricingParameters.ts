@@ -265,8 +265,11 @@ export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.05, default:
  * THE RATE INDICATION'S OTHER FUNDING LEVELS — shown beside Expected on the
  * Actuarial department's Rate Indication. Display only: each is a slider stop,
  * priced as the Decisions panel prices it.
+ *
+ * ⚠ 65% ADDED (pr/pregame-65): it is the play default (PLAY_DEFAULTS), and a
+ * team on the default must see its own level's rate. Was 70%, 80%, 90%.
  */
-export const RATE_INDICATION_FUNDING_LEVELS = [0.70, 0.80, 0.90] as const;
+export const RATE_INDICATION_FUNDING_LEVELS = [0.65, 0.70, 0.80, 0.90] as const;
 
 /**
  * THE RESERVE MARGIN'S FIXED CONFIDENCE LEVEL — 80% (stable-scenarios commit 2;
@@ -701,26 +704,61 @@ export const REINSURANCE_LOAD = 0.14;
 export const PRIOR_HISTORY_YEARS = 6;
 
 /**
- * THE PRE-GAME BOOK GROWS 2% A YEAR, ENDING EXACTLY AT THE OPENING BOOK.
+ * THE PRIOR BOARD — WHAT IT DECIDED IN EACH PRE-GAME YEAR, 2021 TO 2026
+ * (pr/pregame-65). Recorded as that year's decisions, so the Annual
+ * Statement's Decisions section shows them:
  *
- * 2021, the first pre-game year, holds OPENING_BOOK_EXPOSURE / (1 + this)^5;
- * each later year grows to exactly the opening book x (1 + this)^(year − 2026),
- * and 2026 holds the whole opening book (bookUnderwriting.preGameBook). Each
- * year's growth is new members' exposure: it carries NEW_BUSINESS_PENALTY on
- * its ordinary losses that year, as the New members slider's does in play.
- * There is no decision in it, and no non-renewal.
+ *   funding        65% on each line's own (stretched) table — the margin is
+ *                  staticClf(line, 0.65) − 1, the level recorded beside it
+ *   New Members    drawn each year around 5% with a 2% spread (normal, cut
+ *                  to the slider's 0–10%), seeded per scenario on its own
+ *                  stream (pregame_new_members_<line>), each year's new
+ *                  exposure at NEW_BUSINESS_PENALTY (20%) that year; 2021,
+ *                  the first year, adds none
+ *   Non-Renewal    0%
+ *   covers         per-claim $19M xs $1M and the aggregate cover 125% / 50%
  *
- * ⚠ WHY: a pool's book does not stand still for six years before the game, and
- * a growing one hands the team a history of smaller, older years, with new
- * business in each. Measured (scripts/probes/ri-growth-probe.mts, at 1%, 2%,
- * 3% against none): 2021's exposure is 0.906 of 2026's at 2%; pricing reads
- * each window year's loss cost on its own exposure with equal weights, so the
- * smaller years neither drag the rate nor count for less, and growth reaches
- * it only through the penalty on new business in the history (the 2027 rate
- * about +0.5%). Opening reserves fall up to $1.8M, paid-in capital needs about
- * $1M more on WC, and every other figure moves by a point or less.
+ * The history ENDS ON TODAY'S 2026 BOOK: 2026 holds OPENING_BOOK_EXPOSURE
+ * exactly, and each year before it is the next year's book over (1 + that
+ * year's New Members), so only the path into the opening is drawn.
+ *
+ * ⚠ WHY (the Growth chat's measurements, aws 80da7011, scripts in its
+ * scratchpad). The board used to fund every pre-game year at Expected, grow
+ * a flat 2% with no decision in it and buy no cover, and year 1 then funded
+ * at Expected too. A board that holds a margin, buys the covers a pool of
+ * this size buys and grows its book is the history a team inherits, and it
+ * carries straight into play: year 1 opens on the same 65% and covers
+ * (PLAY_DEFAULTS), so 2027 has no rate drop on any line in any scenario —
+ * at Expected every seed dropped on WC and Property, at 65% without the
+ * covers 13 WC and 15 Property seeds did. The spread barely matters (1%
+ * to 3% moved the openings a point or two); 2% was chosen. The 65% history
+ * left the openings too rich for today's targets, so paid-in capital comes
+ * down to bring them back (STARTING_CAPITAL) rather than the targets moving.
  */
-export const PRE_GAME_BOOK_GROWTH = 0.02;
+export const PRIOR_BOARD = {
+  fundingLevel: 0.65,
+  newMembersMean: 0.05,
+  newMembersSpread: 0.02,
+  nonRenewal: 0,
+  reinsuranceOption: '$19M xs $1M',
+  aggregateCover: 'agg-125-50',
+} as const;
+
+/**
+ * WHAT A TEAM HOLDS UNTIL IT CHOOSES, EVERY YEAR (decisionDefaults.ts): the
+ * prior board's funding and covers, carried into play — 65% on each line's
+ * table, $19M xs $1M and the aggregate cover 125% / 50% — so the first played
+ * year continues the history rather than dropping its margin and covers.
+ * New Members and Non-Renewal stay at 0: a pool that moves its book by
+ * default would be making an underwriting decision nobody took. The covers
+ * follow the game's offer (COVERS_IN_EVERY_GAME, on): where a cover is not
+ * offered the default is None.
+ */
+export const PLAY_DEFAULTS = {
+  fundingLevel: PRIOR_BOARD.fundingLevel,
+  reinsuranceOption: PRIOR_BOARD.reinsuranceOption,
+  aggregateCover: PRIOR_BOARD.aggregateCover,
+} as const;
 
 /**
  * THE NEW RATE STACK — ON.
@@ -840,87 +878,80 @@ export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 
  * room alike. PERMANENT: chosen once, by search, and never re-picked at run
  * time; scenario-opening-drift-check reports any change that moves an opening.
  *
- * ⚠ HOW THEY WERE CHOSEN (the Measurements chat, on multiplayer 985f365). Every
- * seed 1 to 20,000 was run through the pre-game — capital WC $3.0M, GL $12.0M,
- * Property $12.5M, history at true cost, the prior board at Expected, no
- * guardrails — and each line's opening premium to surplus recorded (shocks
- * off: year-1 premium at Expected, as the room and Test player price it). Each
- * scenario takes the seed closest on ALL THREE lines at once to its design
- * targets (SCENARIO_PREMIUM_TO_SURPLUS), keeping today's thin-to-rich order;
- * no seed is used twice.
+ * ⚠ HOW THEY WERE CHOSEN (pr/pregame-65; the Growth chat, on aws 80da7011,
+ * scripts in its scratchpad). The pre-game as it now stands — the prior board
+ * at 65% with its covers and New Members drawn around 5% (PRIOR_BOARD),
+ * capital WC /bin/bash, GL .06M, Property .53M (STARTING_CAPITAL) — was run for
+ * every seed 21 to 120,000 (1 to 20 are the scenario numbers' own ids), and
+ * each line's opening premium to surplus recorded: year-1 premium at Expected
+ * with no cover (atExpectedDecisionSet) over the opening surplus. Every seed
+ * within 5% of a slot's design targets (SCENARIO_PREMIUM_TO_SURPLUS) on all
+ * three lines and drawing at least two shocks in ten years was played ten
+ * years, single player and a hosted room at adverse development Low, shocks on,
+ * the play defaults (PLAY_DEFAULTS), and scored on steadiness: the spread of
+ * its yearly combined ratios, single-player loss runs (combined ratio over
+ * 100%) longer than three years, the largest one-year surplus drop against
+ * the opening, and every line that ever falls below zero. Each slot takes its
+ * steadiest seed, the slots with fewest candidates choosing first; no seed is
+ * used twice. Candidates per slot (within 5%, of which at least two shocks):
+ * 12: 142 (107), 19: 180 (138), 10: 187 (144), 14: 229 (179), 3: 257 (192),
+ * 8: 277 (204), 15: 258 (196), 11: 329 (246), 20: 378 (290), 6: 349 (268),
+ * 9: 312 (249), 5: 318 (242), 4: 286 (223), 1: 239 (183), 18: 184 (134),
+ * 7: 140 (106), 17: 85 (66), 2: 48 (37), 13: 28 (17), 16: 13 (11) — the rich
+ * end the thinnest. Every pick stays above zero on every line in both modes
+ * over ten years, and its 2027 rate rises on every line.
  *
- * ⚠ RE-PICKED, FIFTEEN OF THE TWENTY (pr/seed-switch, on aws 0b4f5a5, after
- * the fixed PRICING_ALAE_LOAD moved every opening: 4 of 20 within 5%, worst
- * miss 18.5%). The same search on this build — seeds 21 to 20,000, setup as
- * above, year-1 premium at Expected with shocks off — then every seed within
- * 5% of a slot's targets on all three lines, and today's twenty, played ten
- * years, single player and a hosted room at adverse development Low, shocks
- * on, the default decisions. Each scored on steadiness: the spread of its
- * yearly combined ratios, single-player loss runs (combined ratio over 100%)
- * longer than three years, the largest one-year surplus drop against the
- * opening, and every line that ever falls below zero. A slot switched only
- * where its new seed is within 5% on every line, draws at least two shocks in
- * ten years, and is clearly steadier (score at least 30% lower, no more years
- * below zero; 19, 9 and 17 by ruling: as steady, on target, and drawing the
- * shocks today's seeds did not). Every switched seed stays above zero on every
- * line in both modes over ten years, where eleven of today's did not (scenario
- * 14's Property fell to -$77M of surplus across the three lines); no 2027 rate
- * falls. Kept: 7, 18, 2, 13 and 16 — no steadier seed, or none within 5%. The
- * measurement: the Growth chat, scripts in its scratchpad, aa91a0a and aws
- * 0b4f5a5 identical on all twenty.
- *
- *   The openings, measured on this build (premium to surplus, shocks off;
- *   target, actual, miss):
+ *   The openings, measured on this build (premium to surplus at Expected, no
+ *   cover; target, actual, miss — the same with the shocks on or off):
  *
  *   scen  seed    WC                    GL                    Property
- *    12  14953   3.00 3.15  +5.0%   2.30 2.34  +1.8%   1.70 1.62  -4.5%
- *    19  17909   2.92 2.78  -5.0%   2.25 2.14  -4.9%   1.67 1.75  +4.8%
- *    10    567   2.84 2.81  -1.2%   2.19 2.15  -1.8%   1.65 1.66  +0.7%
- *    14   7499   2.76 2.75  -0.4%   2.14 2.05  -4.4%   1.62 1.68  +3.9%
- *     3   9739   2.68 2.72  +1.4%   2.09 2.02  -3.2%   1.59 1.54  -3.7%
- *     8  12860   2.61 2.55  -2.0%   2.04 2.10  +3.0%   1.57 1.50  -4.7%
- *    15   7693   2.53 2.52  -0.4%   1.98 2.00  +0.9%   1.54 1.47  -4.9%
- *    11  14977   2.45 2.46  +0.7%   1.93 1.88  -2.8%   1.52 1.50  -1.2%
- *    20   4129   2.37 2.31  -2.3%   1.88 1.87  -0.5%   1.49 1.56  +4.9%
- *     6   3545   2.29 2.20  -4.0%   1.83 1.76  -3.5%   1.46 1.52  +4.1%
- *     9   2019   2.21 2.17  -1.8%   1.77 1.80  +1.7%   1.44 1.39  -3.2%
- *     5   6751   2.13 2.15  +1.1%   1.72 1.65  -4.3%   1.41 1.48  +4.7%
- *     4  18728   2.05 2.15  +4.8%   1.67 1.62  -3.1%   1.38 1.32  -4.8%
- *     1  11548   1.97 2.07  +4.7%   1.62 1.61  -0.4%   1.36 1.31  -3.7%
- *    18  13548   1.89 1.87  -1.5%   1.56 1.44  -7.8%   1.33 1.35  +1.5%
- *     7   9719   1.82 1.73  -4.6%   1.51 1.49  -1.1%   1.31 1.32  +1.5%
- *    17  10942   1.74 1.82  +4.7%   1.46 1.48  +1.2%   1.28 1.30  +2.0%
- *     2   1681   1.66 1.80  +8.4%   1.41 1.42  +0.7%   1.25 1.23  -1.8%
- *    13  14577   1.58 1.74 +10.4%   1.35 1.45  +7.3%   1.23 1.23  +0.6%
- *    16   2812   1.50 1.58  +5.4%   1.30 1.19  -8.3%   1.20 1.20  +0.2%
+ *    12  49651  3.00 3.04  +1.3%   2.30 2.32  +1.0%   1.70 1.70  -0.3%
+ *    19  43424  2.92 3.05  +4.4%   2.25 2.16  -3.8%   1.67 1.68  +0.6%
+ *    10  90448  2.84 2.72  -4.2%   2.19 2.10  -4.5%   1.65 1.58  -3.9%
+ *    14  59909  2.76 2.72  -1.7%   2.14 2.20  +2.8%   1.62 1.55  -4.3%
+ *     3  22624  2.68 2.65  -1.3%   2.09 2.07  -1.0%   1.59 1.54  -3.3%
+ *     8  20285  2.60 2.61  +0.2%   2.04 1.96  -3.8%   1.57 1.52  -3.2%
+ *    15     33  2.53 2.65  +4.9%   1.98 1.91  -3.9%   1.54 1.47  -4.5%
+ *    11  25282  2.45 2.39  -2.2%   1.93 1.88  -2.7%   1.52 1.50  -0.9%
+ *    20  53781  2.37 2.29  -3.2%   1.88 1.93  +2.5%   1.49 1.56  +4.9%
+ *     6  23490  2.29 2.40  +4.8%   1.83 1.89  +3.3%   1.46 1.45  -1.0%
+ *     9  99087  2.21 2.10  -4.8%   1.77 1.83  +3.2%   1.44 1.48  +3.0%
+ *     5  26126  2.13 2.12  -0.5%   1.72 1.78  +3.5%   1.41 1.45  +2.9%
+ *     4  95926  2.05 2.01  -2.2%   1.67 1.72  +3.1%   1.38 1.39  +0.6%
+ *     1  12809  1.97 1.97  +0.0%   1.62 1.60  -0.7%   1.36 1.33  -2.3%
+ *    18   4800  1.90 1.97  +3.8%   1.56 1.50  -4.3%   1.33 1.37  +3.0%
+ *     7  37746  1.82 1.78  -2.0%   1.51 1.57  +4.2%   1.30 1.36  +4.5%
+ *    17  60849  1.74 1.72  -1.1%   1.46 1.44  -1.3%   1.28 1.33  +3.9%
+ *     2  56435  1.66 1.68  +1.0%   1.41 1.36  -3.4%   1.25 1.24  -0.7%
+ *    13  52699  1.58 1.64  +3.8%   1.35 1.33  -1.9%   1.23 1.25  +2.4%
+ *    16   9096  1.50 1.53  +2.0%   1.30 1.30  +0.0%   1.20 1.21  +0.6%
  *
- * ⚠ FOUR KEPT SLOTS MISS, ACCEPTED. Sixteen scenarios land within 5% on every
- * line; 18, 2, 13 and 16 do not (worst: 13's WC, +10.4%). 13 and 16 had no seed
- * within 5% in the search, as before: at $3.0M a 1.5-1.6 WC opening that also
- * matches GL and Property is not drawn. Raising WC's capital to about $8-9M
- * would make every slot reachable (estimated: opening surplus rises about
- * $1.13-1.25M per $1M paid in); not taken — the capital is the brief's. 18's
- * and 2's candidates were less steady than the seeds they have.
+ * ALL TWENTY WITHIN 5% ON EVERY LINE; worst 4.9% (20's Property, then 15's WC).
+ * Steadiest (score, lower steadier): 11 and 5 at 2.9; least steady 2 at 9.7
+ * (a 26% one-year surplus drop) and 13 at 7.8 — 13's seed before was far less
+ * steady (30.1, a 66% drop, a hosted line-year below zero).
  *
- * Before pr/seed-switch: 12 8095, 19 9401, 10 11168, 14 1428, 3 8310,
- * 8 12312, 15 1105, 11 16179, 20 7068, 6 4886, 9 1018, 5 11220, 4 13073,
- * 1 4109, 17 3895 (chosen on multiplayer 985f365 against the drawn-ALAE
- * openings, 18 of 20 within 5%).
+ * Before pr/pregame-65 (chosen at capital .0M / 2.0M / 2.5M, the prior
+ * board at Expected with no cover, flat 2% growth): 12 14953, 19 17909,
+ * 10 567, 14 7499, 3 9739, 8 12860, 15 7693, 11 14977, 20 4129, 6 3545,
+ * 9 2019, 5 6751, 4 18728, 1 11548, 18 13548, 7 9719, 17 10942, 2 1681,
+ * 13 14577, 16 2812 (16 of 20 within 5%; worst 13's WC, +10.4%).
  */
 export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
-  12: 14953, 19: 17909, 10: 567, 14: 7499, 3: 9739, 8: 12860, 15: 7693, 11: 14977, 20: 4129, 6: 3545,
-  9: 2019, 5: 6751, 4: 18728, 1: 11548, 18: 13548, 7: 9719, 17: 10942, 2: 1681, 13: 14577, 16: 2812,
+  12: 49651, 19: 43424, 10: 90448, 14: 59909, 3: 22624, 8: 20285, 15: 33, 11: 25282, 20: 53781, 6: 23490,
+  9: 99087, 5: 26126, 4: 95926, 1: 12809, 18: 4800, 7: 37746, 17: 60849, 2: 56435, 13: 52699, 16: 9096,
 };
 
 /**
  * THE OPENINGS' BARS — read by scenarios-check section 5 and by nothing in the
  * game: every line within this of its design target, and this many scenarios
  * within 5% on all three lines. What the seeds above achieve on this build:
- * worst miss 10.35% (scenario 13's WC) and 16 of 20 (pr/seed-switch). Were
- * 18.5% and 4, temporarily, while the openings stood as the fixed ALAE load
- * left them (pr/alae-load); 12% and 18 before that.
+ * worst miss 4.9% (scenario 20's Property) and all 20 (pr/pregame-65). Were
+ * 10.5% and 16 with the seeds before (pr/seed-switch); 18.5% and 4,
+ * temporarily, while the openings stood as the fixed ALAE load left them
+ * (pr/alae-load); 12% and 18 before that.
  */
-export const SCENARIO_OPENING_BARS = { worstMiss: 0.105, within5: 16, temporary: false } as const;
+export const SCENARIO_OPENING_BARS = { worstMiss: 0.05, within5: 20, temporary: false } as const;
 
 /**
  * EACH LINE'S THINNEST AND RICHEST DESIGN TARGET, PREMIUM TO SURPLUS — the
@@ -1022,7 +1053,17 @@ export const SCENARIO_PREMIUM_TO_SURPLUS: PerLine<Readonly<Record<number, number
  * the 1.0 guardrail (0.90 at its richest). $15M (shipped briefly, f096e1a)
  * kept every designed margin above the floor at the cost of two more drops.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 3_000_000, GL: 12_000_000, Property: 12_500_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 0, GL: 8_060_000, Property: 8_530_000 };
+// ⚠ WC $0, GL $8.06M, PROPERTY $8.53M (pr/pregame-65), DOWN FROM $3.0M /
+// $12.0M / $12.5M. The prior board's 65% funding (PRIOR_BOARD) earns a margin
+// every pre-game year, which left the openings too rich for today's design
+// targets (SCENARIO_PREMIUM_TO_SURPLUS). The targets were kept and the capital
+// lowered: GL and Property solved so today's twenty seeds land on their
+// targets on average (opening premium to surplus over target 1.00 on each).
+// WC would need about −$2.94M to do the same — capital below zero — so it is
+// floored at $0, where today's seeds' WC opened at 0.81 of target on average;
+// the seeds were then re-picked at this capital (SCENARIO_SEEDS), every one
+// within 5% on all three lines. Measured by the Growth chat (aws 80da7011).
 // ⚠ THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios): WC $3.0M, GL $12.0M,
 // PROPERTY $12.5M, UNCHANGED, FOR EVERY SCENARIO — the capital the seeds were
 // chosen at (SCENARIO_SEEDS). There is no margin to solve any more: the prior
@@ -2245,10 +2286,12 @@ export const AGGREGATE_STOP_SAMPLES = 50_000;
  * cost its price and move every scenario's opening; and a team buys T cover
  * as a choice. The brief named no default; this is a test-build choice.
  */
+// ⚠ $19M xs $1M ON EVERY LINE (pr/pregame-65): the prior board's per-claim
+// cover (PRIOR_BOARD), carried into play (PLAY_DEFAULTS). Was None on every line.
 export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
-  WC: 'none',
-  GL: 'none',
-  Property: 'none',
+  WC: PLAY_DEFAULTS.reinsuranceOption,
+  GL: PLAY_DEFAULTS.reinsuranceOption,
+  Property: PLAY_DEFAULTS.reinsuranceOption,
 };
 
 /**
@@ -2945,7 +2988,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'The funding levels the Rate Indication shows beside Expected, each with its indicated rate and change.',
         basis: 'CHOSEN',
         note: 'Display only. Each is a slider stop, priced by the Decisions panel\'s own pricing, so the indicated '
-          + 'rate plus a cover\'s price is the rate the panel charges there.',
+          + 'rate plus a cover\'s price is the rate the panel charges there. 65% added with the play default (was 70%, 80%, 90%).',
       }],
     ],
   },
@@ -3142,15 +3185,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   {
     title: 'The twenty scenarios',
     blurb: 'Each scenario plays one FIXED SEED (SCENARIO_SEEDS, never shown to players or hosts), chosen once by '
-      + 'search, with the same paid-in capital, a pre-game at true cost and a prior board at Expected; whatever opening '
-      + 'that seed produces is the opening. Nothing is solved, scaled, floored or guarded at run time. The design '
-      + 'targets the seeds were chosen against, evenly spaced per line from thinnest to richest: '
+      + 'search, with the same paid-in capital, a pre-game at true cost and the prior board at 65% with its covers and '
+      + 'drawn growth; whatever opening that seed produces is the opening. Nothing is solved, scaled, floored or '
+      + 'guarded at run time. The design targets the seeds were chosen against, evenly spaced per line from thinnest '
+      + 'to richest: '
       + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_RATIO_RANGE[l].thinnest} to ${SCENARIO_RATIO_RANGE[l].richest}`).join(', ')
-      + '. Sixteen open within 5% of their targets on every line; 18, 2, 13 and 16 miss (worst: 13\'s WC, +10.4%), '
-      + 'accepted. Fifteen seeds (all but 7, 18, 2, 13 and 16) were re-picked after the fixed ALAE load moved every '
-      + 'opening (pr/seed-switch): among the seeds within 5% of each slot\'s targets, each is steadier over ten years '
-      + 'than the one it replaced — a smaller spread of yearly combined ratios, smaller surplus drops, no line below '
-      + 'zero — and draws at least two shocks.',
+      + '. All twenty open within 5% of their targets on every line (worst 4.9%). Picked from seeds 1 to 120,000 '
+      + '(pr/pregame-65): of each slot\'s seeds within 5% on all three lines and drawing at least two shocks in ten '
+      + 'years, the steadiest over ten years, single player and a hosted room at development Low — the smallest '
+      + 'spread of yearly combined ratios, loss runs and surplus drops, no line below zero.',
     entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
       value: `seed ${SCENARIO_SEEDS[n]}`,
       unit: 'fixed seed',
@@ -3163,7 +3206,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   {
     title: 'The opening',
     blurb: 'The opening as played — no acceptance band, no pin, no search, no solve and no reset: the pre-game starts '
-      + 'from its starting capital, the prior board funds every year at Expected, and the last year-end is the opening.',
+      + 'from its starting capital, the prior board funds every year at 65% with its covers and grows the book by its '
+      + 'New Members into today\'s 2026 book, and the last year-end is the opening.',
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
@@ -3176,7 +3220,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['The pool\'s history begins', {
         value: 2021, unit: 'the first accident year',
         what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
-          + 'capital (WC $5.0M, GL $10.0M, Property $17.5M — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'capital (see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
           + 'the starting expected loss with trend applied — no history — and so is 2022, with the one-year data lag; '
           + '2023 on one year, 2024 on two, 2025 on three, 2026 on four; from 2027 the full five-year window.',
         basis: 'CHOSEN',
@@ -3187,10 +3231,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Opening surplus', {
         value: 'year-1 premium at Expected / the scenario\'s premium to surplus', unit: 'surplus at the opening, each line',
-        what: 'Each line opens with its year-1 premium at Expected (the default decisions, struck on the opening book) '
-          + 'divided by its scenario\'s target ratio — see The twenty scenarios.', basis: 'CHOSEN',
-        note: 'Was $35M on every line, interim until the scenarios. The pre-game starts from the starting capital and '
-          + 'the prior board\'s margin is solved so its last year-end lands here, so the opening is set without a reset.',
+        what: 'Each line opens on the played history\'s last year-end. Its premium to surplus is stated on the year-1 '
+          + 'premium at Expected with no cover (atExpectedDecisionSet, struck on the opening book) — the basis the '
+          + 'seeds were chosen on — against its scenario\'s target ratio; see The twenty scenarios.', basis: 'CHOSEN',
+        note: 'Was $35M on every line, interim until the scenarios; then set to target by solving the prior board\'s '
+          + 'margin; since the fixed seeds, the seed\'s own. The measure stays at Expected with no cover although the '
+          + 'play defaults are now 65% with the covers (pr/pregame-65), so the targets keep their meaning.',
       }],
     ],
   },
@@ -3307,8 +3353,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'The same for every scenario since the fixed seeds, which were chosen at it; with no margin to solve, it is '
-          + 'simply what the pool was paid in, and moving it moves every opening. Before, while the margin was solved: '
+        note: 'WC $0, GL $8.06M, Property $8.53M (pr/pregame-65), down from $3.0M / $12.0M / $12.5M: the prior '
+          + 'board\'s 65% funding left the openings too rich for today\'s targets, so the targets were kept and the capital '
+          + 'lowered. GL and Property solved so today\'s twenty seeds land on target on average; WC would need about '
+          + '-$2.94M, so it is floored at $0 and the seeds were re-picked at this capital. The same for every scenario; '
+          + 'moving it moves every opening. Before, while the margin was solved: '
           + 'WC $3.0M and GL $12.0M: the largest amount, in $0.5M steps, that keeps every scenario\'s designed '
           + 'margin above zero (WC +0.12% to +2.22%, GL +0.20% to +4.34%; the step above takes the lowest to -0.29% and '
           + '-0.22%). They were $5.0M and $10.0M with the investment income credit; removing it raised every pure premium. '
@@ -3330,12 +3379,45 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'as a negligible underpricing by the prior board. $15M solves most margins below expected. $5M was set while '
           + 'imaginary pre-2021 reserves earned investment income; those years are retired.',
       }],
-      ['Prior board\'s margin', {
-        value: 0, unit: 'over expected (CLF 1 + this)',
-        what: 'The prior board funds every pre-game year at Expected, on every scenario and line. Nothing solves it.',
+      ['Prior board\'s funding', {
+        value: `${(100 * PRIOR_BOARD.fundingLevel).toFixed(0)}%`, unit: 'on each line\'s own (stretched) table',
+        what: 'The prior board funds every pre-game year at this level on every scenario and line — the margin the line\'s '
+          + 'CLF at it — recorded as the year\'s decision, so the Annual Statement\'s Decisions section shows it. Nothing '
+          + 'solves it. Year 1 opens on the same level (Play defaults), so it carries straight into 2027.',
         basis: 'CHOSEN',
-        note: 'It was solved per scenario and line to land the opening on a target, floored at zero and moved by '
-          + 'guardrails; retired with the fixed seeds. With no margin to come off, 2027 at Expected follows 2026.',
+        note: 'Was Expected (a margin of 0) since the fixed seeds, and year 1 funded at Expected too; before that the margin '
+          + 'was solved per scenario. Measured (the Growth chat, aws 80da7011): with 65% in the history and in play, no '
+          + '2027 rate drops on any line in any scenario; at Expected every seed dropped on WC and Property, and at 65% '
+          + 'without the covers 13 WC and 15 Property seeds did.',
+      }],
+      ['Prior board\'s New Members', {
+        value: `${(100 * PRIOR_BOARD.newMembersMean).toFixed(0)}% ± ${(100 * PRIOR_BOARD.newMembersSpread).toFixed(0)}%`,
+        unit: 'of the book, each pre-game year after 2021',
+        what: 'Drawn each pre-game year from a normal with this mean and spread, cut to the New members slider\'s range, '
+          + 'seeded per scenario on its own stream for the line and year; 2021 adds none. Each year\'s new exposure carries '
+          + 'the 20% new-business penalty that year. The history ends on today\'s 2026 book: each earlier year is the next '
+          + 'year\'s book over (1 + its New Members). Non-Renewal is 0 every year. Both are recorded as the year\'s decisions.',
+        basis: 'CHOSEN',
+        note: 'Replaces a flat 2% a year with no decision in it (retired). The spread barely matters — '
+          + '1% to 3% moved the openings a point or two; 2% was chosen.',
+      }],
+      ['Prior board\'s covers', {
+        value: `${PRIOR_BOARD.reinsuranceOption} · aggregate ${PRIOR_BOARD.aggregateCover}`, unit: 'every pre-game year, every line',
+        what: 'The per-claim cover $19M xs $1M and the aggregate cover 125% / 50%, bought every pre-game year and recorded '
+          + 'as the year\'s decisions; carried into play as the default covers (Play defaults).',
+        basis: 'CHOSEN',
+        note: 'The board bought no cover before. In the pre-game the aggregate cover recovers only rarely and the '
+          + 'per-claim cover never pays (the pre-game draws no T-shock events, the only source of large claims), so they '
+          + 'mainly cost their premium; carried into play, they keep 2027 from dropping their cost out of the rate.',
+      }],
+      ['Play defaults', {
+        value: `${(100 * PLAY_DEFAULTS.fundingLevel).toFixed(0)}% · ${PLAY_DEFAULTS.reinsuranceOption} · aggregate ${PLAY_DEFAULTS.aggregateCover}`,
+        unit: 'what a team holds until it chooses, every year',
+        what: 'Funding at 65% on each line\'s table, and the prior board\'s covers carried. New Members and Non-Renewal stay '
+          + 'at 0. A cover not offered (COVERS_IN_EVERY_GAME off with the shocks off) defaults to None.',
+        basis: 'CHOSEN',
+        note: 'Were Expected and no cover. With the history at 65% with the covers, year 1 at the same settings means 2027 '
+          + 'has no rate drop.',
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
@@ -3665,9 +3747,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Default reinsurance', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
         unit: 'per line',
-        what: 'Held by every team until it chooses, and by the pre-game\'s prior board.',
+        what: 'Held by every team until it chooses, and by the pre-game\'s prior board (Play defaults).',
         basis: 'CHOSEN',
-        note: 'wip/shocks: None — the pre-game draws no shocks, so a cover there would only move every opening.',
+        note: '$19M xs $1M since pr/pregame-65: the prior board buys it every pre-game year and it is carried into play. '
+          + 'Was None (wip/shocks): the pre-game draws no shocks, so a cover there only costs its premium.',
       }],
       ['Worlds', {
         value: String(WORLD_COUNT), unit: 'worlds per team-year',

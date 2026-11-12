@@ -74,12 +74,23 @@
 // the premiums with reserve inflation still priced (multiplayer's centre; GL
 // +10.8% leaves its band) and the premiums on the book of units' opening with
 // reserve inflation priced (GL +24.0%).
+//
+// ⚠ RESTATED FOR pr/pregame-65: PINNED TO EXPECTED WITH NO COVER. The play
+// defaults are now 65% funding with the prior board's covers, so "the default
+// decisions" no longer price at Expected; the games here play
+// atExpectedDecisionSet, which is what check 3 has always meant. The band is
+// NOT re-centred. The new history (the prior board at 65% with its covers and
+// drawn growth, the new paid-in capital) moves year-1 premium at Expected over
+// these twelve seeds to WC $33.32M (+8.7% on its centre), GL $30.32M (+5.2%),
+// Property $27.82M (+1.5%) — inside the +/- 10%, WC near its ceiling. At the
+// play defaults it is WC $36.42M, GL $32.79M, Property $30.68M, above every
+// ceiling: a new control plays those and must fail 3.
 // ============================================================================
 
 import { EXPOSURE_SCALE, FULL_MARKET_EXPOSURE } from '../../src/data/pricingParameters';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
-import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { atExpectedDecisionSet, defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import type { CoverageLine, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -111,16 +122,20 @@ function gradeMarket(market: Record<CoverageLine, number>, tag: string, scale: R
 
 // ---------------------------------------------------------------- games
 const SEEDS = 12;
-const premiums: Record<CoverageLine, number[]> = { WC: [], GL: [], Property: [] };
-for (let g = 0; g < SEEDS; g++) {
-  const { setup, instance } = openSoloInstance({ poolName: 'X', gameLength: 10, startingYear: 2026, instanceId: `EXS${g}`, activeLines: LINES } as GameSetupSettings);
-  const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
-  let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory } as GameState);
-  gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), LINES)) };
-  for (const l of LINES) {
-    premiums[l].push(gs.lockedResults[0].byLine[l]!.totalMemberCharge);
+// ⚠ AT EXPECTED WITH NO COVER (atExpectedDecisionSet), not the play defaults,
+// which are 65% with the prior board's covers since pr/pregame-65.
+function yearOnePremiums(decide: (y: number) => ReturnType<typeof defaultDecisionSet>): Record<CoverageLine, number[]> {
+  const out: Record<CoverageLine, number[]> = { WC: [], GL: [], Property: [] };
+  for (let g = 0; g < SEEDS; g++) {
+    const { setup, instance } = openSoloInstance({ poolName: 'X', gameLength: 10, startingYear: 2026, instanceId: `EXS${g}`, activeLines: LINES } as GameSetupSettings);
+    const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
+    let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1), priorHistory, earlyPreGameHistory } as GameState);
+    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, decide(1)), LINES)) };
+    for (const l of LINES) out[l].push(gs.lockedResults[0].byLine[l]!.totalMemberCharge);
   }
+  return out;
 }
+const premiums = yearOnePremiums(y => atExpectedDecisionSet(y));
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 // ---------------------------------------------------------------- 3
@@ -152,6 +167,7 @@ controlFails('the multipliers before the contingency went to 0', () => gradeMark
   { WC: 1300 * 2.211, GL: 1300 * 1.549, Property: 59233.002 * 0.515 }, '', { WC: 2.211, GL: 1.549, Property: 0.515 }), '1.');
 const scaled = (f: (l: CoverageLine) => number) =>
   Object.fromEntries(LINES.map(l => [l, premiums[l].map(p => p * f(l))])) as Record<CoverageLine, number[]>;
+controlFails('the premiums at the play defaults (65% with the covers), not at Expected', () => gradePremium(yearOnePremiums(y => defaultDecisionSet(y)), ''), '3.');
 controlFails('premiums 20% over', () => gradePremium(scaled(() => 1.2), ''), '3.');
 controlFails('premiums 20% under', () => gradePremium(scaled(() => 0.8), ''), '3.');
 controlFails('the premiums on the book of units\' opening', () => gradePremium(scaled(l => BEFORE_LANDING[l]), ''), '3.');

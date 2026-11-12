@@ -49,6 +49,25 @@
 //    that bought the Aggregate Stop-Loss Coverage shows its rows, and only
 //    those, for the cover. Controls: the old row put back, and a game that
 //    bought none read as one that did.
+//
+// ⚠ RESTATED FOR pr/pregame-65 (section 7's control): the play defaults now
+// carry the prior board's 125/50 aggregate cover, so the default game bought
+// one; the "bought none" game holds aggregate cover None explicitly.
+// ⚠ SECTION 3, RESTATED WITH A src FIX (pr/pregame-65): the tie game moves
+// WC's book (non-renewal 5%, new members 10%) and WC now holds the default
+// covers. The engine bills a cover as a fixed price in dollars on the book
+// after it moves; the walkthrough showed the struck quote's per-$100 cover —
+// the price over the book BEFORE it moved — as the member charge rate, so the
+// rate shown missed the rate charged (Y1 WC 4.2490 vs 4.2439 per $100). It
+// reproduces on aws 80da701 with WC buying $19M xs $1M in the tie game: it
+// predates this branch, and the new default cover exposed it. Fixed in
+// yearWalkthrough.ts: the pricing stage shows the rate as struck, and the
+// premium stage, after the book moves, shows the cover per $100 of the book
+// billed and the member charge rate. Section 3 now rebuilds the charged rate
+// as struck rate − struck cover + the cover over the book billed and ties it
+// to the engine's, and ties the premium stage's member charge rate to it.
+// CONTROL, run by hand: the cover spread over the book as struck (the bug):
+// EXIT 1 — section 3 fails on WC in years 1-3 (4.2490 vs 4.2439 in year 1).
 // ============================================================================
 
 import * as XLSX from 'xlsx';
@@ -152,6 +171,15 @@ const COVER: Decide = y => {
   return d;
 };
 const C = soloGame(COVER);
+// Its control's game: no aggregate cover, held explicitly — the defaults now
+// carry the prior board's 125/50 cover (pr/pregame-65), so the default game A
+// bought one too and can no longer stand for "no cover".
+const UNCOVERED: Decide = y => {
+  const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l].aggregateCover = 'none';
+  return d;
+};
+const N = soloGame(UNCOVERED);
 
 const all = (gs: GameState): YearWalkthrough[] => walkthroughYears(gs).flatMap(y => buildYearWalkthroughs(gs, y));
 const key = (w: YearWalkthrough) => `${w.calendarYear} ${w.view}`;
@@ -229,9 +257,18 @@ function sectionEngine(): string[] {
       const a = row.byLine[l];
       const tie = (what: string, got: number, want: number, tol = 0.01) => { if (!near(got, want, tol)) out.push(`${y} ${l} ${what}: ${got} against the engine's ${want}`); };
       tie('pure premium', fig(w, 'pricing', 'Pure premium per $100'), a.newPurePremiumPer100!, 1e-9);
-      tie('rate', fig(w, 'pricing', 'Rate per $100 (member charge rate)'), a.finalRatePer100!, 1e-9);
+      // ⚠ RESTATED (pr/pregame-65): the member charge rate is the struck rate
+      // with its per-$100 cover swapped for the cover's dollar price over the
+      // book billed — the engine bills the cover as a fixed price after the
+      // book moves. Rebuilt here from the pricing stage's struck figures and the
+      // premium stage's cover per $100, and tied to the engine's rate; the
+      // premium stage's member charge rate must be that same figure.
+      const charged = fig(w, 'pricing', 'Rate per $100 as struck (on the book before it moves)')
+        - fig(w, 'pricing', 'Reinsurance price per $100') + fig(w, 'premium', 'Reinsurance per $100 of the book billed');
+      tie('rate', charged, a.finalRatePer100!, 1e-9);
+      tie('the premium stage\'s member charge rate', fig(w, 'premium', 'Rate per $100 (member charge rate)'), charged, 1e-9);
       tie('exposure after the book moves', fig(w, 'book', "This year's exposure ($M)"), a.billedExposure!, 1e-6);
-      tie('premium = rate x exposure', fig(w, 'pricing', 'Rate per $100 (member charge rate)') * fig(w, 'premium', 'Exposure billed ($M)') * 10_000, a.totalMemberCharge, 1);
+      tie('premium = rate x exposure', fig(w, 'premium', 'Rate per $100 (member charge rate)') * fig(w, 'premium', 'Exposure billed ($M)') * 10_000, a.totalMemberCharge, 1);
       tie('gross losses', fig(w, 'losses', 'Gross losses'), a.grossUltimateLoss);
       // Risk control (wip/risk-control): the cut re-read is the cut booked, the
       // charge is the cost booked, and the premium's pieces add to the charge.
@@ -428,7 +465,7 @@ await control('market share counted as part of the model', () => { const o = [..
 
 check(sectionStopLoss(), '7. the Aggregate Stop-Loss Coverage rows only: no "Aggregate cover recovery" on any screen or in the download');
 await control('the old row put back', () => { oldRowBack = true; return () => { oldRowBack = false; }; }, sectionStopLoss);
-await control('a game that bought no cover read as one that did', () => { coverGame = A; return () => { coverGame = C; }; }, sectionStopLoss);
+await control('a game that bought no cover read as one that did', () => { coverGame = N; return () => { coverGame = C; }; }, sectionStopLoss);
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);

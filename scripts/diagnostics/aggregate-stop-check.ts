@@ -69,7 +69,7 @@
 
 import {
   AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, REINSURANCE_OPTIONS,
-  COVERS_IN_EVERY_GAME, STOP_RECOVERY_OFF_CLAIMS_COST,
+  COVERS_IN_EVERY_GAME, REINSURANCE_DEFAULT_OPTION, STOP_RECOVERY_OFF_CLAIMS_COST,
 } from '../../src/data/pricingParameters';
 import {
   sampledYearTotals, stopQuotes, stopRecovery, stopTerms, stopWording, type StopQuote,
@@ -93,6 +93,17 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(1, Math.abs(b));
 
+// ⚠ RESTATED FOR THE PRIOR BOARD'S COVERS (pr/pregame-65): the default
+// per-claim cover is now $19M xs $1M on every line, shocks on or off
+// (REINSURANCE_DEFAULT_OPTION, carried from PRIOR_BOARD), not None — so 0.
+// wants $19M xs $1M the default both ways, and 1.'s dormant packages want it
+// a valid T cover placing its layers. The play defaults also carry the
+// aggregate cover on attritional losses (125/50), a separate product: the
+// stop's own games (3, 4) hold the stop alone, aggregate cover None, so
+// their recoveries are the stop's. New control: None put back as the default
+// (the board before) must fail 0.
+//
+
 // ---------------------------------------------------------------- 0
 // THE DORMANCY (shocks landing): as shipped the stop is off and the T covers
 // are what a team is offered. Written out here, not read from the parameter.
@@ -105,12 +116,13 @@ function gradeDormancy(tag: string) {
   // COVERS_IN_EVERY_GAME: the same nine with the game's shocks off.
   const offered = LINES.every(l => reinsuranceOptionIds(l, true).join('|') === T_COVER_IDS.join('|')
     && reinsuranceOptionIds(l, false).join('|') === T_COVER_IDS.join('|'));
-  const defaults = LINES.every(l => defaultReinsuranceOption(l) === 'none' && defaultReinsuranceOption(l, false) === 'none');
+  // The prior board's per-claim cover, carried (pr/pregame-65) — written out here.
+  const defaults = LINES.every(l => defaultReinsuranceOption(l) === '$19M xs $1M' && defaultReinsuranceOption(l, false) === '$19M xs $1M');
   const noStopIds = LINES.every(l => AGGREGATE_STOP_OPTIONS.every(o => o.id === 'none' || !isReinsuranceOption(l, o.id)));
   // The widest cover places every layer of the tower: $39M xs $1M (wip/reinsurance-layers).
   const widest = LINES.every(l => fullTowerOption(l) === '$39M xs $1M');
   check(off && offered && defaults && noStopIds && widest,
-    `${tag}0. as shipped the stop is dormant: switch off, the T covers offered (shocks on or off), None the default, no stop id accepted`,
+    `${tag}0. as shipped the stop is dormant: switch off, the T covers offered (shocks on or off), $19M xs $1M the default, no stop id accepted`,
     `AGGREGATE_STOP ${AGGREGATE_STOP.enabled ? 'ON' : 'off'}; WC offers ${reinsuranceOptionIds('WC').join(', ')}; `
     + `shocks off ${reinsuranceOptionIds('WC', false).join(', ')}; `
     + `offered ${offered}, defaults ${defaults}, no stop ids ${noStopIds}, widest ${LINES.map(l => fullTowerOption(l)).join(' / ')} (want $39M xs $1M)`);
@@ -146,6 +158,17 @@ gradeDormancy('');
   const caught = failures.splice(before).filter(f => f.startsWith('0.'));
   check(caught.length > 0, 'control: COVERS_IN_EVERY_GAME switched off (None alone with shocks off) is caught by 0.');
 }
+// ...and None put back as the default (the board before pr/pregame-65) is caught too.
+{
+  const before = failures.length;
+  const saved = console.log; console.log = () => {};
+  const defs = REINSURANCE_DEFAULT_OPTION as Record<string, string>;
+  const was = defs.GL;
+  defs.GL = 'none';
+  try { gradeDormancy(''); } finally { defs.GL = was; console.log = saved; }
+  const caught = failures.splice(before).filter(f => f.startsWith('0.'));
+  check(caught.length > 0, 'control: None put back as GL\'s default (the board before) is caught by 0.');
+}
 // THE STOP, SWITCHED ON IN THIS PROCESS ONLY, for 1-5.
 AGGREGATE_STOP.enabled = true;
 
@@ -160,11 +183,12 @@ function gradeOptions(defaultOf: (l: CoverageLine) => string, preGame: ResultSet
   const defaults = LINES.every(l => defaultOf(l) === 'bad-year' && defaultReinsuranceOption(l, false) === 'none')
     && preGame.every(r => LINES.every(l => r.byLine[l]!.decisions.reinsuranceOption === 'bad-year'));
   const noLayers = LINES.every(l => AGGREGATE_STOP_OPTIONS.every(o => placementFor(l, o.id).every(p => !p)));
-  // Off, the T covers (shocks landing): None the default, placing nothing, and
-  // every other option a placement of whole tower layers.
+  // Off, the T covers (shocks landing): the prior board's $19M xs $1M the
+  // default (pr/pregame-65), placing its layers, and every other option a
+  // placement of whole tower layers.
   AGGREGATE_STOP.enabled = false;
   const dormant = LINES.every(l => isReinsuranceOption(l, defaultReinsuranceOption(l))
-    && placementFor(l, defaultReinsuranceOption(l)).every(p => !p)
+    && placementFor(l, defaultReinsuranceOption(l)).some(Boolean)
     && REINSURANCE_OPTIONS[l as 'WC'].every(o => o.limit === 0 || placementFor(l, o.id).some(Boolean)));
   AGGREGATE_STOP.enabled = true;
   check(AGGREGATE_STOP.enabled && shapes && defaults && noLayers && dormant,
@@ -217,7 +241,8 @@ function play(id: string, years: number, option: string): Played {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const decide = (y: number): DecisionSet => {
     const d = defaultDecisionSet(y);
-    return { ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: option }])) as DecisionSet['byLine'] };
+    // The stop alone: no aggregate cover on attritional losses beside it (pr/pregame-65).
+    return { ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: option, aggregateCover: 'none' }])) as DecisionSet['byLine'] };
   };
   let gs = { setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1), priorHistory, earlyPreGameHistory } as GameState;
   const results: ResultSet[] = [], states: PoolState[] = [poolState];

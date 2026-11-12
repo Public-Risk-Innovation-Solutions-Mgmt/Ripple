@@ -1,5 +1,13 @@
 // THE RATE INDICATION REPRODUCES THE RATE THE GAME CHARGES — what a player sees.
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now carry the aggregate
+// cover 125/50 and fund at 65%. The per-claim check ("indicated + the cover's
+// price = the panel's rate") sets the aggregate cover to None first — it was
+// left on the default, which used to be None — and the aggregate covers keep
+// their own check. 65% is on the page now (RATE_INDICATION_FUNDING_LEVELS) and
+// is checked beside 70%, 80% and 90%. Against the aws build (no 65% row) the
+// level checks fail, as they must.
+//
 // Solo (scenario 7, three lines, through the real setup screen) and hosted (a
 // room over the local transport, three lines), each before year 1 and after
 // two played years. On every line:
@@ -77,7 +85,8 @@
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
-const LEVELS = [70, 80, 90];
+// ⚠ 65% ADDED (pr/pregame-65): the play default, now shown on the page.
+const LEVELS = [65, 70, 80, 90];
 // Admin's share of premium by line (pricingParameters' ADMIN_SHARE_OF_PREMIUM), written out.
 const ADMIN = { WC: 0.2, GL: 0.2, Property: 0.2 };
 // Each line's Risk Control slider, by its program's label (DecisionsPage).
@@ -158,6 +167,7 @@ function screen(page, mode) {
           summary: (await Promise.all(['loss-cost', 'alae', 'ulae', 'pp', 'clf', 'admin', 'risk-control', 'plr', 'rate']
             .map(k => page.locator(`[data-testid="ri-${l}-built-${k}"]`).count()))).every(n => n === 1),
           clfLabel: (await page.locator(`[data-testid="ri-${l}-built-clf"]`).locator('xpath=../td[1]').innerText()).trim(),
+          clf: await value(`[data-testid="ri-${l}-built-clf"]`),
         },
         projected: await value(`[data-testid="ri-${l}-projected"]`),
         change: await value(`[data-testid="ri-${l}-change"]`),
@@ -322,6 +332,12 @@ function screen(page, mode) {
         `${mode}, ${name}, ${l}: the page lists exactly the covers the Decisions page offers`, offered.join(', '));
       ok(ind[l].window === 5,
         `${mode}, ${name}, ${l}: five complete years in the window`, `${ind[l].window}`);
+      // ⚠ THE PER-CLAIM COVERS ALONE (pr/pregame-65): the play defaults now hold
+      // the 125/50 aggregate cover, whose price would sit in the panel's rate
+      // beside each per-claim cover; it is set to None here and tested on its
+      // own below.
+      await page.click(`[data-testid="agg-cover-option-${l}-none"]`);
+      await page.waitForTimeout(300);
       for (const option of offered) {
         await page.click(`[data-testid="reins-option-${l}-${option}"]`);
         await page.waitForTimeout(300);
@@ -422,6 +438,7 @@ function screen(page, mode) {
   // with no window, show their expected-loss basis; the prior board funded at
   // Expected. Then each played year against what was charged.
   async function playedYears(name, played) {
+    const boardMargin = {};
     await readIndication();
     const opts = await options();
     const wantValues = [-5, -4, -3, -2, -1, 0, ...played.map((_, i) => i + 1), played.length + 1];
@@ -448,8 +465,19 @@ function screen(page, mode) {
           `${mode}, ${name}, ${o.text}, ${l}: how the rate was built — its rate is the rate charged`, b ? `${b.rate} vs ${b.charged}` : 'no build');
         ok(b !== null && (b.window > 0) !== b.noHistory && (o.value > -4 || b.noHistory) && b.summary,
           `${mode}, ${name}, ${o.text}, ${l}: the window, or with none the expected-loss basis, and the summary`, b ? `${b.window} window years${b.noHistory ? ', expected-loss basis' : ''}` : '');
-        if (o.value <= 0) ok(b !== null && b.clfLabel === 'Funding: Expected (the prior board)',
-          `${mode}, ${name}, ${o.text}, ${l}: the prior board funded at Expected`, b ? b.clfLabel : '');
+        // ⚠ RESTATED (pr/pregame-65): the prior board funds every history year
+        // at 65% on the line's table (PRIOR_BOARD), so the build reads
+        // "65% (the prior board)" and its CLF — the line's CLF at 65% — is above
+        // 1 and the same in every history year of the line. (It was Expected, a
+        // margin of 0, shown as "Expected (the prior board)".)
+        if (o.value <= 0) {
+          const m = b ? b.clfLabel.match(/^Funding: 65% \(the prior board\)$/) : null;
+          (boardMargin[l] ??= []).push(b ? b.clf : NaN);
+          ok(b !== null && m !== null && b.clf > 1
+            && boardMargin[l].every(x => x === boardMargin[l][0]),
+            `${mode}, ${name}, ${o.text}, ${l}: the prior board funded at 65% (its CLF above 1, the same every history year)`,
+            b ? `${b.clfLabel}, CLF ${b.clf}` : '');
+        }
       }
     }
     const coming = await readIndication(played.length + 1);
