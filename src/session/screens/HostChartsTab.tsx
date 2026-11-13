@@ -83,6 +83,11 @@ import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import { teamLabel, type RoomView, type TeamYearFigures, type TeamView } from '../index';
 import type { StoredMarketYear } from '../contract';
+import { drawableShocks } from '../shockDraw';
+
+// ⚠ THE HOST'S OWN SHORTER LABEL, NOT THE PLAYER-FACING eventName — same
+// source GameRulesFields' schedule picker reads a shock's name from.
+const SCHEDULABLE_SHOCKS = drawableShocks();
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -381,7 +386,9 @@ function niceScale(min: number, max: number, anchorZero: boolean): { lo: number;
 // ---------------------------------------------------------------- one chart
 
 // ⚠ right: 160 (was 118) — the end labels carry the team number now, "Team 1 | Bob's Pool".
-const W = 760, H = 240, M = { top: 14, right: 160, bottom: 38, left: 74 };
+// ⚠ bottom: 50 (was 38) — room for a shock event's name under the year it
+// fired, below the year number row.
+const W = 760, H = 240, M = { top: 14, right: 160, bottom: 50, left: 74 };
 const PLOT_W = W - M.left - M.right;
 const PLOT_H = H - M.top - M.bottom;
 
@@ -403,9 +410,11 @@ interface ChartProps {
   years: number[];
   /** Imposed when this chart shares a scale with another; otherwise its own. */
   domain?: { lo: number; hi: number; ticks: number[] };
+  /** A scheduled shock's host-facing name(s), by the year it fired. Years with no entry show none. */
+  shockLabelByYear: Map<number, string>;
 }
 
-function LineChart({ metric, series, years, domain }: ChartProps) {
+function LineChart({ metric, series, years, domain, shockLabelByYear }: ChartProps) {
   const [hoverYear, setHoverYear] = useState<number | null>(null);
 
   const drawn = series
@@ -520,10 +529,24 @@ function LineChart({ metric, series, years, domain }: ChartProps) {
 
           <line x1={M.left} x2={M.left + PLOT_W} y1={M.top + PLOT_H} y2={M.top + PLOT_H} stroke="#e2e8f0" strokeWidth={1} />
           {years.map(yr => (
-            <text key={yr} x={x(yr)} y={H - 22} textAnchor="middle" className="fill-slate-400" fontSize={10}>
+            <text key={yr} x={x(yr)} y={H - 34} textAnchor="middle" className="fill-slate-400" fontSize={10}>
               {yr}
             </text>
           ))}
+          {years.map(yr => {
+            const shockLabel = shockLabelByYear.get(yr);
+            if (!shockLabel) return null;
+            // ⚠ TRUNCATED HARD, WITH THE FULL NAME IN A NATIVE <title> HOVER —
+            // a tick's own width is a fraction of the chart, nowhere near the
+            // legend's 160px margin the team labels get.
+            const shown = shockLabel.length > 14 ? shockLabel.slice(0, 13) + '…' : shockLabel;
+            return (
+              <text key={yr} x={x(yr)} y={H - 20} textAnchor="middle" className="fill-amber-600" fontSize={8}>
+                <title>{shockLabel}</title>
+                {shown}
+              </text>
+            );
+          })}
           <text x={M.left + PLOT_W / 2} y={H - 6} textAnchor="middle" className="fill-slate-300" fontSize={10}>
             {metric.xLabel ?? 'year'}
           </text>
@@ -628,6 +651,15 @@ export default function HostChartsTab({ room }: Props) {
   }
 
   const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years, lastPlayable, room.marketByYear));
+  // A scheduled shock's host-facing name under the x-axis year it fired —
+  // ScheduledShockSpec.yearNumber is the SAME year numbering the x-axis
+  // already uses (0 = opening, 1..yearCount = played), so no offset here.
+  const shockLabelByYear = new Map<number, string>();
+  for (const s of room.shocks) {
+    const name = SCHEDULABLE_SHOCKS.find(e => e.id === s.shockId)?.name ?? s.shockId;
+    const existing = shockLabelByYear.get(s.yearNumber);
+    shockLabelByYear.set(s.yearNumber, existing ? `${existing}, ${name}` : name);
+  }
   // The book risk line joins the charts in a room with the market on.
   const metrics = (room.market ?? 'off') !== 'off' ? [...METRICS, BOOK_RISK_METRIC] : METRICS;
 
@@ -715,6 +747,7 @@ export default function HostChartsTab({ room }: Props) {
             metric={m}
             series={series}
             years={years}
+            shockLabelByYear={shockLabelByYear}
             domain={m.scaleGroup ? sharedDomains[m.scaleGroup] : undefined}
           />
         </div>
@@ -748,6 +781,7 @@ export default function HostChartsTab({ room }: Props) {
             metric={expandedMetric}
             series={series}
             years={years}
+            shockLabelByYear={shockLabelByYear}
             domain={expandedMetric.scaleGroup ? sharedDomains[expandedMetric.scaleGroup] : undefined}
           />
         </div>
