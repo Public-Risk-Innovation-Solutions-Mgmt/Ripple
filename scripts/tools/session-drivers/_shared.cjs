@@ -34,6 +34,11 @@
 //   market-survey     91  each team's Market Survey is the host's Teams table,
 //                         cell for cell, its own row highlighted, no decisions;
 //                         absent in single player and Test player.
+//   advanced-development 20  the setup's Advanced development table (Test player and
+//                         hosted): started from the simple choices, Edit game's
+//                         onward rule, the warning back to Simple, the room's
+//                         settings by year, the starting settings in the change
+//                         history, and each played year at its set level.
 //   wc-legislation-name 21  event #5 by its new names: "Workers Comp Legislation"
 //                         on the host's pickers, chips and change history; the
 //                         full "...: Increased Medical Fee Schedule" on the news

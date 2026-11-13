@@ -28,14 +28,17 @@ function shockLabel(id: string): string {
  * (ADVERSE_DEVELOPMENT_RANGE). None is stored as 'Off' — no development on the
  * line, what plain Single player plays.
  */
-export function DevelopmentLevelSelect({ line, value, onChange, disabled }: {
+export function DevelopmentLevelSelect({ line, value, onChange, disabled, testId, label }: {
   line: CoverageLine; value: DevelopmentSetting; onChange: (v: DevelopmentSetting) => void; disabled?: boolean;
+  /** Defaults to dev-level-<line>, the simple setup's; a table row names its own. */
+  testId?: string;
+  label?: string;
 }) {
   return (
     <select
       disabled={disabled}
-      data-testid={`dev-level-${line}`}
-      aria-label={`Adverse development, ${line}`}
+      data-testid={testId ?? `dev-level-${line}`}
+      aria-label={label ?? `Adverse development, ${line}`}
       className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
       value={value}
       onChange={e => onChange(e.target.value as DevelopmentSetting)}
@@ -43,6 +46,52 @@ export function DevelopmentLevelSelect({ line, value, onChange, disabled }: {
       <option value="Off">None</option>
       {DEVELOPMENT_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
     </select>
+  );
+}
+
+/** Each line's level, for every line (an unplayed line keeps its value for when it is ticked again). */
+export type LevelsRow = Record<CoverageLine, DevelopmentSetting>;
+
+/**
+ * THE ADVANCED SETUP'S TABLE (pr/advanced-development): each game year a row,
+ * each played line a column, a level in every cell — Edit game's development
+ * column, laid out and ruled the same: a level applies from the year it is set
+ * onward. `rows` holds years 1 to yearCount.
+ */
+export function DevelopmentByYearTable({ lines, rows, startingYear, onChange }: {
+  lines: readonly CoverageLine[];
+  rows: LevelsRow[];
+  startingYear: number;
+  onChange: (yearNumber: number, line: CoverageLine, v: DevelopmentSetting) => void;
+}) {
+  return (
+    <div data-testid="dev-by-year" className="mt-2 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-slate-500">
+            <th className="py-1 pr-3 font-medium">Year</th>
+            {lines.map(l => <th key={l} className="py-1 pr-3 font-medium">{l} development</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => {
+            const y = i + 1;
+            const cal = startingYear + i;
+            return (
+              <tr key={y} data-testid={`dev-year-${cal}`} className="border-t border-slate-100">
+                <td className="py-2 pr-3 whitespace-nowrap text-slate-700">{cal}</td>
+                {lines.map(l => (
+                  <td key={l} className="py-2 pr-3">
+                    <DevelopmentLevelSelect line={l} value={row[l]} testId={`dev-year-${cal}-${l}`}
+                      label={`Adverse development, ${l}, ${cal}`} onChange={v => onChange(y, l, v)} />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

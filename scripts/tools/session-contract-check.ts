@@ -1751,6 +1751,76 @@ async function main(): Promise<void> {
     await rejects(t.editGame({ code, token: host, years: { '4': y4 } }), 'GAME_COMPLETE', 'a finished game cannot be changed');
   }
 
+  // ---- ADVANCED DEVELOPMENT AT SETUP (pr/advanced-development) ------------
+  // A room created with a level per line per year stores it as its settings
+  // by year — the field Edit game writes — and its history opens with the
+  // starting settings. Every team reads the table; each year plays at its own
+  // level: identically to a SIMPLE room given the same table through Edit game
+  // before year 1, and differently from the simple room left alone. Bad years
+  // and levels are refused. A simple room stores nothing by year and no history.
+  {
+    const t = transport();
+    const json = (x: unknown) => JSON.stringify(x);
+    const table = {
+      '1': { WC: 'Low' as const, GL: 'Off' as const, Property: 'High' as const },
+      '2': { WC: 'Mid' as const, GL: 'Off' as const },
+      '3': { WC: 'High' as const, GL: 'Low' as const },
+      '4': { WC: 'High' as const, GL: 'High' as const },
+    };
+    const want = { '1': { WC: 'Low', GL: 'Off' }, '2': { WC: 'Mid', GL: 'Off' }, '3': { WC: 'High', GL: 'Low' }, '4': { WC: 'High', GL: 'High' } };
+    const base = {
+      seed: '7', yearCount: 4, startingYear: 2027, expectedTeams: 1, lines: ['WC', 'GL'] as CoverageLine[],
+      developmentLevels: { WC: 'Low' as const, GL: 'Off' as const }, shocks: [],
+    };
+    for (const [bad, what] of [
+      [{ '0': { WC: 'Low' } }, 'a year 0'], [{ '5': { WC: 'Low' } }, 'a year past the game'], [{ '1.5': { WC: 'Low' } }, 'a fractional year'],
+      [{ '2': { WC: 'Extreme' } }, 'an unknown level'], [['Low'], 'a list in place of years'],
+    ] as const) {
+      await rejects(t.createRoom({ ...base, hostToken: newSessionToken(), eventName: 'Bad', developmentLevelsByYear: bad as never }),
+        'INVALID_REQUEST', `advanced setup: ${what} is refused`);
+    }
+    const host = newSessionToken();
+    const made = await t.createRoom({ ...base, hostToken: host, eventName: 'Advanced', developmentLevelsByYear: table });
+    const hv = await t.read({ code: made.code, token: host });
+    eq(json(hv.room.developmentLevelsByYear), json(want),
+      'advanced setup: the room stores the table as its settings by year (the unplayed Property dropped)');
+    const hist = hv.room.editHistory ?? [];
+    eq(json(hist.map(e => [e.kind, e.yearNumber, e.by, e.levels])),
+      json([1, 2, 3, 4].map(y => ['start', y, 'Host', want[String(y) as '1']])),
+      'advanced setup: the host\'s change history opens with each year\'s starting settings');
+    eq(hv.room.shocksOn, undefined, 'advanced setup: the shock switch is not pinned (no edit has been made)');
+    const team = await t.join({ code: made.code, teamName: 'Alpha', role: 'player' });
+    const tv = await t.read({ code: made.code, token: team.teamToken });
+    eq(json(tv.room.developmentLevelsByYear), json(want), 'advanced setup: the team reads every year\'s levels');
+    eq(tv.room.editHistory, undefined, 'advanced setup: a team reads no history');
+    const advGame = buildTeamGame(tv.room, team.lines);
+    eq(json(advGame.gameState.setup.developmentLevelsByYear), json(want), 'advanced setup: the team\'s game carries the table');
+
+    // The twin: a simple room, the same table applied through Edit game before year 1.
+    const host2 = newSessionToken();
+    const twin = await t.createRoom({ ...base, hostToken: host2, eventName: 'Twin' });
+    const tw0 = await t.read({ code: twin.code, token: host2 });
+    eq(tw0.room.developmentLevelsByYear === undefined && (tw0.room.editHistory ?? []).length === 0, true,
+      'a simple setup stores nothing by year and opens with no history');
+    const plain = buildTeamGame(tw0.room, ['WC', 'GL']);
+    await t.editGame({ code: twin.code, token: host2, years: Object.fromEntries(Object.entries(want).map(([y, d]) => [y, { developmentLevels: d as never, shocks: [] }])) });
+    const twinTeam = await t.join({ code: twin.code, teamName: 'Alpha', role: 'player' });
+    const twinGame = buildTeamGame((await t.read({ code: twin.code, token: twinTeam.teamToken })).room, twinTeam.lines);
+    const yearsOf = (g: ReturnType<typeof buildTeamGame>) => [json(g.opening?.result), ...replayTeamYears(g.gameState, 5, undefined).produced.map(p => json(p.result))];
+    const adv = yearsOf(advGame), tw = yearsOf(twinGame), pl = yearsOf(plain);
+    eq(adv.length === 5 && adv.every((r, i) => r === tw[i]), true,
+      'advanced setup: the opening and all four years play exactly as a simple room given the same table by Edit game');
+    eq(adv[1] === pl[1], true, 'and year 1, at the simple levels, plays as the simple room does');
+    eq([2, 3, 4].every(i => adv[i] !== pl[i]), true, 'while years 2 to 4, at their own levels, do not');
+
+    // Edit game on an advanced room: its rules and history, unchanged.
+    const e = await t.editGame({ code: made.code, token: host, years: { '3': { developmentLevels: { WC: 'Mid', GL: 'Low' }, shocks: [] } } });
+    eq(json(e.edits.map(x => [x.kind, x.yearNumber, x.line, x.from, x.to])), json([['development', 3, 'WC', 'High', 'Mid']]),
+      'Edit game on an advanced room reads the table: WC in year 3 from High to Mid');
+    const hv2 = await t.read({ code: made.code, token: host });
+    eq((hv2.room.editHistory ?? []).length, 5, 'and the history keeps the starting settings, then the edit');
+  }
+
   // ---- MARKET COMPETITION (pr/market-competition) -------------------------
   //
   // The room's setting; what a lock carries; REAL LOCKING (a locked year refuses
