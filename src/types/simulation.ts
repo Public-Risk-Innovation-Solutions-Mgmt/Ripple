@@ -682,7 +682,7 @@ export interface GameSetupSettings {
    */
   shocksOn?: boolean;
   /** A Test player game's change history (utils/gameEdits.ts GameEdit). Absent until it is edited. */
-  gameEdits?: { at: number; by: string; yearNumber: number; kind: 'shock-added' | 'shock-removed' | 'development'; shockId?: string; line?: CoverageLine; from?: 'Low' | 'Mid' | 'High' | 'Off'; to?: 'Low' | 'Mid' | 'High' | 'Off' }[];
+  gameEdits?: { at: number; by: string; yearNumber: number; kind: 'shock-added' | 'shock-removed' | 'development' | 'start'; shockId?: string; line?: CoverageLine; from?: 'Low' | 'Mid' | 'High' | 'Off'; to?: 'Low' | 'Mid' | 'High' | 'Off'; levels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>> }[];
   /**
    * A TEST PLAYER GAME (the host's setup played solo). Read by the display
    * alone — the Year Walkthrough shows the scenario's fixed seed in a Test

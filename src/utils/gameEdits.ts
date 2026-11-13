@@ -49,11 +49,14 @@ export interface GameEdit {
   /** Who made it: 'Host' in a room, 'Test player' in a Test player game. */
   by: string;
   yearNumber: number;
-  kind: 'shock-added' | 'shock-removed' | 'development';
+  /** 'start': the levels an ADVANCED setup chose for the year, written once at creation. */
+  kind: 'shock-added' | 'shock-removed' | 'development' | 'start';
   shockId?: string;
   line?: CoverageLine;
   from?: DevelopmentSetting;
   to?: DevelopmentSetting;
+  /** kind 'start' only: each played line's level that year. */
+  levels?: LevelsByLine;
 }
 
 /** What a game's settings are made of — the room's fields, or a Test player game's. */
@@ -152,10 +155,54 @@ export function applyGameEdit(
   };
 }
 
+const LINE_ORDER: readonly CoverageLine[] = ['WC', 'GL', 'Property'];
+
+/**
+ * THE ADVANCED SETUP'S LEVELS, CHECKED (pr/advanced-development): year -> each
+ * line's level, as a room is created or a Test player game started. A year key
+ * must be a whole year from 1 to `yearCount` and a level one of None (Off),
+ * Low, Mid or High — anything else is refused. Entries for lines the game does
+ * not play are dropped, as the simple levels' are. Undefined when nothing is
+ * left: a simple setup, which stores nothing by year and reads exactly as
+ * before.
+ */
+export function startingLevelsByYear(
+  raw: unknown, yearCount: number, lines: readonly CoverageLine[],
+): Record<string, LevelsByLine> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new GameEditError('developmentLevelsByYear must be an object of years.');
+  const out: Record<string, LevelsByLine> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const y = Number(k);
+    if (!/^\d+$/.test(k) || !Number.isInteger(y) || y < 1 || y > yearCount) {
+      throw new GameEditError(`"${k}" is not a year of this game (1 to ${yearCount}).`);
+    }
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new GameEditError(`Year ${k}'s levels are malformed.`);
+    const row: LevelsByLine = {};
+    for (const [l, lv] of Object.entries(v as Record<string, unknown>)) {
+      if (!isSetting(lv)) throw new GameEditError(`"${String(lv)}" is not a development level.`);
+      if (lines.includes(l as CoverageLine)) row[l as CoverageLine] = lv;
+    }
+    if (Object.keys(row).length > 0) out[String(y)] = row;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** The change history's STARTING SETTINGS: one entry per year of an advanced setup, in year order. */
+export function startingEdits(byYear: Record<string, LevelsByLine> | undefined, by: string, now: number): GameEdit[] {
+  if (!byYear) return [];
+  return Object.keys(byYear).map(Number).sort((a, b) => a - b)
+    .map(y => ({ at: now, by, yearNumber: y, kind: 'start' as const, levels: { ...byYear[String(y)] } }));
+}
+
 /** One history line, as the host and Test player read it. */
 export function describeEdit(e: GameEdit, calendarYearOf: (y: number) => number, shockName: (id: string) => string): string {
   const year = calendarYearOf(e.yearNumber);
   const name = (s?: DevelopmentSetting) => (s === 'Off' ? 'None' : s ?? 'default');
+  if (e.kind === 'start') {
+    const parts = LINE_ORDER.filter(l => e.levels?.[l] !== undefined).map(l => `${l} ${name(e.levels?.[l])}`);
+    return `Starting settings for ${year}: adverse development ${parts.join(' · ')}`;
+  }
   if (e.kind === 'development') return `${e.line} adverse development in ${year}: ${name(e.from)} → ${name(e.to)}`;
   return `${e.kind === 'shock-added' ? 'Added' : 'Removed'} ${shockName(e.shockId ?? '')} in ${year}`;
 }
