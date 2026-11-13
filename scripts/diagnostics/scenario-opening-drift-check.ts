@@ -44,6 +44,18 @@
 //      45 figures are unchanged; the fifteen switched scenarios' 135 move —
 //      their openings are their new seeds' (SCENARIO_SEEDS' table), 16 of 20
 //      within 5% of target on every line, worst miss 10.35%.
+//   v4 (pr/pregame-65): the prior board at 65% with its covers and New
+//      Members drawn around 5% (PRIOR_BOARD), capital WC $0, GL $8.06M,
+//      Property $8.53M, and all twenty seeds re-picked from 1 to 120,000
+//      (SCENARIO_SEEDS says how and why). The premium is year 1's at Expected
+//      with no cover (openingYear1Premium on atExpectedDecisionSet) — the
+//      play defaults moved to 65% with the covers, the measure did not. The
+//      control, aws 80da701, opened exactly on v3. All 180 figures move, as
+//      they must with every seed new: opening surplus WC -7.7% to +15.6%, GL
+//      -5.8% to +13.5%, Property -5.4% to +15.3%; year-1 premium WC -4.5% to
+//      +12.0%, GL -8.1% to +11.0%, Property -7.8% to +10.8%; premium to
+//      surplus WC -6.8% to +9.9%, GL -8.6% to +9.1%, Property -7.9% to +6.4%
+//      — all twenty now within 5% of target on every line (worst 4.9%).
 // ============================================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -55,7 +67,7 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v3.json');
+const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v4.json');
 type Opening = { surplus: number; premium: number; ps: number };
 type Openings = Record<string, Record<CoverageLine, Opening>>;
 const failures: string[] = [];

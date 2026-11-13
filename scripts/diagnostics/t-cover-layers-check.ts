@@ -38,9 +38,17 @@
 // None alone) must fail 1, then is restored. Sections 2-4 are unchanged: the
 // T claims in section 4 come from the scheduled events (#2, #7, #9), as
 // large claims now do.
+//
+// ⚠ RESTATED FOR pr/pregame-65: the default per-claim cover is the prior
+// board's $19M xs $1M, shocks on or off (REINSURANCE_DEFAULT_OPTION), so 1
+// wants it the default both ways, not None. And section 4's game, which buys
+// a different per-claim option each year and checks what it is charged, holds
+// no aggregate cover: the play defaults' 125/50 aggregate cover would sit in
+// reinsuranceCost beside the per-claim price. New control: None put back as
+// the default must fail 1.
 // ============================================================================
 
-import { COVERS_IN_EVERY_GAME, REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
+import { COVERS_IN_EVERY_GAME, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
@@ -109,10 +117,11 @@ function sectionOptions(): string[] {
   for (const l of LINES) {
     const want = ['none', ...BRIEF_COVERS.map(c => c[0])].join('|');
     if (reinsuranceOptionIds(l, true).join('|') !== want) out.push(`${l} offers ${reinsuranceOptionIds(l, true).join(', ')}`);
-    // COVERS_IN_EVERY_GAME: the same nine with the game's shocks off, None the default.
+    // COVERS_IN_EVERY_GAME: the same nine with the game's shocks off; the prior
+    // board's $19M xs $1M the default both ways (pr/pregame-65; was None).
     if (reinsuranceOptionIds(l, false).join('|') !== want) out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
-    if (defaultReinsuranceOption(l, true) !== 'none') out.push(`${l}'s default is ${defaultReinsuranceOption(l, true)}`);
-    if (defaultReinsuranceOption(l, false) !== 'none') out.push(`${l}'s default with shocks off is ${defaultReinsuranceOption(l, false)}`);
+    if (defaultReinsuranceOption(l, true) !== '$19M xs $1M') out.push(`${l}'s default is ${defaultReinsuranceOption(l, true)}`);
+    if (defaultReinsuranceOption(l, false) !== '$19M xs $1M') out.push(`${l}'s default with shocks off is ${defaultReinsuranceOption(l, false)}`);
     // ...priced the same: each option offered with shocks off costs the method, as with them on.
     for (const id of reinsuranceOptionIds(l, false)) {
       const c = BRIEF_COVERS.find(x => x[0] === id);
@@ -183,7 +192,8 @@ function playGame(): GameRun {
     began.push(gs);
     // Each line buys a different option each year, so every option is charged on every line.
     const d = defaultDecisionSet(y);
-    LINES.forEach((l, i) => { d.byLine[l].reinsuranceOption = BRIEF_COVERS[(y + 3 * i) % BRIEF_COVERS.length][0]; });
+    // The per-claim option alone: no aggregate cover beside it (pr/pregame-65).
+    LINES.forEach((l, i) => { d.byLine[l].reinsuranceOption = BRIEF_COVERS[(y + 3 * i) % BRIEF_COVERS.length][0]; d.byLine[l].aggregateCover = 'none'; });
     const played = playWorldsYear(gs, d);
     perYear.push(played.perWorld.map(p => p.lineResults.map(r => r.result)));
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, played, [])), currentYearNumber: y + 1 };
@@ -228,7 +238,10 @@ function sectionInGame(lag = 0): string[] {
 
 // ---- run -------------------------------------------------------------------------
 console.log('t-cover-layers-check\n');
-check(sectionOptions(), '1. every line offers None and the eight layers, None the default — with shocks off too, at the same prices');
+check(sectionOptions(), '1. every line offers None and the eight layers, $19M xs $1M the default — with shocks off too, at the same prices');
+control('None put back as GL\'s default (the board before pr/pregame-65)', () => {
+  const d = REINSURANCE_DEFAULT_OPTION as Record<string, string>; const o = d.GL; d.GL = 'none'; return () => { d.GL = o; };
+}, sectionOptions);
 control('a layer dropped from the options', () => {
   const opts = REINSURANCE_OPTIONS.GL as ReinsuranceOption[]; const o = [...opts];
   opts.splice(opts.findIndex(x => x.id === '$29M xs $1M'), 1); return () => { opts.splice(0, opts.length, ...o); };

@@ -125,9 +125,15 @@ export interface ModelRate {
   panelRatePer100: number | null;
 }
 
+// ⚠ THE PRIOR BOARD FUNDS AT ITS LEVEL (pr/pregame-65, PRIOR_BOARD: 65% on the
+// line's table), recorded with the margin it amounts to; the label reads the
+// level, as the Decisions section does. A margin of 0 (the board at Expected,
+// before) keeps its old label, which the page reads as Expected.
 const fundingLabel = (d: LineDecisionSet): string =>
   d.fundingCushion !== undefined
-    ? `Prior board's margin ${(d.fundingCushion * 100).toFixed(4)}%`
+    ? (d.fundingCushion !== 0 && !d.fundingAtExpected
+      ? `${Math.round(d.fundingConfidenceLevel * 100)}% (the prior board)`
+      : `Prior board's margin ${(d.fundingCushion * 100).toFixed(4)}%`)
     : d.fundingAtExpected ? 'Expected' : `${Math.round(d.fundingConfidenceLevel * 100)}% confidence`;
 
 export function buildModelRate(gs: GameState, line: CoverageLine, decisions: DecisionSet, yearNumber: number): ModelRate | null {

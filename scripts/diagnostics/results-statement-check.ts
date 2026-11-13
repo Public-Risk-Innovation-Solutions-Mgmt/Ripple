@@ -58,6 +58,12 @@
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over a statement, and
 // THE CONTROLS feed each one a statement broken the way it guards against.
 //
+// ⚠ RESTATED FOR pr/pregame-65: the defaults carry the prior board's covers
+// ($19M xs $1M, aggregate 125/50) and the pre-game buys them too. The control
+// game now holds None and no aggregate cover explicitly, and is held to
+// recovering nothing in its PLAYED years — its pre-game, the prior board's,
+// recovered $0.72M on the aggregate cover, which the statement rightly shows.
+//
 // ⚠ THE SHOCKS LANDING (2ae5c1a): a solo game now draws shocks, and the only
 // thing a cover pays is a T claim (per-occurrence T covers, default None; the
 // aggregate stop, which recovered on an ordinary bad year, is off). So the
@@ -537,8 +543,23 @@ for (const k of Object.keys(labels)) check((agg[k] ?? []).length === 0, `${k}. $
   // gross less net, and with adverse development on both sides the difference
   // of two equal figures reads 5.8e-11, not 0. The check above is held to the
   // same dollar, so the control still fails it.
-  const bare = recoveredBy(playSnapshots(GAME, YEARS, defaultDecisionSet)[YEARS]);
-  check(!(bare > 1), 'control: the same game holding no cover (the defaults) recovers nothing, and the check fails on it', `ceded ultimates $${(bare / 1e6).toFixed(2)}M (${bare})`);
+  // ⚠ RESTATED FOR pr/pregame-65: the defaults now carry the prior board's
+  // covers ($19M xs $1M and the 125/50 aggregate cover), so "no cover" is held
+  // explicitly — None per claim and no aggregate cover, every played year.
+  const uncovered = (y: number): DecisionSet => {
+    const d = defaultDecisionSet(y);
+    for (const l of LINES) { d.byLine[l].reinsuranceOption = 'none'; d.byLine[l].aggregateCover = 'none'; }
+    return d;
+  };
+  // The pre-game is the prior board's and bought both covers (PRIOR_BOARD), so
+  // its years may recover (this game's did); the played years, holding none,
+  // add nothing: what the statement recovers after year 10 is exactly what it
+  // recovered at game start.
+  const bareSnaps = playSnapshots(GAME, YEARS, uncovered);
+  const bareStart = recoveredBy(bareSnaps[0]);
+  const bare = recoveredBy(bareSnaps[YEARS]) - bareStart;
+  check(!(bare > 1), 'control: the same game holding no cover (None and no aggregate cover, held) recovers nothing in its played years, and the check fails on it',
+    `ceded ultimates, played years $${(bare / 1e6).toFixed(2)}M (${bare}); the prior board's pre-game $${(bareStart / 1e6).toFixed(2)}M`);
 }
 
 // ============================================================================

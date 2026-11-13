@@ -1835,7 +1835,39 @@ const BASELINE = process.env.RENDER_BASELINE
 //   the Rate Indication (10): each funding level's rate (GL 80% 5.374 -> 5.483,
 //   +8.6% -> +10.8% over Expected). Its Expected rate does not move.
 // No premium, loss or surplus figure moves. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v131.json');
+// v132: THE PRIOR BOARD AT 65% WITH ITS COVERS AND DRAWN GROWTH, NEW PAID-IN
+// CAPITAL, PLAY DEFAULTS AT 65% WITH THE COVERS, NEW SCENARIO SEEDS, AND 65%
+// ON THE RATE INDICATION (pr/pregame-65, on aws 80da701). aws 80da701
+// reproduced v131 174 of 174 here first. 144 of 174 keys move, each
+// word-diffed against the control (RENDER_TEXT_DIR both sides). The harness
+// plays scenario 7, whose seed is new (9719 -> 37746), at the play defaults,
+// which are now 65% with the covers — so its history, opening, news and every
+// figure move with it. By screen:
+//   every header (the surplus and combined ratio in the bar), and the
+//   Introduction's opening surplus ($21.1M -> $20.5M on GL);
+//   the Annual Statement (26): every figure, and its Decisions section — the
+//   history years now the prior board's (65%, New Members as drawn, e.g. GL
+//   7% / 3% / 4%, $19M xs $1M, 125% / 50%), the played years 65% with the
+//   covers (were Expected — shown as the table's ~52% — None and None);
+//   the Decisions page (26): the funding control reads 65% (was Expected),
+//   "Reset to Expected" appears, the rate's reinsurance part is the covers'
+//   price, and the panel's figures follow;
+//   the Decision History (26): 60% -> 65% and "Full retention — no
+//   reinsurance" -> $19M xs $1M;
+//   the Rate Indication (10): a 65% row ("Indicated 2027 Rate at 65% CLF")
+//   beside Expected, 70%, 80% and 90%, and every rate on the new history;
+//   the Year Walkthrough (26): the save version (v51 -> v52) at y0, and at y2
+//   the decisions (Expected -> 65%, CLF 1.0000 -> 1.0493, none -> $19M xs $1M),
+//   the aggregate cover's rows in the reinsurance stage, every stage's figures
+//   and the codes that fingerprint them; and the member charge rate fix this
+//   branch carries (see year-walkthrough-check): the pricing stage's rate now
+//   reads "as struck (on the book before it moves)", and the premium stage
+//   shows the cover per $100 of the book billed and the member charge rate
+//   ("Reinsurance $1,029,564 for the year ÷ ($614.92M × 10,000) = $0.1674 per
+//   $100 of the book billed" on GL) — 13 y2 walkthrough screens, words and
+//   codes only, no figure (the harness never moves its books).
+// No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v132.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

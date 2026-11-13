@@ -20,11 +20,22 @@
 // COVERS_IN_EVERY_GAME.enabled = false at runtime must fail 4a, then is
 // restored. Everything else is as reverted: large claims come only from the
 // events' T (sections 2, 3 and 4b).
+//
+// ⚠ RESTATED FOR pr/pregame-65: the default per-claim cover is the prior
+// board's $19M xs $1M, shocks on or off (REINSURANCE_DEFAULT_OPTION), so 4a
+// wants it the default both ways, not None. 4b prices one per-claim cover on
+// Property against None: the play defaults now also carry the 125/50
+// aggregate cover, whose price would sit in reinsuranceCost beside it, and the
+// None arm is no longer the default — so both games hold aggregate cover None,
+// and the None game holds None per claim explicitly; the Recession game, which
+// proves an A surge never reaches the PER-CLAIM cover, holds no aggregate
+// cover either (an A surge rightly reaches the 125/50 cover on attritional
+// losses). New control: None put back as the default must fail 4a.
 // ============================================================================
 
 import {
   COVERS_IN_EVERY_GAME, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, SHOCK_COST_TREND, SHOCK_FREE_PRICING, T_COVER_FREQUENCY,
-  SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT,
+  SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT, REINSURANCE_DEFAULT_OPTION,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import {
@@ -214,10 +225,11 @@ function sectionCoverTerms(): string[] {
     const offered = reinsuranceOptionIds(l, true);
     const ids = ['none', ...BRIEF_COVERS.map(c => c[0])];
     if (offered.join('|') !== ids.join('|')) out.push(`${l} offers ${offered.join(', ')}`);
-    // COVERS_IN_EVERY_GAME: the same nine with the shocks off, None the default both ways.
+    // COVERS_IN_EVERY_GAME: the same nine with the shocks off; the prior board's
+    // $19M xs $1M the default both ways (pr/pregame-65; was None).
     if (reinsuranceOptionIds(l, false).join('|') !== ids.join('|')) out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
-    if (defaultReinsuranceOption(l, true) !== 'none' || defaultReinsuranceOption(l, false) !== 'none') {
-      out.push(`${l} default ${defaultReinsuranceOption(l, true)} (shocks on), ${defaultReinsuranceOption(l, false)} (off) — None both ways`);
+    if (defaultReinsuranceOption(l, true) !== '$19M xs $1M' || defaultReinsuranceOption(l, false) !== '$19M xs $1M') {
+      out.push(`${l} default ${defaultReinsuranceOption(l, true)} (shocks on), ${defaultReinsuranceOption(l, false)} (off) — $19M xs $1M both ways`);
     }
     const offeredOff = reinsuranceOptionIds(l, false);
     BRIEF_COVERS.forEach(([id, att, lim], k) => {
@@ -275,8 +287,9 @@ function sectionCoverInGame(): string[] {
   const top = '$38M xs $2M';
   // Wildfire in year 2: Property's ONE T claim, a catastrophe booked at its
   // drawn size, so the year's recovery is exactly the layer on it.
-  const withCover = play('6', [{ shockId: '#3', yearNumber: 2 }], 2, d => { d.byLine.Property.reinsuranceOption = top; });
-  const without = play('6', [{ shockId: '#3', yearNumber: 2 }], 2);
+  // Both without the aggregate cover; the None game holds None explicitly (pr/pregame-65).
+  const withCover = play('6', [{ shockId: '#3', yearNumber: 2 }], 2, d => { d.byLine.Property.reinsuranceOption = top; d.byLine.Property.aggregateCover = 'none'; });
+  const without = play('6', [{ shockId: '#3', yearNumber: 2 }], 2, d => { d.byLine.Property.reinsuranceOption = 'none'; d.byLine.Property.aggregateCover = 'none'; });
   const sizes = new Set<number>();
   // Year 2's factor, from the state the year began in, and the T claim's table size.
   const g = briefFactor(starts.get(withCover)![1], 'Property', 2);
@@ -303,8 +316,10 @@ function sectionCoverInGame(): string[] {
     }
   });
   if (sizes.size !== 1) out.push(`the T claim differs across worlds: ${sizes.size} sizes`);
-  // An A-only year (Recession) never reaches the cover.
-  const a = play('6', [{ shockId: '#6', yearNumber: 2 }], 2, d => { for (const l of LINES) d.byLine[l].reinsuranceOption = top; });
+  // An A-only year (Recession) never reaches the per-claim cover. (Held with
+  // no aggregate cover, pr/pregame-65: the default 125/50 cover is on
+  // attritional losses, so an A surge rightly reaches IT.)
+  const a = play('6', [{ shockId: '#6', yearNumber: 2 }], 2, d => { for (const l of LINES) { d.byLine[l].reinsuranceOption = top; d.byLine[l].aggregateCover = 'none'; } });
   for (const rows of a[1]) for (const l of LINES) {
     if (lineOf(rows, l).reinsuranceRecovery !== 0) out.push(`Recession: ${l} recovered ${lineOf(rows, l).reinsuranceRecovery}`);
   }
@@ -520,8 +535,9 @@ control('a map row changed', () => {
   const map = R_MODEL.shockMap as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
-check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off, None the default), priced by the method, ceding min(max(x - att, 0), limit)');
+check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off, $19M xs $1M the default), priced by the method, ceding min(max(x - att, 0), limit)');
 control('COVERS_IN_EVERY_GAME switched off (None alone with shocks off)', () => { COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; }; }, sectionCoverTerms);
+control('None put back as GL\'s default (the board before pr/pregame-65)', () => { const d = REINSURANCE_DEFAULT_OPTION as Record<string, string>; const o = d.GL; d.GL = 'none'; return () => { d.GL = o; }; }, sectionCoverTerms);
 control('a frequency changed', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06; return () => { f.Mid = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
 check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');

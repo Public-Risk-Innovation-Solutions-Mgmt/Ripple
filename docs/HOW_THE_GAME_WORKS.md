@@ -169,9 +169,19 @@ only to the host and in Test player. But a viewer sees the watched team's decisi
 ## 5. Underwriting today
 
 **The book** of each line is one exposure figure (WC about $916M, GL $615M, Property $9.6B at the opening) — no
-member list. The six pre-game years (2021–2026) grow it 2% a year to that opening; teams on one scenario open
-identically. In play it moves only through the two sliders, a Member Withdrawal event, and a cap at the market's
-size.
+member list. The six pre-game years (2021–2026) grow it by the prior board's New Members (below) to that opening;
+teams on one scenario open identically. In play it moves only through the two sliders, a Member Withdrawal event,
+and a cap at the market's size.
+
+**The prior board** (the pre-game, 2021–2026, `PRIOR_BOARD`). Each history year it funds at 65% on each line's
+table, adds New Members drawn around 5% (2% spread, seeded per scenario; 2021 adds none; new exposure at the 20%
+penalty that year), renews everyone (Non-Renewal 0%), and buys the $19M xs $1M per-claim cover and the 125/50
+aggregate cover. These are recorded as the year's decisions, so the Annual Statement's Decisions section shows
+them. The history ends on today's 2026 book: each earlier year is the next year's book over (1 + its New Members).
+Each line starts the pre-game on its paid-in capital — WC $0, GL $8.06M, Property $8.53M — and opens where the
+history ends. Each scenario plays one fixed seed, picked from 1–120,000 so its opening lands within 5% of the
+scenario's premium-to-surplus targets on every line (measured at Expected with no cover) and its ten years run
+steadily.
 
 **Member risk.** Inside the loss draw the book is split into 100 notional members with random risk scores (30%
 spread), redrawn yearly. They only shape the year's randomness; nothing selects on them.
@@ -240,7 +250,7 @@ struck on its book before the moves, so the rate it locked with is the rate it i
 - **Pure premium:** the last five complete accident years, a year behind (2027 uses 2021–2025), developed to
   ultimate, shock dollars removed, trended (WC 4%, GL 8%, Property 5% a year), plus ALAE (11% / 15% / 3.5%) and
   ULAE (5%). Before history exists, the expected loss cost.
-- **Funding factor:** 1.00 at "Expected" (the default), otherwise from a table by funding level (30–90%). Each
+- **Funding factor:** 1.00 at "Expected", otherwise from a table by funding level (30–90%; the default is 65%). Each
   line's table is stretched about 1.00 so its 95% stop is WC 1.30, GL 1.25, Property 1.25; in year 1 that puts 30%
   funding about 8–10% below Expected's rate and 90% about 19–23% above. Required capital reads the same table.
 - **Reinsurance** is added at its price, outside the divisor.
@@ -249,13 +259,18 @@ struck on its book before the moves, so the rate it locked with is the rate it i
 **Decisions, per line:** funding; non-renewal and new members; dividend or assessment (−$15M to +$15M); risk
 control (0–5% of the rate before reinsurance); a per-claim cover (None or one of eight layers, e.g. $9M xs $1M);
 an aggregate cover (none, 110/50, 125/50, 150/50); loan repayment while a loan is open. Pool-wide: the asset mix
-(default 10% cash, 80% bonds, 10% equities). Funding defaults to Expected; the rest to none or zero.
+(default 10% cash, 80% bonds, 10% equities). Funding defaults to 65% and the covers to the prior board's ($19M xs
+$1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate drop; the rest to none or zero.
 
 **Where the rest comes in:**
 
 - **Shocks:** single player draws from a 12-event catalogue (about 0.3 a year, from year 2); hosted rooms use
   the host's schedule. An event can surge a line's normal losses, add one large claim, strengthen old reserves,
   cut investment returns, or take 25% of the book.
+  *Workers Comp Legislation* (to players, *Workers Compensation Legislation: Increased Medical Fee Schedule*; id #5,
+  formerly "WC Reform"): a new medical fee schedule raises the cost of WC claims for a few years — WC's normal losses
+  surge 35–75% in the year it starts, and WC's open prior-year reserves strengthen 5–12% that year, then by 65% and
+  42% of that in the next two. No large claim.
   ⚠ Whether a game prices for shocks is fixed when it starts: one set up with no events and given one mid-game
   has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
   is pinned at the first edit so replays agree).

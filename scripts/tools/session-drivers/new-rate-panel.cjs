@@ -13,6 +13,14 @@
 // will report SKIPPED and exit 0.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
+//
+// ⚠ RESTATED FOR pr/pregame-65: WC now opens on the play default's per-claim
+// cover, $19M xs $1M (PLAY_DEFAULTS), not None. The cover block opens on it,
+// moves the Reinsurance line by choosing None (38 xs 2 and 19 xs 1 both read
+// $0.11 per $100 with the default aggregate cover beside them, so None is the
+// move that shows at the panel's rounding), still selects 38 xs 2 alone, and
+// requires the panel to return exactly when the default, $19M xs $1M, is chosen
+// again. Against the aws build (None the default) the opening check fails.
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
@@ -233,11 +241,13 @@ async function plrIs(rc) {
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
   // THE T COVERS (wip/shocks). A solo game's shocks are on, so None and all
-  // four covers are offered, None the default; each shows its name and price.
+  // eight covers are offered, $19M xs $1M the default (pr/pregame-65); each
+  // shows its name and price.
   // Choosing one moves only the Reinsurance row: the pure premium is never
   // lowered by cover.
   const T_COVERS = ['$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M', '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M'];
-  ok(await chosen('none'), 'WC opens on the default cover, None');
+  const DEFAULT_COVER = '$19M xs $1M';
+  ok(await chosen(DEFAULT_COVER) && !(await chosen('none')), `WC opens on the default cover, ${DEFAULT_COVER}`);
   const offered = [];
   for (const id of T_COVERS) if (await page.$(`[data-testid="reins-option-WC-${id}"]`) !== null) offered.push(id);
   ok(offered.length === 8, `all eight T covers are offered (${offered.join(', ')})`);
@@ -249,12 +259,15 @@ async function plrIs(rc) {
   const atDefault = await panelText();
   await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');
   await page.waitForTimeout(800);
-  const atWorking = await panelText();
-  ok(await chosen('$38M xs $2M') && !(await chosen('none')), 'clicking 38 xs 2 selects it, and only it');
-  ok(reinsLine(atWorking) !== reinsLine(atDefault),
-     `the Reinsurance line moves with the cover ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
-  ok(ppLine(atWorking) === ppLine(atDefault), `the pure premium does not move ("${ppLine(atDefault)}")`);
+  ok(await chosen('$38M xs $2M') && !(await chosen(DEFAULT_COVER)) && !(await chosen('none')), 'clicking 38 xs 2 selects it, and only it');
   await page.click('[data-testid="reins-option-WC-none"]');
+  await page.waitForTimeout(800);
+  const atNone = await panelText();
+  ok(await chosen('none') && !(await chosen(DEFAULT_COVER)), 'clicking None selects it, and only it');
+  ok(reinsLine(atNone) !== reinsLine(atDefault),
+     `the Reinsurance line moves with the cover ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
+  ok(ppLine(atNone) === ppLine(atDefault), `the pure premium does not move ("${ppLine(atDefault)}")`);
+  await page.click(`[data-testid="reins-option-WC-${DEFAULT_COVER}"]`);
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 

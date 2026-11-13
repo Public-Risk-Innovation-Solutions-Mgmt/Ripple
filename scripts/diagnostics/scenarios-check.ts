@@ -20,16 +20,20 @@
 //      what the fixed seeds were chosen against; the game reads them nowhere.
 //   5. THE OPENING IS THE FIXED SEED'S (restated for the fixed-seed scenarios;
 //      it was a margin set on a designed history, floored, and moved by
-//      guardrails — all retired): on every scenario and line the pre-game
-//      begins at STARTING_CAPITAL, funds every year at Expected (a margin of
-//      exactly 0), and the opening is the played pre-game's own last year-end
-//      — NOT on its target (nothing fits it), yet near it, by the bars in
-//      SCENARIO_OPENING_BARS: within 10.5% on every line and 5% on all three
-//      for 16 of the 20 — what the seeds re-picked on the fixed ALAE load
-//      achieve (pr/seed-switch: worst 10.35%, scenario 13's WC). Were 18.5%
-//      and 4 of 20 while the openings stood as the fixed ALAE load left them
-//      (pr/alae-load), and 12% and 18 before it. scenario-opening-drift-check
-//      holds the exact openings.
+//      guardrails — all retired; restated again for the prior board,
+//      pr/pregame-65): on every scenario and line the pre-game begins at
+//      STARTING_CAPITAL, and every pre-game year records the prior board's
+//      decisions (PRIOR_BOARD) — funding at 65% (the margin exactly the
+//      line's CLF at 65% − 1, the level 65%), Non-Renewal 0, the per-claim
+//      cover $19M xs $1M and the aggregate cover 125/50 — and the opening is
+//      the played pre-game's own last year-end — NOT on its target (nothing
+//      fits it), yet near it, by the bars in SCENARIO_OPENING_BARS: within 5%
+//      on every line for all 20 — what the seeds picked from 1 to 120,000
+//      achieve (pr/pregame-65: worst 4.9%, scenario 20's Property). The
+//      premium is year 1's at Expected with no cover (atExpectedDecisionSet),
+//      the basis the seeds were chosen on. Were 10.5% and 16 (pr/seed-switch),
+//      18.5% and 4 (pr/alae-load), and 12% and 18 before it.
+//      scenario-opening-drift-check holds the exact openings.
 //   6. THE PRE-GAME'S EXPERIENCE, SIMULATED AT TRUE COST (FLAT_PRE_GAME off):
 //      every pre-game line-year's year factor is the factor drawn on the
 //      pre-game's own stream (pregame_ordinary_<line>) from the game's seed,
@@ -45,7 +49,9 @@
 // handler accepting "21", a hosted room built from a hashed code, a room built
 // on the old mapping (the number's own hash), the ratio order reversed, one
 // table for every line, an opening forced onto the target, a pre-game at a 1%
-// margin, a pre-game begun off the capital, scenarios 12 and 16 on each
+// margin (and at Expected, a pre-game at 70%, one without the per-claim
+// cover, one without the aggregate cover, one non-renewing 2%, and the opening
+// priced at the play defaults), a pre-game begun off the capital, scenarios 12 and 16 on each
 // other's seeds, a flat pre-game, a pre-game drawn on the played years'
 // streams, the retired scenario multiple put back, a pre-game at 3%, a
 // pre-game on the played years' market, a pre-game on one market draw, and a
@@ -58,7 +64,7 @@ import path from 'node:path';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { fileURLToPath } from 'node:url';
 import {
-  PRE_GAME_INVESTMENT_RETURN, PRE_GAME_MARKET_DRAWS, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_SEEDS, SCENARIOS_THIN_TO_RICH, SOLO_SHOCKS, STARTING_CAPITAL,
+  PRE_GAME_INVESTMENT_RETURN, PRE_GAME_MARKET_DRAWS, PRIOR_BOARD, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_SEEDS, SCENARIOS_THIN_TO_RICH, SOLO_SHOCKS, STARTING_CAPITAL,
   SCENARIO_OPENING_BARS,
 } from '../../src/data/pricingParameters';
 import { SCENARIO_OPTIONS, randomScenarioId } from '../../src/utils/scenarios';
@@ -69,7 +75,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { buildTeamGame } from '../../src/session/client/buildGame';
 import { seedFromInstanceId } from '../../src/seedHash';
 import { PRE_GAME_DEPTH, runPriorHistory } from '../../src/utils/priorHistoryEngine';
-import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { atExpectedDecisionSet, defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { staticClf } from '../../src/data/clfTables';
 import { openWorlds, strikeRates } from '../../src/utils/worlds';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
 import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
@@ -155,10 +162,12 @@ function gradeTable(ratio: Record<CoverageLine, Record<number, number>>, order: 
 interface Opened {
   n: number; seed: number; line: CoverageLine; premium: number; surplus: number; pre: LineResultSet[];
 }
-function open(id: string, instance: GameInstance, setup: GameSetupSettings): { opened: Opened[]; gs: GameState } {
+// The opening's premium: year 1's at Expected with no cover (atExpectedDecisionSet), the seeds' basis.
+function open(id: string, instance: GameInstance, setup: GameSetupSettings,
+  pricing?: (y: number, shocks: boolean) => ReturnType<typeof defaultDecisionSet>): { opened: Opened[]; gs: GameState } {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory } as GameState);
-  const struck = strikeRates(gs, defaultDecisionSet(1, gameShocksOn(gs.setup, gs.instance)));
+  const struck = strikeRates(gs, (pricing ?? atExpectedDecisionSet)(1, gameShocksOn(gs.setup, gs.instance)));
   const pre = [...(earlyPreGameHistory ?? []), ...priorHistory];
   return {
     gs,
@@ -187,6 +196,15 @@ try {
     atNoShocks.push(...open(id, instance, setup).opened);
   }
 } finally { SOLO_SHOCKS.enabled = true; }
+// The control's arm: the same, priced at the play defaults rather than at Expected with no cover.
+const atPlayDefaults: Opened[] = [];
+SOLO_SHOCKS.enabled = false;
+try {
+  for (const id of TWENTY) {
+    const { setup, instance } = openSoloInstance(settings(id));
+    atPlayDefaults.push(...open(id, instance, setup, defaultDecisionSet).opened);
+  }
+} finally { SOLO_SHOCKS.enabled = true; }
 
 // ---------------------------------------------------------------- 5
 // The premium to surplus each scenario opens at is measured with shocks off
@@ -203,15 +221,21 @@ function gradeOpening(rows: Opened[], ratioOf: (n: number, line: CoverageLine) =
     // The opening is the played history's own last year-end.
     worstOpen = Math.max(worstOpen, Math.abs(r.surplus - r.pre[r.pre.length - 1].endingSurplus));
     worstStart = Math.max(worstStart, Math.abs(r.pre[0].beginingSurplus - STARTING_CAPITAL[r.line]));
-    worstMargin = Math.max(worstMargin, ...r.pre.map(x => Math.abs(x.decisions.fundingCushion ?? Infinity)));
+    // The prior board's recorded decisions (PRIOR_BOARD), every pre-game year.
+    const want = staticClf(r.line as 'WC', PRIOR_BOARD.fundingLevel) - 1;
+    worstMargin = Math.max(worstMargin, ...r.pre.map(x => Math.abs((x.decisions.fundingCushion ?? Infinity) - want)
+      + Math.abs((x.decisions.fundingConfidenceLevel ?? Infinity) - PRIOR_BOARD.fundingLevel)
+      + (x.decisions.fundingAtExpected ? 1 : 0) + Math.abs(x.decisions.nonRenewal ?? Infinity)
+      + (x.decisions.reinsuranceOption === PRIOR_BOARD.reinsuranceOption ? 0 : 1)
+      + (x.decisions.aggregateCover === PRIOR_BOARD.aggregateCover ? 0 : 1)));
   }
   const worstMiss = Math.max(...missBy.values());
   const within5 = [...missBy.values()].filter(m => m <= 0.05).length;
   // Not on the target — nothing fits it — and near it.
   const bars = SCENARIO_OPENING_BARS;
   check(worstOpen < 1e-6 && worstStart < 1e-6 && worstMargin === 0 && offTarget > 0.05 && worstMiss <= bars.worstMiss && within5 >= bars.within5,
-    `${tag}5. the opening is the fixed seed's: from the starting capital, at Expected every year, where the played history ends — not on its target, within ${(100 * bars.worstMiss).toFixed(1)}% of it on every line and 5% on all three for ${bars.within5} scenarios${bars.temporary ? ' (TEMPORARY bars — seeds to be re-picked)' : ''}`,
-    `${rows.length} line-scenarios; margin off 0 by ${worstMargin.toExponential(2)}; opening off the played year-end $${worstOpen.toExponential(2)}, `
+    `${tag}5. the opening is the fixed seed's: from the starting capital, the prior board at 65% with its covers every year, where the played history ends — not on its target, within ${(100 * bars.worstMiss).toFixed(1)}% of it on every line and 5% on all three for ${bars.within5} scenarios${bars.temporary ? ' (TEMPORARY bars — seeds to be re-picked)' : ''}`,
+    `${rows.length} line-scenarios; the prior board's decisions off by ${worstMargin.toExponential(2)}; opening off the played year-end $${worstOpen.toExponential(2)}, `
     + `start off $${worstStart.toExponential(2)}; worst miss ${(100 * worstMiss).toFixed(1)}%, ${within5} scenarios within 5% on every line`);
 }
 
@@ -307,8 +331,15 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
     { WC: SCENARIO_PREMIUM_TO_SURPLUS.Property, GL: SCENARIO_PREMIUM_TO_SURPLUS.Property, Property: SCENARIO_PREMIUM_TO_SURPLUS.Property }, BRIEF_ORDER, ''), '4.');
   controlFails('an opening forced onto the target', () => gradeOpening(
     atNoShocks.map(r => ({ ...r, surplus: r.premium / ratioOf(r.n, r.line) })), ratioOf, ''), '5.');
-  controlFails('a pre-game at a 1% margin', () => gradeOpening(atNoShocks.map((r, i) => (i === 0
-    ? { ...r, pre: r.pre.map(y => ({ ...y, decisions: { ...y.decisions, fundingCushion: 0.01 } })) } : r)), ratioOf, ''), '5.');
+  const board = (f: (d: LineResultSet['decisions']) => LineResultSet['decisions']) => atNoShocks.map((r, i) => (i === 0
+    ? { ...r, pre: r.pre.map(y => ({ ...y, decisions: f(y.decisions) })) } : r));
+  controlFails('a pre-game at a 1% margin', () => gradeOpening(board(d => ({ ...d, fundingCushion: 0.01 })), ratioOf, ''), '5.');
+  controlFails('a pre-game at Expected (the board before)', () => gradeOpening(board(d => ({ ...d, fundingCushion: 0, fundingAtExpected: true })), ratioOf, ''), '5.');
+  controlFails('a pre-game at 70%', () => gradeOpening(board(d => ({ ...d, fundingConfidenceLevel: 0.70 })), ratioOf, ''), '5.');
+  controlFails('a pre-game without the per-claim cover', () => gradeOpening(board(d => ({ ...d, reinsuranceOption: 'none' })), ratioOf, ''), '5.');
+  controlFails('a pre-game without the aggregate cover', () => gradeOpening(board(d => ({ ...d, aggregateCover: 'none' })), ratioOf, ''), '5.');
+  controlFails('a pre-game non-renewing 2%', () => gradeOpening(board(d => ({ ...d, nonRenewal: 0.02 })), ratioOf, ''), '5.');
+  controlFails('the opening priced at the play defaults (65% with the covers), not at Expected', () => gradeOpening(atPlayDefaults, ratioOf, ''), '5.');
   controlFails('a pre-game begun off the capital', () => gradeOpening(atNoShocks.map((r, i) => (i === 0
     ? { ...r, pre: r.pre.map((y, k) => (k === 0 ? { ...y, beginingSurplus: y.beginingSurplus + 1e6 } : y)) } : r)), ratioOf, ''), '5.');
   controlFails('scenarios 12 and 16 on each other\'s seeds', () => gradeOpening(atNoShocks,
@@ -329,5 +360,5 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
     console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
     process.exit(1);
   }
-  console.log('PASS — twenty scenarios, each on its fixed seed: offered and refused as briefed, each opening where its own history ends, from the starting capital at Expected.');
+  console.log('PASS — twenty scenarios, each on its fixed seed: offered and refused as briefed, each opening where its own history ends, from the starting capital with the prior board at 65% and its covers.');
 })();

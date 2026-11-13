@@ -29,6 +29,16 @@
 // 1.000 the shortfall below 1.0000 is the funding margin and is checked to be
 // positive rather than pinned.
 //
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now fund at 65% (CLF above
+// 1) with the prior board's covers, so section 1's games no longer sit at CLF
+// 1.000 by default. Section 1 now funds every line at Expected explicitly
+// (atExpected — the defaults otherwise, the covers included, so the identity
+// is still tested with a ceded basis and reinsurance in the charge). The
+// identity and its 1e-12 are unchanged. CONTROL, run by hand: section 1 at
+// the play defaults (65%) fails all five of its checks — CLF != 1 on every
+// line-year, and |expectedCombinedRatio - 1| up to 4.69e-2 (WC), the funding
+// margin.
+//
 // ⚠ PROPERTY WAS THE CONTROL AND NO LONGER IS. This note read "PROPERTY IS THE
 // CONTROL. It is deliberately not netted, so it was already correct before the
 // fix and must be EXACTLY unchanged by it." That was the isolation argument for
@@ -71,7 +81,13 @@ console.log('=== RATIO BASIS CHECK ===\n');
 
 // --- 1. THE IDENTITY, at the default CLF of exactly 1.000 --------------------
 console.log('--- 1. EXPECTED COMBINED RATIO IS EXACTLY 1.0000 AT CLF 1.000 ---');
-console.log('  Defaults put fundingAtExpected true on every line, so CLF is exactly 1.0.\n');
+console.log('  Every line funded at Expected (pr/pregame-65: the defaults are 65%), so CLF is exactly 1.0.\n');
+/** The defaults — covers included — with every line funded at Expected (CLF 1.000). */
+const atExpected = (y: number) => {
+  const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l as 'WC'].fundingAtExpected = true;
+  return d;
+};
 {
   const worst: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
   let poolWorst = 0, n = 0, clfNot1 = 0;
@@ -83,10 +99,10 @@ console.log('  Defaults put fundingAtExpected true on every line, so CLF is exac
     const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
     let gs: GameState = {
       setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
-      poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+      poolState, lockedResults: [], currentDecisions: atExpected(1), priorHistory,
     };
     for (let y = 1; y <= YEARS; y++) {
-      const p = processYear(gs, defaultDecisionSet(y));
+      const p = processYear(gs, atExpected(y));
       const pool = p.result as ResultSet;
       for (const l of LINES) {
         const r = (pool as never as { byLine: Record<string, LineResultSet> }).byLine[l];
@@ -101,7 +117,7 @@ console.log('  Defaults put fundingAtExpected true on every line, so CLF is exac
   }
 
   console.log(`  ${n.toLocaleString()} line-years across ${GAMES} games; ${clfNot1} had CLF != 1.000\n`);
-  check(clfNot1 === 0, 'every line-year priced at CLF exactly 1.000 (the default)');
+  check(clfNot1 === 0, 'every line-year priced at CLF exactly 1.000 (funded at Expected)');
   for (const l of LINES) {
     check(worst[l] < EXACT, `${l}: |expectedCombinedRatio - 1| < 1e-12 on every line-year`,
       `worst ${worst[l].toExponential(2)}`);

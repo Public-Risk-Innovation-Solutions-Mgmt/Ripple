@@ -82,8 +82,11 @@ const RETIRED_CATALOGUE_REGION: Readonly<Record<string, Partial<Record<CoverageL
   '#3': { Property: 'North', WC: 'North' },
 };
 
+// ⚠ BY ID FIRST, THEN THE RECORD'S OWN: a record copies the name it was played
+// under, so a save or room from before a rename (#5, "WC Reform") would keep
+// the old one. The labels hold the current name for every id they know.
 function shockName(rec: { shockId: string; eventName?: string; name: string }): string {
-  return rec.eventName ?? SHOCK_EVENT_LABELS[rec.shockId]?.eventName ?? rec.name;
+  return SHOCK_EVENT_LABELS[rec.shockId]?.eventName ?? rec.eventName ?? rec.name;
 }
 
 function shockRegion(rec: { shockId: string; region?: Region }): Region | undefined {
@@ -232,7 +235,8 @@ export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'Winterstorm': 'A severe winter storm brings heavy rain, snow and flooding.',
   'Wildfire': 'A wildfire spreads through the area, burning buildings and land.',
   'Legislation Change': 'A change in the law widens what claims can recover, old and new.',
-  'WC Reform': "A reform changes what injured workers are owed under workers' compensation.",
+  'Workers Compensation Legislation: Increased Medical Fee Schedule':
+    "A new medical fee schedule raises what workers' compensation pays for injured workers' care, and WC claims cost more for a few years.",
   'Economic Recession': 'A recession takes hold, and members and their workforces feel it.',
   'Nuclear Verdict': 'A jury returns an exceptionally large award in a liability lawsuit.',
   'Social Inflation': 'Juries and claimants push liability awards and settlements higher.',

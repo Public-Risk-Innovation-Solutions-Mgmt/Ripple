@@ -29,18 +29,23 @@
 //      same scores and different luck; they are redrawn every year and differ
 //      by member; and through the engine a world of a multi-world game draws
 //      its ordinary loss on the game's scores, not on its own seed's.
-//   4. THE PRE-GAME. 2021 holds the opening book / 1.02^5, each year grows 2%,
-//      2026 holds the opening book exactly, and each year's lossFactor is
-//      (last year + 1.2 x the growth) / this year — the penalty on growth.
+//   4. THE PRE-GAME (pr/pregame-65). Each year's book is the next year's over
+//      (1 + the next year's drawn New Members), 2026 holds the opening book
+//      exactly, and each year's lossFactor is (last year + 1.2 x the growth)
+//      / this year — the penalty on growth. The draws (PRIOR_BOARD): 2021
+//      none, every other year inside the slider, over 4,000 seeds mean 5% and
+//      spread 2% (the clamp at 0 and 10% barely bites), differing by seed,
+//      line and year; and through runPriorHistory each pre-game year records
+//      the year's draw as its New Members and Non-Renewal 0.
 //
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROLS at the foot.
 // ============================================================================
 
 import {
   MEMBER_LEVEL, MEMBER_LUCK_CV, MEMBER_RISK_CV, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
-  OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS, UNDERWRITING_MEMBERS,
+  OPENING_BOOK_EXPOSURE, PRIOR_BOARD, PRIOR_HISTORY_YEARS, UNDERWRITING_MEMBERS,
 } from '../../src/data/pricingParameters';
-import { moveBook, newMembersShare, nonRenewalShare } from '../../src/utils/bookUnderwriting';
+import { moveBook, newMembersShare, nonRenewalShare, preGameNewMembers } from '../../src/utils/bookUnderwriting';
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { worldInstance } from '../../src/utils/worlds';
@@ -101,10 +106,10 @@ const games: Game[] = Array.from({ length: 4 }, (_, g) => {
   const id = `SIMPLEUW${g}`;
   const instance = generateGameInstance(id, 3_100_000 + g * 7919);
   const setup = { poolName: 'UW', gameLength: 3, startingYear: 2026, instanceId: id, activeLines: LINES };
-  const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
+  const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup as never);
   return { instance, start: {
     setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
-    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory,
   } };
 });
 const decide = (y: number, a1: number, a2: number): DecisionSet => {
@@ -222,24 +227,57 @@ console.log('\n--- 3b. MEMBER RISK ---');
 console.log('\n--- 4. THE PRE-GAME ---');
 {
   const first = 1 - PRIOR_HISTORY_YEARS;
-  let worstSize = 0, worstFactor = 0;
-  for (const line of LINES) {
-    const O = OPENING_BOOK_EXPOSURE[line];
+  let worstSize = 0, worstFactor = 0, cases = 0;
+  for (const g of games) for (const line of LINES) {
+    const seed = g.instance.seed;
+    let next = OPENING_BOOK_EXPOSURE[line];
+    const book: Record<number, number> = { 0: next };
+    for (let y = -1; y >= first; y--) { next /= 1 + preGameNewMembers(seed, line, y + 1); book[y] = next; }
     for (let y = first; y <= 0; y++) {
-      const m = moveBook(line, 0, defaultDecisionSet(y).byLine[line], false, true, y);
-      worstSize = Math.max(worstSize, Math.abs(m.after / (O * (1 + PRE_GAME_BOOK_GROWTH) ** y) - 1));
-      const prev = y > first ? O * (1 + PRE_GAME_BOOK_GROWTH) ** (y - 1) : m.after;
+      const m = moveBook(line, 0, defaultDecisionSet(y).byLine[line], false, true, y, undefined, seed);
+      worstSize = Math.max(worstSize, Math.abs(m.after / book[y] - 1));
+      const prev = y > first ? book[y - 1] : m.after;
       const want = (prev + (1 + NEW_BUSINESS_PENALTY) * (m.after - prev)) / m.after;
       worstFactor = Math.max(worstFactor, Math.abs(m.lossFactor / want - 1));
+      cases++;
     }
   }
-  check(worstSize < 1e-12, 'the pre-game book is the opening book x 1.02^y, 2026 exactly the opening',
-    `worst ${worstSize.toExponential(2)}`);
+  check(worstSize < 1e-12, 'the pre-game book is the next year\'s over (1 + its drawn New Members), 2026 exactly the opening',
+    `worst ${worstSize.toExponential(2)} over ${cases} line-years`);
   check(worstFactor < 1e-12, 'and each year\'s growth carries the 20% penalty (2021 writes none)',
     `worst ${worstFactor.toExponential(2)}`);
-  // Through the engine: the opening game's year-0 book is the opening book.
+  // The draws themselves, over 4,000 seeds.
+  const xs: number[] = [];
+  let firstYear = 0, outside = 0;
+  for (let k = 0; k < 4000; k++) for (const line of LINES) {
+    firstYear = Math.max(firstYear, Math.abs(preGameNewMembers(9_000_000 + k * 7919, line, first)));
+    for (let y = first + 1; y <= 0; y++) {
+      const x = preGameNewMembers(9_000_000 + k * 7919, line, y);
+      if (x < NEW_MEMBERS_SLIDER.min || x > NEW_MEMBERS_SLIDER.max) outside++;
+      xs.push(x);
+    }
+  }
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (xs.length - 1));
+  check(firstYear === 0 && outside === 0 && Math.abs(mean - PRIOR_BOARD.newMembersMean) < 0.001 && Math.abs(sd - PRIOR_BOARD.newMembersSpread) < 0.001,
+    'the prior board\'s New Members: none in 2021, every other year inside the slider, mean 5% and spread 2% over 4,000 seeds',
+    `${xs.length} draws: mean ${(100 * mean).toFixed(2)}%, spread ${(100 * sd).toFixed(2)}%, ${outside} outside`);
+  const s0 = games[0].instance.seed, s1 = games[1].instance.seed;
+  check(preGameNewMembers(s0, 'WC', -2) !== preGameNewMembers(s1, 'WC', -2) && preGameNewMembers(s0, 'WC', -2) !== preGameNewMembers(s0, 'GL', -2)
+    && preGameNewMembers(s0, 'WC', -2) !== preGameNewMembers(s0, 'WC', -1),
+    'and they differ by seed, by line and by year');
+  // Through the engine: the opening game's year-0 book is the opening book, and
+  // every pre-game year records its draw as its decisions.
   const ex = games.map(g => LINES.map(l => (g.start.poolState.lines[l].bookExposure ?? 0) / OPENING_BOOK_EXPOSURE[l] - 1)).flat();
   check(ex.every(x => Math.abs(x) < 1e-12), 'through runPriorHistory: every game opens on the opening book');
+  let worstRec = 0, recs = 0;
+  for (const g of games) for (const r of [...(g.start.earlyPreGameHistory ?? []), ...g.start.priorHistory]) for (const l of LINES) {
+    const d = r.byLine[l]!.decisions;
+    worstRec = Math.max(worstRec, Math.abs((d.newMembers ?? NaN) - preGameNewMembers(g.instance.seed, l, r.yearNumber)), Math.abs(d.nonRenewal ?? NaN));
+    recs++;
+  }
+  check(worstRec === 0 && recs === games.length * LINES.length * PRIOR_HISTORY_YEARS,
+    'and every pre-game year records its draw as its New Members, Non-Renewal 0', `${recs} line-years, worst off ${worstRec}`);
 }
 
 console.log(`\n${failed.length === 0 ? 'ALL OK' : `${failed.length} FAILED`}`);

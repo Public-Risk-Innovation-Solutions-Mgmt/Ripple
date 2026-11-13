@@ -6,6 +6,7 @@
 import * as XLSX from 'xlsx';
 import type { CoverageLine, LineResultSet, ResultSet } from '../types/simulation';
 import { formatNumber, formatPct } from './formatters';
+import { SHOCK_EVENT_LABELS } from './shockLosses';
 
 // SpreadsheetMetric functions are typed against LineResultSet (the smaller
 // shape) so the SAME metric list works for both the Pool tab (ResultSet[],
@@ -473,7 +474,7 @@ function buildShockRows(lockedResults: ResultSet[]): (string | number)[][] {
   for (const r of lockedResults) {
     for (const s of r.shockEvents ?? []) {
       rows.push([
-        r.yearNumber, r.calendarYear, s.shockId, s.name, s.band, s.horizon, s.yearFired,
+        r.yearNumber, r.calendarYear, s.shockId, SHOCK_EVENT_LABELS[s.shockId]?.name ?? s.name, s.band, s.horizon, s.yearFired,
         s.linesAffected.join(' + '),
         Math.round(s.attributableGrossLoss),
         Number.isInteger(s.attributableClaims) ? s.attributableClaims : Number(s.attributableClaims.toFixed(2)),

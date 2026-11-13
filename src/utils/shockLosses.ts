@@ -95,7 +95,11 @@ export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
   '#2': { name: 'Winterstorm/Rainstorm', eventName: 'Winterstorm', band: 'high', horizon: 'current' },
   '#3': { name: 'Wildfire', eventName: 'Wildfire', band: 'high', horizon: 'current' },
   '#4': { name: 'Legislation Change impacting both old and new claims', eventName: 'Legislation Change', band: 'severe', horizon: 'current' },
-  '#5': { name: 'WC Reform', eventName: 'WC Reform', band: 'moderate', horizon: 'current' },
+  // ⚠ RENAMED FROM "WC Reform" (pr/wc-legislation-name), ON SCREEN ONLY: the id
+  // (#5) and the catalogue key ('WC Reform' in R_MODEL, which eventLines and the
+  // engine read) are unchanged, so saves, rooms and every draw are untouched.
+  // `name` is what the host's screens show, `eventName` what a player reads.
+  '#5': { name: 'Workers Comp Legislation', eventName: 'Workers Compensation Legislation: Increased Medical Fee Schedule', band: 'moderate', horizon: 'current' },
   '#6': { name: 'Economic Recession', eventName: 'Economic Recession', band: 'moderate', horizon: 'current' },
   '#7': { name: 'Nuclear Verdict', eventName: 'Nuclear Verdict', band: 'severe', horizon: 'current' },
   '#8': { name: 'Social Inflation (GL)', eventName: 'Social Inflation', band: 'high', horizon: 'future' },
@@ -104,6 +108,18 @@ export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
   '#11': { name: 'Large Investment Loss', eventName: 'Large Investment Loss', band: 'severe', horizon: 'current' },
   '#12': { name: 'Large Member Withdrawal', eventName: 'Large Member Withdrawal', band: 'severe', horizon: 'current' },
 };
+
+/**
+ * AN EVENT AS A PLAYER READS IT, FROM ITS CATALOGUE KEY — for the screens that
+ * work from the catalogue (the Year Walkthrough, the audit's description). The
+ * catalogue's own name everywhere except an event renamed on screen since: its
+ * key stays (R_MODEL, eventLines), its player name is SHOCK_EVENT_LABELS'.
+ */
+const RENAMED_CATALOGUE_KEYS: Readonly<Record<string, string>> = { 'WC Reform': '#5' };
+export function catalogueDisplayName(key: string): string {
+  const id = RENAMED_CATALOGUE_KEYS[key];
+  return id ? SHOCK_EVENT_LABELS[id].eventName : key;
+}
 
 const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
 export const DECAY = R_MODEL.shockDecayRate;

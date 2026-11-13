@@ -40,9 +40,12 @@
 //      shocks off, only None is offered; on, None and the eight T covers; the
 //      default None either way. (It was the stop's: off, None and the Working
 //      cover, None the default; on, all four, the Bad-year cover the default.)
-//   7. THE PRIOR BOARD holds the default — ⚠ since the shocks landing None
-//      through every pre-game: a solo game's, shocks on or off, and a
-//      scheduled room's. (It was: the Bad-year cover in a scheduled room.)
+//   7. THE PRIOR BOARD holds the default — ⚠ since pr/pregame-65 $19M xs $1M
+//      through every pre-game (PRIOR_BOARD): a solo game's, shocks on or off,
+//      and a scheduled room's. (It was None since the shocks landing, and the
+//      Bad-year cover in a scheduled room before.) 6.'s default is the same
+//      cover either way. Control: None put back as the board's (and the
+//      default) must fail 6 and 7.
 //   8. PROPERTY'S CATASTROPHE CAPITAL: none with the shocks off, under every
 //      cover; with them on, it returns. Through the engine, a solo Property
 //      game with SOLO_SHOCKS off carries no catastrophe charge in any year, and
@@ -134,17 +137,18 @@ const hostedWith = { setup: { ...solo.setup, shockTiming: 'host' as const }, ins
 const hostedWithout = { setup: { ...solo.setup, shockTiming: 'host' as const }, instance: generateGameInstance('7', seedFromInstanceId('7'), []) };
 const bare = { setup: { ...solo.setup, shockTiming: undefined }, instance: solo.instance };
 // ⚠ THE SHOCKS LANDING: SOLO_SHOCKS is on, so the solo games here draw at the
-// catalogue's odds. Scenario 7 draws no event over five years — the "whatever
+// catalogue's odds. Scenario 3 draws no event over five years — the "whatever
 // its draw" case — and scenario 5 draws one (restated for the fixed-seed
 // scenarios: on the old mapping '7' drew one and '9' none; each scenario now
-// draws on its fixed seed). A SOLO_SHOCKS-off game is opened (and, below,
+// draws on its fixed seed; restated again for pr/pregame-65's seeds, where
+// scenario 7 draws one in five years and 3, 6, 19 and 20 none). A SOLO_SHOCKS-off game is opened (and, below,
 // played) with the switch flipped off at runtime and restored.
 const withSoloShocks = <T>(on: boolean, run: () => T): T => {
   const was = SOLO_SHOCKS.enabled;
   SOLO_SHOCKS.enabled = on;
   try { return run(); } finally { SOLO_SHOCKS.enabled = was; }
 };
-const soloQuiet = openSoloInstance({ ...solo.setup, instanceId: '7' } as GameSetupSettings);
+const soloQuiet = openSoloInstance({ ...solo.setup, instanceId: '3' } as GameSetupSettings);
 const soloOff = withSoloShocks(false, () => openSoloInstance({ ...solo.setup, instanceId: '7' } as GameSetupSettings));
 function gradeSwitch(f: typeof gameShocksOn, tag: string) {
   const got = [
@@ -196,7 +200,14 @@ gradeCover(stopQuotes, '');
 // ⚠ AT THE DEFAULTS, WHICH ADD NO NEW MEMBERS (simple underwriting): the
 // first-year penalty is not in expected loss, so a book that grew would sit
 // about newShare x 20% above Expected for a reason that is not the shock switch.
-const decide = (y: number) => defaultDecisionSet(y);
+// ⚠ AND NO AGGREGATE COVER (pr/pregame-65): the play defaults now carry the
+// prior board's 125/50 cover on attritional losses, whose price would sit in
+// the struck reinsurance cost beside the T cover 4b prices. The T cover alone.
+const decide = (y: number) => {
+  const d = defaultDecisionSet(y);
+  for (const l of ['WC', 'GL', 'Property'] as const) d.byLine[l].aggregateCover = 'none';
+  return d;
+};
 // ⚠ THE SHOCKS LANDING: `cover` is the WC option held each year (the default,
 // None, unless a T cover is named), and `quoted` is the price the switch-on
 // game owes for it — RESTATED (wip/reinsurance-layers): its price by the
@@ -280,9 +291,9 @@ function gradeOffer(ids: typeof reinsuranceOptionIds, dflt: (shocks: boolean) =>
   const pricedAt = (l: 'WC' | 'GL' | 'Property', id: string, g: number) => { try { return near(optionPrice(l, id, g), methodPrice(l, id, g), 1e-12); } catch { return false; } };
   const priced = (['WC', 'GL', 'Property'] as const).every(l => ids(l, false).every(id => [1, 1.3].every(g => pricedAt(l, id, g))));
   const ok = off.every(x => x === nine) && on.every(x => x === nine) && priced
-    && dflt(false) === 'none' && dflt(true) === 'none'
+    && dflt(false) === '$19M xs $1M' && dflt(true) === '$19M xs $1M'
     && (['WC', 'GL', 'Property'] as const).every(l => decOff.byLine[l].reinsuranceOption === dflt(false) && decOn.byLine[l].reinsuranceOption === dflt(true));
-  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered, at the method's prices; None the default either way`,
+  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered, at the method's prices; the prior board's $19M xs $1M the default either way`,
     `off ${off[0]} / ${dflt(false)}; on ${on[0]} / ${dflt(true)}`);
 }
 gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), '');
@@ -296,8 +307,8 @@ const soloBoard = [...new Set([...preGameCovers(solo.setup, solo.instance),
   ...withSoloShocks(false, () => preGameCovers(soloOff.setup, soloOff.instance))])];
 const roomBoard = preGameCovers(hostedWith.setup, hostedWith.instance);
 function gradeBoard(soloCovers: string[], roomCovers: string[], tag: string) {
-  check(soloCovers.join() === 'none' && roomCovers.join() === 'none',
-    `${tag}7. the prior board holds the default: None in a solo game (shocks on or off) and in a scheduled room`,
+  check(soloCovers.join() === '$19M xs $1M' && roomCovers.join() === '$19M xs $1M',
+    `${tag}7. the prior board holds the default: $19M xs $1M in a solo game (shocks on or off) and in a scheduled room`,
     `solo ${soloCovers.join('/')}; room ${roomCovers.join('/')}`);
 }
 gradeBoard(soloBoard, roomBoard, '');
@@ -383,6 +394,8 @@ controlFails('the wip/shocks four-cover menu offered with the shocks on',
 controlFails('a T cover default with the shocks on', () => gradeOffer(reinsuranceOptionIds, sh => (sh ? '$18M xs $2M' : 'none'), ''), '6.');
 controlFails('the retired stop\'s offer (the Working cover with the shocks off)', () => gradeOffer((l, sh) => (sh ? reinsuranceOptionIds(l, true) : ['none', 'working']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
 controlFails('a solo prior board on a T cover', () => gradeBoard(['$8M xs $2M'], roomBoard, ''), '7.');
+controlFails('the prior board on None (the board before pr/pregame-65)', () => gradeBoard(['none'], ['none'], ''), '7.');
+controlFails('None the default (the play default before pr/pregame-65)', () => gradeOffer(reinsuranceOptionIds, () => 'none', ''), '6.');
 controlFails('a scheduled room\'s prior board on a T cover', () => gradeBoard(soloBoard, ['none', '$38M xs $2M'], ''), '7.');
 controlFails('catastrophe capital that ignores the switch',
   () => gradeCapital((l, e, y, p, o) => newEngineCatCapital(l, e, y, p, o, true), soloCap, roomCap, ''), '8a.');

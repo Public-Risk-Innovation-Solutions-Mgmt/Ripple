@@ -75,7 +75,7 @@ import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment
 import { simulateMarketReturns } from './investmentEngine';
 import { deriveSubRng } from './random';
 import {
-  applyMarketShock, eventLines, gameShocksOn, poolShare, resolveShockYear, shockTimingOf, SHOCK_EVENTS,
+  applyMarketShock, catalogueDisplayName, eventLines, gameShocksOn, poolShare, resolveShockYear, shockTimingOf, SHOCK_EVENTS,
   type ShockYear,
 } from './shockLosses';
 import { shockCostFactor } from './shockCost';
@@ -387,7 +387,7 @@ function lossesOf(s: YearSource, l: CoverageLine, m: BookMovement, riskControlPe
     const byEvent = new Map<string, number>();
     for (const b of ls.byFiring) byEvent.set(b.firing.event.id, (byEvent.get(b.firing.event.id) ?? 0) + b.uplift);
     const claims = ls.arrivals.map(t => ({
-      id: t.firing.event.id, name: t.firing.event.name, regional: t.firing.event.regional,
+      id: t.firing.event.id, name: catalogueDisplayName(t.firing.event.name), regional: t.firing.event.regional,
       drawn: t.size, booked: poolShare(l, t.size * tFactor),
     }));
     const charge = billed * riskControlPer100 * 10_000;
@@ -494,7 +494,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Admin charge per $100 (that rate × admin)', value: quote.adminRatePer100, kind: 'per100' },
       { label: 'Risk control charge per $100 (that rate × risk control)', value: quote.riskControlPer100, kind: 'per100' },
       { label: 'Reinsurance price per $100', value: quote.reinsRatePer100, kind: 'per100' },
-      { label: 'Rate per $100 (member charge rate)', value: quote.finalRatePer100, kind: 'per100' },
+      { label: 'Rate per $100 as struck (on the book before it moves)', value: quote.finalRatePer100, kind: 'per100' },
       { label: "Last year's rate per $100", value: p ? (p.finalRatePer100 ?? p.ratePer100) : null, kind: 'per100' },
       { label: 'Exposure priced on ($M)', value: pr.exposure, kind: 'exposure' },
     );
@@ -513,7 +513,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
           `Expense ratio = admin ${pct(quote.adminShare, 1)} + risk control ${pct(slider, 1)} = ${pct(quote.adminShare + slider, 1)} → divisor 1 − ${pct(quote.adminShare + slider, 1)} = ${quote.divisor.toFixed(2)}`,
           `Funding ${fundingText(d)} → CLF ${fac(quote.clf)} → rate = ${per100(quote.retainedPurePremiumPer100)} × ${fac(quote.clf)} ÷ ${quote.divisor.toFixed(2)} = ${per100(loaded)}`,
           `Of it: admin ${per100(quote.adminRatePer100)}, risk control ${per100(loaded)} × ${pct(slider, 1)} = ${per100(quote.riskControlPer100)}`,
-          `+ reinsurance ${per100(quote.reinsRatePer100)} = ${per100(quote.finalRatePer100)} per $100`,
+          `+ reinsurance ${per100(quote.reinsRatePer100)} = ${per100(quote.finalRatePer100)} per $100 as struck`,
         ],
       }),
       note: 'Struck once for the year on the book before it moves, from experience a year old (the pricing window).',
@@ -553,10 +553,22 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
 
   // ---- premium ----
   const billed = a.billedExposure ?? a.activeExposure;
+  // ⚠ THE COVER IS A FIXED PRICE IN DOLLARS, BILLED ON THE BOOK AFTER IT MOVES
+  // (simulationEngine: reinsuranceCost, "charged as itself"), so the member
+  // charge rate is the struck rate before reinsurance plus that price over the
+  // book billed — not the struck quote's per-$100 cover, which is the price over
+  // the book before it moved. They differ whenever a team moves its book while
+  // holding a cover. Shown here, after the book has moved, and the engine's own
+  // rate (a.finalRatePer100) is what it ties to. (pr/pregame-65 found it: its
+  // defaults hold the covers; on aws it showed for any team that moved its book
+  // with a cover.)
+  const coverPer100 = billed > 0 ? a.reinsuranceCost / (billed * 10_000) : 0;
   out.push({
     key: 'premium',
     rows: [
       { label: 'Exposure billed ($M)', value: billed, kind: 'exposure' },
+      { label: 'Reinsurance per $100 of the book billed', value: coverPer100, kind: 'per100' },
+      { label: 'Rate per $100 (member charge rate)', value: a.finalRatePer100 ?? a.ratePer100, kind: 'per100' },
       { label: 'Pool premium', value: a.poolPremium, kind: 'usd' },
       { label: 'Admin charged', value: a.adminExpense, kind: 'usd' },
       { label: 'Risk control charged', value: a.riskControlInvestment, kind: 'usd' },
@@ -566,6 +578,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     feed: feed({
       through: [titleOf('pricing'), titleOf('book')],
       working: [
+        `Reinsurance ${usd(a.reinsuranceCost)} for the year ÷ (${expM(billed)} × 10,000) = ${per100(coverPer100)} per $100 of the book billed`,
         `Member charge = rate ${per100(a.finalRatePer100 ?? a.ratePer100)} × ${expM(billed)} × 10,000 = ${usd(a.totalMemberCharge)}`,
         `= pool premium ${usd(a.poolPremium)} + admin ${usd(a.adminExpense)} + risk control ${usd(a.riskControlInvestment)} + reinsurance ${usd(a.reinsuranceCost)}`,
       ],
@@ -604,10 +617,10 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     const surge = mean(s.shockYears.map(sy => sy.byLine[l].byFiring.filter(b => b.firing.event.id === e.id).reduce((t, b) => t + b.uplift, 0)));
     const sizes = s.shockYears.flatMap(sy => sy.byLine[l].arrivals.filter(t => t.firing.event.id === e.id).map(t => t.size));
     drawRows.push(
-      { label: `${e.name}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : 'pool-wide', kind: 'text' },
-      { label: `${e.name}: region`, value: firing.region ?? 'pool-wide', kind: 'text' },
-      { label: `${e.name}: surge % (average across the worlds)`, value: surge, kind: 'pct' },
-      { label: `${e.name}: large-claim size drawn (average)`, value: sizes.length ? mean(sizes) : 0, kind: 'usd' },
+      { label: `${catalogueDisplayName(e.name)}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : 'pool-wide', kind: 'text' },
+      { label: `${catalogueDisplayName(e.name)}: region`, value: firing.region ?? 'pool-wide', kind: 'text' },
+      { label: `${catalogueDisplayName(e.name)}: surge % (average across the worlds)`, value: surge, kind: 'pct' },
+      { label: `${catalogueDisplayName(e.name)}: large-claim size drawn (average)`, value: sizes.length ? mean(sizes) : 0, kind: 'usd' },
     );
   }
   drawRows.push({ label: 'Adverse development level', value: level ?? 'None', kind: 'text' });
@@ -639,7 +652,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Normal losses after risk control', value: mean(ws.map(w => w.normal * (1 - w.cut))), kind: 'usd' },
     ];
     for (const id of events) {
-      const nm = SHOCK_EVENTS.find(e => e.id === id)?.name ?? id;
+      const nm = catalogueDisplayName(SHOCK_EVENTS.find(e => e.id === id)?.name ?? id);
       const u = mean(ws.map(w => w.byEvent.get(id) ?? 0));
       rows.push({ label: `${nm}: surge %`, value: u, kind: 'pct' });
       rows.push({ label: `${nm}: surge $`, value: mean(ws.map(w => (w.byEvent.get(id) ?? 0) * w.normal)), kind: 'usd' });

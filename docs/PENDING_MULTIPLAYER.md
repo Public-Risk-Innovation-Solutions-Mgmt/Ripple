@@ -11,6 +11,67 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## The prior board at 65% with its covers, new capital, play defaults and seeds (save key v52) — pr/pregame-65
+
+The pre-game's prior board, 2021–2026, now funds every year at 65% on each
+line's (stretched) table, adds New Members drawn around 5% with a 2% spread
+(seeded per scenario, 2021 none, each year's new exposure at the 20% penalty),
+renews everyone and buys the $19M xs $1M per-claim cover and the 125% / 50%
+aggregate cover — each recorded as the year's decisions, so the Annual
+Statement's Decisions section shows them. The history ends on today's 2026
+book. Paid-in capital is WC $0, GL $8.06M, Property $8.53M (was $3.0M / $12.0M /
+$12.5M). Every played year defaults to 65% with both covers carried, so 2027
+has no rate drop. All twenty seeds are re-picked from 1 to 120,000. Every
+setting and its reason is in pricingParameters.ts (`PRIOR_BOARD`,
+`PLAY_DEFAULTS`, `STARTING_CAPITAL`, `SCENARIO_SEEDS`) and docs/PARAMETERS.md.
+
+**Why.** At Expected every seed dropped its 2027 rate on WC and Property; at 65%
+without the covers 13 WC and 15 Property seeds did; at 65% with the covers carried,
+none. The 65% history made the openings too rich for today's targets, so the
+capital came down instead of the targets moving: GL and Property solved so
+today's seeds land on target on average; WC would need about −$2.94M, so it is
+floored at $0 and the seeds re-picked at this capital.
+
+**The openings** (premium to surplus at Expected with no cover, the basis the
+seeds were chosen on): all twenty within 5% of target on every line, worst
+4.9% (scenario 20's Property) — were 16 of 20, worst 10.4%. Candidates per slot
+within 5% and drawing at least two shocks in ten years ranged from 11 (scenario
+16) to 290 (scenario 20); the rich end is the thinnest. Each slot's pick is the
+steadiest of its candidates over ten years, single player and hosted at
+development Low: no line below zero in either mode, every 2027 rate rising.
+Sixteen slots switched to a steadier seed than the last pick; 15, 1, 18 and 16
+kept theirs. Scenario 13's seed scores 7.8 against 30.1 before (worst one-year
+surplus drop 15% against 66%); scenario 2 (9.7, a 26% drop) is the least steady.
+
+**Also carried here.** The Rate Indication shows 65% beside Expected, 70%, 80%
+and 90% — the default must show its own rate. And a Year Walkthrough fix: a
+team that moved its book while holding a cover was shown a member charge rate
+that missed the one charged (the engine bills the cover as a fixed price over
+the book after it moves); it predates this branch, and the default covers
+exposed it. The Rate Indication's build labels the history years' funding
+"65% (the prior board)", as the Decisions section does.
+
+**Built on its own** (pr/pregame-65, from aws 80da701): FAST 97/97 and SLOW
+4/4; typecheck clean; lint identical to aws (14 errors, 7 warnings, none in
+a changed file); the contract harness (DynamoDB, the built handler, admin)
+passes; all 36 session drivers pass with the admin-token hook (four restated to the
+new defaults — funding-slider, host-decisions, new-rate-panel, rate-indication
+— each failing as it should on aws's build).
+Restated gates, each with controls: scenarios, scenario-opening-drift (v4),
+fixed-seed-scenarios, simple-underwriting, aggregate-stop, aggregate-cover,
+expectation-shock-switch, large-claims-from-events, carry-decisions,
+event-likelihoods, exposure-scale, funding-basis, funding-table, lae-booking,
+new-rate-tieout, panel-engine-parity, pregame-surplus-flow, ratio-basis,
+reinsurance-tower, results-statement, risk-control, shock-effects,
+t-cover-layers, worlds and year-walkthrough. Fixtures that relied on a seed's
+draw moved: expectation-shock-switch's quiet game 7 → 3, large-claims-from-
+events 19 → 13, risk-control's average over all twenty scenarios. Baselines
+against aws 80da701, each control reproduced first: VALUE_IDENTITY_v96,
+SOLO_EXPORT_GUARD_v130, RENDER_IDENTITY_v132, SCENARIO_OPENINGS_v4, every move
+attributed by switching each part on alone.
+
+---
+
 ## The funding tables stretched, and the market's k for them (save key v51) — pr/clf-stretch
 
 Each line's funding (CLF) table is its BaselineCV table stretched about 1.0,
