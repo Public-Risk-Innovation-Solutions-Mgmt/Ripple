@@ -75,7 +75,7 @@ import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment
 import { simulateMarketReturns } from './investmentEngine';
 import { deriveSubRng } from './random';
 import {
-  applyMarketShock, eventLines, gameShocksOn, poolShare, resolveShockYear, shockTimingOf, SHOCK_EVENTS,
+  applyMarketShock, catalogueDisplayName, eventLines, gameShocksOn, poolShare, resolveShockYear, shockTimingOf, SHOCK_EVENTS,
   type ShockYear,
 } from './shockLosses';
 import { shockCostFactor } from './shockCost';
@@ -387,7 +387,7 @@ function lossesOf(s: YearSource, l: CoverageLine, m: BookMovement, riskControlPe
     const byEvent = new Map<string, number>();
     for (const b of ls.byFiring) byEvent.set(b.firing.event.id, (byEvent.get(b.firing.event.id) ?? 0) + b.uplift);
     const claims = ls.arrivals.map(t => ({
-      id: t.firing.event.id, name: t.firing.event.name, regional: t.firing.event.regional,
+      id: t.firing.event.id, name: catalogueDisplayName(t.firing.event.name), regional: t.firing.event.regional,
       drawn: t.size, booked: poolShare(l, t.size * tFactor),
     }));
     const charge = billed * riskControlPer100 * 10_000;
@@ -617,10 +617,10 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     const surge = mean(s.shockYears.map(sy => sy.byLine[l].byFiring.filter(b => b.firing.event.id === e.id).reduce((t, b) => t + b.uplift, 0)));
     const sizes = s.shockYears.flatMap(sy => sy.byLine[l].arrivals.filter(t => t.firing.event.id === e.id).map(t => t.size));
     drawRows.push(
-      { label: `${e.name}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : 'pool-wide', kind: 'text' },
-      { label: `${e.name}: region`, value: firing.region ?? 'pool-wide', kind: 'text' },
-      { label: `${e.name}: surge % (average across the worlds)`, value: surge, kind: 'pct' },
-      { label: `${e.name}: large-claim size drawn (average)`, value: sizes.length ? mean(sizes) : 0, kind: 'usd' },
+      { label: `${catalogueDisplayName(e.name)}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : 'pool-wide', kind: 'text' },
+      { label: `${catalogueDisplayName(e.name)}: region`, value: firing.region ?? 'pool-wide', kind: 'text' },
+      { label: `${catalogueDisplayName(e.name)}: surge % (average across the worlds)`, value: surge, kind: 'pct' },
+      { label: `${catalogueDisplayName(e.name)}: large-claim size drawn (average)`, value: sizes.length ? mean(sizes) : 0, kind: 'usd' },
     );
   }
   drawRows.push({ label: 'Adverse development level', value: level ?? 'None', kind: 'text' });
@@ -652,7 +652,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Normal losses after risk control', value: mean(ws.map(w => w.normal * (1 - w.cut))), kind: 'usd' },
     ];
     for (const id of events) {
-      const nm = SHOCK_EVENTS.find(e => e.id === id)?.name ?? id;
+      const nm = catalogueDisplayName(SHOCK_EVENTS.find(e => e.id === id)?.name ?? id);
       const u = mean(ws.map(w => w.byEvent.get(id) ?? 0));
       rows.push({ label: `${nm}: surge %`, value: u, kind: 'pct' });
       rows.push({ label: `${nm}: surge $`, value: mean(ws.map(w => (w.byEvent.get(id) ?? 0) * w.normal)), kind: 'usd' });

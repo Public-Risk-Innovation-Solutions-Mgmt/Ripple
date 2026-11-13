@@ -267,6 +267,10 @@ $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate dro
 - **Shocks:** single player draws from a 12-event catalogue (about 0.3 a year, from year 2); hosted rooms use
   the host's schedule. An event can surge a line's normal losses, add one large claim, strengthen old reserves,
   cut investment returns, or take 25% of the book.
+  *Workers Comp Legislation* (to players, *Workers Compensation Legislation: Increased Medical Fee Schedule*; id #5,
+  formerly "WC Reform"): a new medical fee schedule raises the cost of WC claims for a few years — WC's normal losses
+  surge 35–75% in the year it starts, and WC's open prior-year reserves strengthen 5–12% that year, then by 65% and
+  42% of that in the next two. No large claim.
   ⚠ Whether a game prices for shocks is fixed when it starts: one set up with no events and given one mid-game
   has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
   is pinned at the first edit so replays agree).

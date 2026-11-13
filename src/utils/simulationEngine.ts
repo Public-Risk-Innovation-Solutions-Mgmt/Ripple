@@ -30,7 +30,7 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
       ...(firing.region ? { region: firing.region } : {}),
       band: def.band,
       horizon: def.horizon,
-      description: `${e.name}, from the R model's catalogue${firing.region ? `, in ${firing.region}` : ''}. `
+      description: `${catalogueDisplayName(e.name)}, from the R model's catalogue${firing.region ? `, in ${firing.region}` : ''}. `
         + (detail || `Acts on the whole pool.`),
       yearFired: firing.firedYear,
       linesAffected: [...lines],
@@ -170,7 +170,7 @@ import {
   type OrdinaryLossYear,
 } from './ordinaryLoss';
 import { marketSeedOf } from './bookUnits';
-import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, catalogueDisplayName, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, laeShares, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
