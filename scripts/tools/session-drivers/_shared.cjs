@@ -34,6 +34,11 @@
 //   market-survey     91  each team's Market Survey is the host's Teams table,
 //                         cell for cell, its own row highlighted, no decisions;
 //                         absent in single player and Test player.
+//   wc-legislation-name 21  event #5 by its new names: "Workers Comp Legislation"
+//                         on the host's pickers, chips and change history; the
+//                         full "...: Increased Medical Fee Schedule" on the news
+//                         banner, Events so far and the Year Walkthrough; and
+//                         "WC Reform" nowhere — Test player and hosted.
 //   replay-fidelity    8  vary decisions across three years, reload, and require
 //                         the rebuilt results to match what was posted AT THE TIME.
 //   downloads          7  clicks all three export buttons and requires a file to

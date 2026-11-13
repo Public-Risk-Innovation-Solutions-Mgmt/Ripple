@@ -306,7 +306,7 @@ export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.80;
  *     window sooner, so rates catch up to it sooner. Over the same 100 solo
  *     seeds, rates rose by up to +0.06% on WC and +0.2% to +0.9% on GL by year;
  *   - faster payment leaves less open balance for a shock's R development to
- *     act on, so a year with WC Reform, Legislation, Nuclear Verdict or Social
+ *     act on, so a year with WC Reform (Workers Comp Legislation), Legislation, Nuclear Verdict or Social
  *     Inflation behind it develops less and prices slightly lower. With the
  *     host's development at zero, every rate that still moved (45 game-years of
  *     1,000 on WC, 184 on GL) came after such a shock, and none without one:
@@ -4140,7 +4140,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `${R_MODEL.catalogue.length} events`, unit: 'probability, duration, regional',
         basis: 'CHOSEN', status: 'ADOPTED, SCALED',
         what: 'As given: Earthquake 0.2%/1y regional · Winterstorm 6%/1y regional · Wildfire 3.5%/1y regional · '
-          + 'Legislation 1.5%/3y · WC Reform 2%/3y · Recession 6%/2y · Nuclear Verdict 2.5%/1y · '
+          + 'Legislation 1.5%/3y · WC Reform (shown as Workers Comp Legislation) 2%/3y · Recession 6%/2y · Nuclear Verdict 2.5%/1y · '
           + 'Social Inflation 4.5%/3y · Pandemic 1%/2y · Economic Inflation 10%/3y · '
           + 'Investment Loss 4%/1y · Member Withdrawal 2%/2y — 0.432 events a year in all.',
         note: `Probabilities SCALED by ${SHOCK_CATALOGUE_SCALE.toFixed(4)} (Shocks per year), keeping their relative `
@@ -4151,7 +4151,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `${R_MODEL.shockMap.length} event-line pairs`, unit: 'A / T / R level', basis: 'CHOSEN',
         status: 'ADOPTED',
         what: 'Earthquake: GL Mid/–/– · WC High/–/– · Property High/High/–. Winterstorm: Property '
-          + 'High/Low/–. Wildfire: Property Low/High/–. Legislation: GL Mid/–/High. WC Reform: WC '
+          + 'High/Low/–. Wildfire: Property Low/High/–. Legislation: GL Mid/–/High. WC Reform (Workers Comp Legislation): WC '
           + 'High/–/Mid. Recession: GL Low/–/– · WC Low/–/–. Nuclear Verdict: GL –/High/Mid. '
           + 'Social Inflation: GL High/Low/Mid. Pandemic: GL –/Mid/– · WC High/High/–.',
         note: 'Which line each event touches, and at what level on each of the three channels.',

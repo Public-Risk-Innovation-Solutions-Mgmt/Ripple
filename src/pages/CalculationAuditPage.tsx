@@ -22,7 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { CoverageLine, GameInstance, LineResultSet, LineView, ResultSet } from '../types/simulation';
-import { applyMarketShock, resolveShockYear, type ShockTiming } from '../utils/shockLosses';
+import { applyMarketShock, resolveShockYear, SHOCK_EVENT_LABELS, type ShockTiming } from '../utils/shockLosses';
 import { worldInstance } from '../utils/worlds';
 import { reconstructSweep } from '../utils/worldAudit';
 import { asLineRow } from '../utils/lineHelpers';
@@ -562,7 +562,7 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
 function buildShockAuditRows(result: ResultSet | LineResultSet): AuditRow[] {
   const rows: AuditRow[] = [];
   for (const s of result.shockEvents ?? []) {
-    rows.push({ kind: 'section', metric: `${s.shockId} — ${s.name}`, value: '', formula: '' } as AuditRow);
+    rows.push({ kind: 'section', metric: `${s.shockId} — ${SHOCK_EVENT_LABELS[s.shockId]?.name ?? s.name}`, value: '', formula: '' } as AuditRow);
     rows.push({
       metric: 'Band / horizon',
       value: `${s.band} · ${s.horizon}`,
