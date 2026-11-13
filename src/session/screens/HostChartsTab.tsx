@@ -546,16 +546,12 @@ function LineChart({ metric, series, years, domain }: ChartProps) {
                 />
               ))}
               {[...points.keys()].map(yr => (
-                // A 2px surface ring keeps overlapping markers legible where two
-                // teams cross.
                 <circle
                   key={yr}
                   cx={x(yr)}
                   cy={y(points.get(yr)!)}
                   r={4}
                   fill={s.color}
-                  stroke="#ffffff"
-                  strokeWidth={2}
                 />
               ))}
             </g>
@@ -563,15 +559,6 @@ function LineChart({ metric, series, years, domain }: ChartProps) {
 
           {labels.map(l => (
             <g key={l.name}>
-              {/* A leader from the series' true end to a nudged label, so the
-                  nudge never reassigns a name to the wrong line. */}
-              {Math.abs(l.at - l.anchor) > 1 && (
-                <line
-                  x1={M.left + PLOT_W} y1={l.anchor}
-                  x2={M.left + PLOT_W + 8} y2={l.at}
-                  stroke={l.color} strokeWidth={1} opacity={0.5}
-                />
-              )}
               <circle cx={M.left + PLOT_W + 12} cy={l.at} r={3.5} fill={l.color} />
               {/* ⚠ THE LABEL WEARS INK, NOT THE SERIES COLOUR. The dot beside it
                   carries identity; coloured text is the part that fails against a
