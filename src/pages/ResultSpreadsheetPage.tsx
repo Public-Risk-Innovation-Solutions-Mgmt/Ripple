@@ -11,9 +11,9 @@ import { RESULT_METRICS } from '../utils/resultMetrics';
 interface ResultSpreadsheetPageProps {
   lockedResults: ResultSet[];
   // ⚠ THE KNOWN PRE-GAME YEARS, oldest first, for the table and the Results
-  // download. Results run one year behind (utils/knownYears): after the first
-  // lock the newest known year is 2026, a pre-game year, and a page of played
-  // years alone would show nothing. Not passed to the Claims download, which
+  // download. Before the first lock the newest known year is 2026, a pre-game
+  // year (utils/knownYears), and a page of played years alone would show
+  // nothing. Not passed to the Claims download, which
   // reads the pre-game itself (priorHistory) and would count it twice.
   preGameResults: ResultSet[];
   // The pre-game bootstrap's three years. Accident years -2, -1 and 0 have real
@@ -31,6 +31,8 @@ interface ResultSpreadsheetPageProps {
   poolState: PoolState;
   /** A multi-world game's world 1 — the claims workbook's source. Absent on one world. */
   claimsWorld?: { lockedResults: ResultSet[]; poolState: PoolState };
+  /** The Results download's Year Walkthrough sheet, built on click (utils/yearWalkthrough). */
+  walkthroughRows?: () => (string | number)[][];
 }
 
 // ⚠ ONE SWITCH FOR THE TWO MEMBER-LEVEL VIEWS ON THIS PAGE: the Active Member
@@ -40,7 +42,7 @@ interface ResultSpreadsheetPageProps {
 // Typed, not a literal, so it reads as a setting rather than dead code.
 const SHOW_MEMBER_VIEWS: boolean = false;
 
-export default function ResultSpreadsheetPage({ lockedResults, preGameResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld }: ResultSpreadsheetPageProps) {
+export default function ResultSpreadsheetPage({ lockedResults, preGameResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld, walkthroughRows }: ResultSpreadsheetPageProps) {
   // Every known year the table and the Results download show: pre-game, then played.
   const shown = useMemo(() => [...preGameResults, ...lockedResults], [preGameResults, lockedResults]);
   const [selectedYear, setSelectedYear] = useState<number>(
@@ -89,7 +91,7 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
   if (shown.length === 0) {
     return (
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
-        <div className="text-center py-20 text-gray-400">
+        <div className="text-center py-20 text-black">
           <Table size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No spreadsheet data yet</p>
           <p className="text-sm mt-1">Complete a year to populate the result spreadsheet.</p>
@@ -136,10 +138,10 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
               // the line tabs came out with 81 rows instead of 92 even once the
               // accessors were made reversible. The pooled list above is for the
               // on-screen pool table, which is the only thing it is correct for.
-              const wb = buildResultsWorkbook(shown, activeLines, RESULT_METRICS);
+              const wb = buildResultsWorkbook(shown, activeLines, RESULT_METRICS, walkthroughRows?.());
               XLSX.writeFile(wb, exportFilename);
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
           >
             <Download size={16} />
             Download Results (.xlsx)
@@ -157,7 +159,10 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
               // development. The button does not say so: players are never told
               // about the worlds.
               const src = claimsWorld ?? { lockedResults, poolState };
-              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instanceId);
+              // The closure draws key on the INSTANCE's id, as the engine's do
+              // (a scenario's is its fixed seed); the file name keeps the
+              // scenario number the player chose.
+              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instance.instanceId);
               XLSX.writeFile(wb, claimsExportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"

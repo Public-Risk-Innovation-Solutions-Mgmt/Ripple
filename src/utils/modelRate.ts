@@ -17,12 +17,11 @@
 // market return net of fees (expectedMarketReturns), and the year's booked
 // figures; the combined ratio is the Annual Statement's own.
 // ============================================================================
-import {
-  ADMIN_BASE_YEAR, ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS,
-  PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION_PRICED_YEARS,
-} from '../data/pricingParameters';
+import { aggregateCoverOption } from './aggregateCover';
+import { pricingLineState } from './worlds';
+import { PRICING_DATA_LAG_YEARS, RESERVE_INFLATION_PRICED_YEARS } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
-import { adminRatePer100For, adminTrendFactor, effectiveRiskControlIncentivePct, expenseDivisor, quoteNewRateStack } from './linePricing';
+import { effectiveRiskControlIncentivePct, expenseDivisor, quoteNewRateStack } from './linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
 import { selectedClfFor } from './simulationEngine';
@@ -86,26 +85,36 @@ export interface ModelRate {
   projectedPurePremiumPer100: number;
   /** The projected pure premium at the current year's rate level: one year's trend off it (the Rate Indication's). */
   currentLevelPurePremiumPer100: number;
-  /** The parameters as set, at the base year. */
-  adminFixed: number;
-  adminPerExposurePer100: number;
-  /** (1 + trend)^(year - base year), and the two parts trended to the year. */
-  adminTrend: { perYear: number; baseYear: number; years: number; factor: number };
-  adminFixedTrended: number;
-  adminPerExposureTrendedPer100: number;
+  /** ADMIN_SHARE_OF_PREMIUM for the line: admin's share of the rate before reinsurance, every year. */
+  adminShare: number;
   /** $M — the exposure the rate is quoted on. */
   quotedExposure: number;
+  /** Admin charged per $100: the rate before reinsurance x adminShare. */
   adminPer100: number;
+  /** The rate before reinsurance per $100: retained x CLF / divisor. */
+  rateBeforeReinsurancePer100: number;
   funding: { label: string; clf: number };
+  /** The Risk Control slider: its share of the rate before reinsurance, in the divisor. */
   riskControl: number;
+  /** 1 - admin share - risk control (expenseDivisor). */
   divisor: number;
   /** The expenses as shares of the rate at Expected, self-funded, and the permissible loss ratio (the Rate Indication's). */
-  expenses: { fixedAdmin: number; perExposureAdmin: number; riskControl: number; contingency: number; total: number; permissibleLossRatio: number };
+  expenses: { admin: number; riskControl: number; total: number; permissibleLossRatio: number };
   /** Projected pure premium / permissible loss ratio: the rate at Expected, self-funded. */
   indicatedRatePer100: number;
   /** The rate's rows, as the Decisions panel's Your rate: each its own, adding to ratePer100. */
-  pieces: { purePremium: number; admin: number; riskControl: number; contingency: number; reins: number };
+  pieces: { purePremium: number; admin: number; riskControl: number; reins: number };
   reinsurancePer100: number;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES, when the year buys one: its
+   * terms and price as the quote struck them (aggregateCover.ts). Its price per
+   * $100 is part of reinsurancePer100. Null with None.
+   */
+  aggregateCover: {
+    name: string; expectedNormal: number; averageSurge: number; expectedAttritional: number;
+    attachmentShare: number; limitShare: number; attachment: number; limit: number;
+    expectedRecovery: number; load: number; price: number; pricePer100: number;
+  } | null;
   ratePer100: number;
   /** $M — the exposure charged (the year's book; a played year's mean over worlds). */
   chargedExposure: number;
@@ -116,16 +125,23 @@ export interface ModelRate {
   panelRatePer100: number | null;
 }
 
+// ⚠ THE PRIOR BOARD FUNDS AT ITS LEVEL (pr/pregame-65, PRIOR_BOARD: 65% on the
+// line's table), recorded with the margin it amounts to; the label reads the
+// level, as the Decisions section does. A margin of 0 (the board at Expected,
+// before) keeps its old label, which the page reads as Expected.
 const fundingLabel = (d: LineDecisionSet): string =>
   d.fundingCushion !== undefined
-    ? `Prior board's margin ${(d.fundingCushion * 100).toFixed(4)}%`
+    ? (d.fundingCushion !== 0 && !d.fundingAtExpected
+      ? `${Math.round(d.fundingConfidenceLevel * 100)}% (the prior board)`
+      : `Prior board's margin ${(d.fundingCushion * 100).toFixed(4)}%`)
     : d.fundingAtExpected ? 'Expected' : `${Math.round(d.fundingConfidenceLevel * 100)}% confidence`;
 
 export function buildModelRate(gs: GameState, line: CoverageLine, decisions: DecisionSet, yearNumber: number): ModelRate | null {
   const shocks = gameShocksOn(gs.setup, gs.instance);
   const coming = yearNumber === gs.currentYearNumber && !gs.isComplete;
   const row: LineResultSet | undefined = gameHistory(gs).find(r => r.yearNumber === yearNumber)?.byLine[line];
-  const ledger = gs.poolState.lines[line]?.reserveDevelopment ?? [];
+  // The pricing ledger — the shock-free shadow's once a shock has fired (SHOCK_FREE_PRICING).
+  const ledger = pricingLineState(gs, line)?.reserveDevelopment ?? [];
   const basis = { rows: ledger, allMarketMembers: gs.poolState.allMarketMembers, membershipHistory: gs.poolState.membershipHistory };
 
   let pp: NewPurePremiumResult | null;
@@ -188,6 +204,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: d.reinsuranceOption,
     shocks,
+    aggregateCover: d.aggregateCover,
   });
   if (coming) panelRatePer100 = quote.finalRatePer100;
   // At Expected, self-funded: the expense shares and the indicated rate.
@@ -213,15 +230,20 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const oneWorld = !coming && row!.ratedExposure === undefined;
   const reinsuranceDollars = oneWorld ? row!.reinsuranceCost : quote.reinsRatePer100 * chargedExposure * 10_000;
   const premium = oneWorld
-    ? chargedExposure * (quote.retainedPurePremiumPer100 * quote.clf / quote.divisor) * 10_000
-      + chargedExposure * (quote.adminRatePer100 / quote.divisor) * 10_000 + reinsuranceDollars
+    ? chargedExposure * quote.poolPremiumRatePer100 * 10_000
+      + chargedExposure * quote.adminRatePer100 * 10_000
+      + chargedExposure * quote.riskControlPer100 * 10_000 + reinsuranceDollars
     : quote.finalRatePer100 * chargedExposure * 10_000;
   const ratePer100 = oneWorld ? premium / Math.max(chargedExposure * 10_000, 1) : quote.finalRatePer100;
 
-  const rateE = atExpected.firstIndicationPer100;
-  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(quotedExposure * 10_000, 1);
+  // The expense shares of the rate at Expected (before reinsurance): admin's
+  // share of premium — the parameter itself, the same every year, as the quote
+  // carries it — and the year's Risk Control slider; both are in the divisor
+  // (expenseDivisor), so they add to the expense ratio and the permissible loss
+  // ratio is what is left.
   const rc = effectiveRiskControlIncentivePct(d);
-  const total = atExpected.adminRatePer100 / rateE + rc + PROFIT_AND_CONTINGENCY_OF_RATE[line];
+  const adminShareE = atExpected.adminShare;
+  const total = adminShareE + rc;
   const reinsurancePer100 = oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100;
 
   return {
@@ -241,26 +263,29 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     alaeShare: lae.alae, ulaeShare: lae.ulae, alaePer100: pp.alaePer100, ulaePer100: pp.ulaePer100,
     projectedPurePremiumPer100: pp.purePremiumPer100,
     currentLevelPurePremiumPer100: pp.purePremiumPer100 / annualTrend,
-    adminFixed: ADMIN_FIXED_PER_YEAR[line], adminPerExposurePer100: ADMIN_PER_EXPOSURE_PER_100[line],
-    adminTrend: {
-      perYear: ADMIN_TREND_PER_YEAR, baseYear: calendarOf(gs, ADMIN_BASE_YEAR),
-      years: yearNumber - ADMIN_BASE_YEAR, factor: adminTrendFactor(yearNumber),
-    },
-    adminFixedTrended: ADMIN_FIXED_PER_YEAR[line] * adminTrendFactor(yearNumber),
-    adminPerExposureTrendedPer100: ADMIN_PER_EXPOSURE_PER_100[line] * adminTrendFactor(yearNumber),
-    quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure, yearNumber),
+    adminShare: quote.adminShare,
+    quotedExposure, adminPer100: quote.adminRatePer100,
+    rateBeforeReinsurancePer100: quote.poolPremiumRatePer100 + quote.adminRatePer100 + quote.riskControlPer100,
     funding: { label: fundingLabel(d), clf: quote.clf },
     riskControl: rc, divisor: expenseDivisor(rc, line),
     expenses: {
-      fixedAdmin: fixedPer100 / rateE, perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,
-      riskControl: rc, contingency: PROFIT_AND_CONTINGENCY_OF_RATE[line], total, permissibleLossRatio: 1 - total,
+      admin: adminShareE, riskControl: rc, total, permissibleLossRatio: 1 - total,
     },
     indicatedRatePer100: pp.purePremiumPer100 / (1 - total),
     pieces: {
       purePremium: quote.retainedPurePremiumPer100 * quote.clf, admin: quote.adminRatePer100,
-      riskControl: quote.riskControlPer100, contingency: quote.contingencyPer100, reins: reinsurancePer100,
+      riskControl: quote.riskControlPer100, reins: reinsurancePer100,
     },
     reinsurancePer100,
+    aggregateCover: quote.aggregateCover ? (c => {
+      const o = aggregateCoverOption(c.optionId);
+      return {
+        name: o.name, expectedNormal: c.expectedNormal, averageSurge: c.averageSurge, expectedAttritional: c.expectedAttritional,
+        attachmentShare: o.attachment, limitShare: o.limit, attachment: c.attachment, limit: c.limit,
+        expectedRecovery: c.expectedRecovery, load: o.load, price: c.price,
+        pricePer100: c.price / Math.max(quotedExposure * 10_000, 1),
+      };
+    })(quote.aggregateCover) : null,
     ratePer100,
     chargedExposure,
     premium,
@@ -308,7 +333,9 @@ export function buildModelVariance(gs: GameState, line: CoverageLine): ModelVari
     const pricedAlae = r.pricingAlaeRatio ?? lae.alae;
     const expAlae = r.expectedLoss * pricedAlae, expUlae = r.expectedLoss * lae.ulae;
     const expInvest = blendInvestmentReturn(r.investedAssets, r.assetAllocation, expectedMarketReturns()).income;
-    const expRecovery = r.expectedReinsuranceRecovery ?? 0;
+    // The per-claim cover's expected recovery, and the aggregate cover's at the
+    // odds it was priced on (its recovery is in reinsuranceRecovery).
+    const expRecovery = (r.expectedReinsuranceRecovery ?? 0) + (r.attritionalCover?.expectedRecovery ?? 0);
     const recovery = r.reinsuranceRecovery + (r.aggregateRecovery ?? 0);
     // On the Annual Statement's basis: losses net of the cover's recovery, LAE,
     // admin, risk control and the cover's price, over the member charge.

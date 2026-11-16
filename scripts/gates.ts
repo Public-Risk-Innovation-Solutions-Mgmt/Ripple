@@ -174,14 +174,18 @@ const FAST: string[] = [
                                      //         unchanged; no routine claim drawn; a simulated pre-game; five controls
   'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
                                      //         $0 - $1M layer, required capital at 80%; four controls
+  'pricing-window-check',            //  45s   results show the year just completed, pricing keeps its lag: year P
+                                     //         reads accident years P-6 to P-2, each trended to P; two controls;
+                                     //         RATES_OUT dumps every struck rate to compare two commits by
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
-  'pregame-growth-check',            //   5s   the pre-game book grows 2% a year into exactly the opening book, new
-                                     //         business at market risk, 2021 writing none; four controls
+  'simple-underwriting-check',       //   5s   simple underwriting: the year's expected ordinary loss is the brief's
+                                     //         formula, one year only, 100 equal members, the pre-game's 2% at the
+                                     //         penalty; four controls
   'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
                                      //         outstanding, booked as development, paid untouched; priced for
-                                     //         the first 2 years; contingency per line; four controls. Replaced
+                                     //         the first 2 years; no profit and contingency in the divisor; four controls. Replaced
                                      //         adverse-rate-placeholder-check when YEARLY_ADVERSE_RATE was wired
   'shock-rate-check',                //   2s   the catalogue scaled to 0.3 events a year, weights kept and priced so;
                                      //         the schedule's count round(0.3 x years) ± 1, at least one, never year
@@ -202,35 +206,21 @@ const FAST: string[] = [
   'exposure-scale-check',            //   4s   one exposure multiplier per line on the whole market, a 30% book, and
                                      //         about $30M of year-1 premium at Expected; three controls
   'scenarios-check',                 //   5s   the twenty scenarios: setup offers 1-20, the handler refuses others, one
-                                     //         seed solo and hosted, the ratio table, every opening at year-1 premium /
-                                     //         its ratio from the starting capital, the pre-game's drawn experience and
-                                     //         return on its own streams; ten controls
+                                     //         fixed seed solo and hosted, the design targets, every opening the
+                                     //         seed's from the starting capital at Expected, the pre-game's experience
+                                     //         at true cost and return on its own streams; seventeen controls
+  'fixed-seed-scenarios-check',      //   8s   each scenario plays its fixed seed in every mode, nothing fits the
+                                     //         opening (no solve, floor, guardrail, scaling, re-draw or fallback), and
+                                     //         the opening is identical run to run and across modes; six controls
+  'scenario-opening-drift-check',    //   2s   each scenario's opening per line against its record; REPORTS any move,
+                                     //         never re-picks or adjusts; two controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
-  'book-units-penalty-check',        //   3s   the new-business penalty: actual ordinary losses load the units written
-                                     //         that year, first year and new units only; expected carries none;
-                                     //         three controls
-  'book-units-large-loss-check',     //   3s   large losses on units: routine claims spread by size x risk, a regional
-                                     //         T only in its region, the routine count carries the book's risk, no
-                                     //         unit in the claims workbook; four controls
-  'book-units-underwriting-check',   //   6s   underwriting on units: selection random at visibility 0, perfect at 1,
-                                     //         improving between; renewal and intake shares; withdrawal blind to
-                                     //         risk; one book in every world; four controls
-  'book-units-ordinary-check',       //   7s   ordinary losses from units: each unit and the line at their closed-form
-                                     //         mean and CV, expected = exposure x book risk x cost, every world on
-                                     //         one book; three controls
   'baseline-cv-table-check',         //   4s   one BASELINE_CV per line, read by both: the funding table in force is the
-                                     //         one filed under it and its stops are that CV's closed form, the engine's
+                                     //         one filed under it, stretched, and its unstretched stops are that CV's closed form, the engine's
                                      //         year factor is the draw at it bit for bit, and the slider and required
                                      //         capital read that table; two controls
-  'book-units-market-check',         //   3s   each line's market of units and the opening book: sizes to the full
-                                     //         market, size and risk CVs, risk centred at 1.0, regions by share,
-                                     //         the 30% book, determinism, kept once per game; six controls
-  // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
-  // Their member-path originals stay dormant as *-member-check; these cover
-  // what the new engine uses — pooled fields and the reinsurance tower — each
-  // with controls, and each confirmed red against a real break in the engine.
   'pool-aggregation-check',          //   2s   every pooled field classified, the additive classes add, no
                                      //         members on a book, cededByLayer cells line up, solo = its line
   'reinsurance-tower-check',         //   4s   cession arithmetic, the tower's shape and price on a book, the
@@ -251,9 +241,11 @@ const FAST: string[] = [
   'alae-ratio-check',                //  50s   ALAE drawn by line and year on the game seed (the same in
                                      //         every world), booked at the draw, priced on the window's
                                      //         mean, replayed identically; four controls
-  'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
+  'admin-share-check',               //  30s   admin exactly 20% of premium every year; pure premium unchanged by it
                                      //         (2027), priced and booked alike, pre-game included;
                                      //         three controls
+  'mid-game-edit-check',             //  40s   a host's edit to the current or a later year leaves every played year
+                                     //         byte-identical on a rebuild, and takes in its own year; three controls
   'decision-figures-check',          //   8s   the Decisions page's dollar figures are the engine's: the
                                      //         premium turned away and the new business let in match
                                      //         processYear's own movement, the risk control cost is the
@@ -274,7 +266,49 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
-  'shock-loss-check',                //  40s   the NEW loss engine's shocks and large losses: events
+  'risk-control-check',              // ~32s   wip/risk-control: the charge in the rate (admin not on it)
+                                     //         and booked as the cost; the cut shared by every world and
+                                     //         player, never on shocks or older years, neutral on average
+                                     //         (sizing, 48,000 draws, 144 line-years); 0% untouched —
+                                     //         each with a control.
+  'dividend-dollars-check',          // ~12s   the dividend and assessment in dollars: $X moves surplus
+                                     //         by exactly $X; a dividend limited to the surplus; a
+                                     //         pool at or below zero can assess, not pay; the 31
+                                     //         $1M notches — each with a control.
+  'year-walkthrough-check',          // ~21s   the Year Walkthrough: every stage tied to the engine,
+                                     //         identical games give identical codes, a changed
+                                     //         decision moves only the stages after it, the seed
+                                     //         only where shown — each with a control.
+  'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
+                                     //         outstanding only, paid untouched, no pre-game
+                                     //         development — each with a control.
+  'event-likelihoods-check',         //  ~5s   wip/reinsurance-layers: the Rate Indication's Event
+                                     //        Likelihoods recomputed exactly from the catalogue, at the
+                                     //        claims' growth; none with shocks off
+  'aggregate-cover-check',           // ~37s   wip/aggregate-cover: the aggregate cover on attritional
+                                     //        losses — options, each price recomputed by integration
+                                     //        (2027 table to the dollar, both surge bases), and in 4,500
+                                     //        world-line-years the terms, attritional losses and recovery;
+                                     //        against None: no large claim, no development, the statement's
+                                     //        ceded block — each with a control.
+  'newest-combined-ratio-check',     //  ~4s   the top bar's and the host Teams table's combined ratio
+                                     //        are the Annual Statement's newest year's, labelled with
+                                     //        that year — rendered, pool and lines, before year 1 and
+                                     //        after; control: the cumulative figure fails.
+  'rate-indication-years-check',     //  ~6s   the Rate Indication's years back to 2021: each past
+                                     //        year's build chains to the rate the engine charged, three
+                                     //        scenarios, every line; control: admin moved after play.
+  't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
+                                     //        recovery on every claim size, each year's price by the
+                                     //        workbook's method at the T claims' own growth factor
+  'market-step-check',               //  ~47s  pr/market-competition: what a room at each level stores, recomputed independently from the posted rates (every field, four years, three lines); stale, unlocked and missing teams; the rules (appetite, cheapest, the wide taper's shares and its 20% limit, the same mix, books add up); a supply-short line; the brief's numbers; the engine plays the stored result — controls including today's cutoff and best-first quality (pr/market-l1)
+  'clf-stretch-check',               //  ~4s   wip/clf-stretch: each line's funding table is its BaselineCV table stretched about 1.0 to the brief's 95% stop (WC 1.30, GL and Property 1.25), Expected 1.0, the slider, required capital and a played year read it — three controls
+  'carry-decisions-check',           //  ~13s  wip/carry-decisions: single player and Test player carry every decision into the next year (carryDecisions; App.tsx's commitYear), the first year on the defaults — each with a control
+  'large-claims-from-events-check',  //  ~14s  wip/large-claims-from-events: large claims only from T-shock events (their map level, range x growth, one per line per firing), none with no schedule; the brief's ranges, odds and 2027 cover table; covers and likelihoods in every game — each with a control
+  'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
+                                     //         covers' recoveries and prices, the Investment Loss by
+                                     //         asset class — each with a control. (Replaces
+                                     //         shock-loss-check, which graded the old T.) Old notes:
                                      //         fire at the catalogue's probabilities (and only as
                                      //         the host schedules them in a session), arrive as the
                                      //         stated count and severity, decay at 0.65, land in
@@ -299,6 +333,18 @@ const FAST: string[] = [
                                      //         latest year otherwise; the five-year window rolls,
                                      //         Prior + the five reconcile to the full history, the
                                      //         pre-game columns are the engine's — each with a control
+  'annual-statement-template-check', //  26s   the Annual Statement as the template: every figure ties to
+                                     //         what the engine books on four games (the ceded block real
+                                     //         on one), the Excel file is the template cell for cell less
+                                     //         "Profit and Contigency", borders included, the operating ratio by hand on
+                                     //         scenario 1 WC 2027 — each with a failing control
+  'annual-statement-pdf-check',      //  15s   the Annual Statement PDF read back with pdf.js on six games:
+                                     //         every sheet in the workbook's order from its own page,
+                                     //         headers and page numbers, every row and figure the
+                                     //         statement's, negatives red — each with a failing control
+  'statement-decisions-check',       //   4s   the Annual Statement's Decisions section is the recorded
+                                     //         decisions, every scope and year, history years included —
+                                     //         three failing controls
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1
@@ -856,7 +902,6 @@ const PROBES: Record<string, string> = {
   'pregame-years-report': 'the pre-game and what follows, by line: every scenario\'s solved margin (range, and those below zero), the pre-game rates 2021-2025 and year 1 with their year-on-year swing, the Annual Statement\'s columns at game start, and played ten years at the defaults — investment income y1-5, surplus at 5 and 10, cumulative combined ratio on scenarios 1, 10, 20. No threshold [20 min]',
   'paid-in-capital-solve-report': 'per line, the paid-in capital (STARTING_CAPITAL) at which the mean over the twenty scenarios of the 2026 rate change from 2025 equals the line\'s severity trend, found by bisection; at it, the change\'s range and the solved pre-game margin\'s range with those below zero. No threshold [2 min]',
   'opening-position-report': 'each line\'s opening at the start of year 1 over the twenty scenarios — net and LAE reserve, required capital, surplus, the solved pre-game margin, year-1 premium and the oldest open accident year; mean and range. A reading to compare one commit against another, no threshold [30s]',
-  'uw-applications-dial-report': 'uw-hybrid: scenario 18 Property, five years at Expected, four underwriting arms — exposure, loss ratio, combined ratio and surplus at year 5; run once per NEW_BUSINESS_APPLICATIONS with --set. A design reading with no threshold [60s]',
   'investment-dominance-report': 'underwriting against investment income, per line, with the implied return. A design reading with no threshold — see its header [12s]',
   'ibner-clf-basis-report': 'reports the IBNER/CLF basis pairing; no threshold. Renamed from -check [17s]',
   'ibner-pregame-report': 'pre-game IBNER state report [64s]',
@@ -1274,29 +1319,13 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   //                                    new rate replaces; the experience path
   //                                    no longer lags the trend.
   //
-  // ONE REMAINS, and its open item is now the LOSS ENGINE rather than the rate.
+  // ONE REMAINED, and its open item was the LOSS ENGINE rather than the rate:
   // ==========================================================================
-  'cession-uplift-basis': {
-    code: 2,
-    why: 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
-      + 'DEVELOPMENT % NOW MAKES THEM WRONG — but I am NOT raising them, and the reason is the '
-      + 'number itself. GL reads 10.1% against a 6.0% line limit and the pool 3.7% against 1.5%. '
-      + 'AT LOSS ENGINE COMMIT 3a GL reads 16.7% and the pool 1.1% (now inside its limit): the inception '
-      + 'cession under the new engine is the large losses alone, so the same development is measured '
-      + 'against a much smaller denominator. Same failure, same deferral. '
-      + 'Those limits were set "above the measured value and below the defect": 4.1% measured on WC '
-      + 'against 9.9% under the retired asymmetric routing. GL\'s 10.1% is PAST the figure that used '
-      + 'to signal the defect, so raising the bar to admit it would put the limit above the only '
-      + 'reading anyone has that says what a defect looks like. ⚠ THE RISE IS EXPECTED AND IS THE '
-      + 'COMMISSIONED BEHAVIOUR: adverse development lands on each occurrence and the tower answers '
-      + 'it under that accident year\'s own cover, so "adverse development makes reinsurance worth '
-      + 'more" is the brief\'s own sentence and the uplift is that sentence measured. What is NOT '
-      + 'yet known is how much of 10.1% is that intended effect and how much is option value the '
-      + 'routing is still handing over for free, because this gate\'s denominator is the inception '
-      + 'cession and development was zero when it was chosen. DEFERRED: re-derive the basis against '
-      + 'a developing book — the measurement is a day\'s work and guessing a new limit is five '
-      + 'minutes, which is the whole argument for deferring rather than tuning.',
-  },
+  // ⚠ cession-uplift-basis LEFT THIS LIST WITH ADVERSE DEVELOPMENT
+  // (wip/adverse-development), as ruled: its limits were re-derived for the
+  // design — lifetime development cession graded against what the ceded
+  // claims' own cohort development would cede (ratio <= 1.10 a line, 1.05
+  // pooled; measured 1.0000 everywhere), so it is green and runs as any gate.
   // ==========================================================================
   // ⚠ THE FIVE BELOW ARE ONE DEFECT, NOT FIVE, AND IT IS A RETIRED PREMISE.
   //

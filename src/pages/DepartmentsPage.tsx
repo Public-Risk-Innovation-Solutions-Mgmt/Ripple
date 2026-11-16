@@ -18,7 +18,8 @@ import { RISK_CONTROL } from '../data/pricingParameters';
 interface DepartmentsPageProps {
   gameState: GameState;
   /** The decisions the player is editing NOW — not gameState.currentDecisions,
-   *  which resets to defaults the moment a year locks. See buildUnderwritingMemo.
+   *  which holds the set the year opened on (carried from the year before since
+   *  wip/carry-decisions), not the player's edits. See buildUnderwritingMemo.
    *  Read only by the Underwriting memo, which is hidden; kept on the props so
    *  restoring the pane does not touch the call site. */
   currentDecisions: DecisionSet;

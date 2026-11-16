@@ -68,6 +68,10 @@
 // point drift would slip through, THIS is the line that goes red.
 // ============================================================================
 
+// ⚠ 5%, NOT THE NEW-MEMBERS SLIDER'S TOP: this gate's thresholds were calibrated
+// on a book growing 5% a year, the slider's top until it widened to 0-10%
+// (pr/wider-underwriting-sliders). Pinned so the gate tests what it always did.
+const GROWING_BOOK = 0.05;
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -107,9 +111,9 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      // uw-hybrid: the intake positions are retired; new business arrives at
-      // NEW_BUSINESS_APPLICATIONS and the default rejects nobody.
-      d.byLine[l].newBusinessRejection = 0;
+      // Simple underwriting: the book grows only when the team adds members —
+      // the open arm adds 5% a year (GROWING_BOOK).
+      d.byLine[l].newMembers = GROWING_BOOK;
     }
   }
   return d;

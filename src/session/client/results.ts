@@ -23,7 +23,8 @@
 // ============================================================================
 
 import type { CoverageLine, GameState, LineResultSet, ResultSet } from '../../types/simulation';
-import { netUltimatesByProgramYear } from '../../utils/resultsStatement';
+import { buildAnnualStatement, netUltimatesByProgramYear, newestCombinedRatio, topCombinedRatio } from '../../utils/resultsStatement';
+import { gameHistory } from '../../utils/gameHistory';
 import type {
   DevelopedUltimates, TeamYearDecisions, TeamYearFigures, TeamYearSummary,
 } from '../contract';
@@ -89,6 +90,46 @@ function poolFiguresOf(r: ResultSet, lineFigures: TeamYearFigures[]): TeamYearFi
  * pre-game years and the seeded cohorts are off the session's axis, but they
  * are real rows of the ledger; they are just not plottable.
  */
+/**
+ * THE HOST'S TEAMS-TABLE FIGURES (TeamYearFigures' optional six), off the
+ * team's own Annual Statement as it stood at year `r` — so a tab catching up
+ * several years posts each one as it was, not as it is now. The year's combined
+ * ratio (yearCombinedRatio) is the statement's newest column, the team's
+ * top-bar figure and the host's; combinedRatio stays the cumulative, shown
+ * nowhere now; premium to surplus is its balance sheet's row for the year; the
+ * admin expense ratio is
+ * the operating section's "% of Premium" under the two admin rows, for the
+ * year. A line also carries its rate
+ * and the change on the year before.
+ */
+function statementFiguresOf(gs: GameState, r: ResultSet, scope: 'pool' | CoverageLine): Partial<TeamYearFigures> {
+  const st = buildAnnualStatement(gs, scope, r.yearNumber);
+  const row = st.sections.find(s => s.key === 'balance')?.rows.find(x => x.label === 'Premium to Surplus');
+  // The year shown is the last column before Total.
+  const pts = row?.cells[row.cells.length - 2];
+  const op = st.sections.find(s => s.key === 'operating')?.rows ?? [];
+  const adminRow = op[op.findIndex(x => x.label === 'Additional Admin Expense (risk control)') + 1];
+  const admin = adminRow?.label === '% of Premium' ? adminRow.cells[adminRow.cells.length - 2] : undefined;
+  const combined = topCombinedRatio(st);
+  // The year's own: the statement's newest column, the team's top-bar figure.
+  const yearCombined = newestCombinedRatio(st);
+  const out: Partial<TeamYearFigures> = {
+    ...(combined !== undefined && Number.isFinite(combined) ? { combinedRatio: combined } : {}),
+    ...(yearCombined ? { yearCombinedRatio: yearCombined.value } : {}),
+    ...(pts?.kind === 'value' ? { premiumToSurplus: pts.v } : {}),
+    ...(admin?.kind === 'value' && Number.isFinite(admin.v) ? { adminExpenseRatio: admin.v } : {}),
+  };
+  if (scope !== 'pool') {
+    const rate = r.byLine[scope]?.finalRatePer100;
+    const before = gameHistory(gs).find(x => x.yearNumber === r.yearNumber - 1)?.byLine[scope]?.finalRatePer100;
+    if (rate !== undefined && Number.isFinite(rate)) {
+      out.ratePer100 = rate;
+      if (before !== undefined && Number.isFinite(before) && before > 0) out.rateChange = rate / before - 1;
+    }
+  }
+  return out;
+}
+
 function developedAt(gs: GameState, lines: CoverageLine[]): {
   pool: DevelopedUltimates;
   byLine: Partial<Record<CoverageLine, DevelopedUltimates>>;
@@ -137,13 +178,18 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       confidenceLevel: d.fundingConfidenceLevel,
       atExpected: d.fundingAtExpected,
       reinsuranceOption: d.reinsuranceOption,
+      // The aggregate cover on attritional losses, only when bought: a row
+      // without it is the row it always was.
+      ...(d.aggregateCover !== undefined && d.aggregateCover !== 'none' ? { aggregateCover: d.aggregateCover } : {}),
       // Absent reads as 0 on the engine side; each is written as 0 here so the
       // host renders 0% rather than an empty cell.
-      renewalsDeclined: d.renewalsDeclined ?? 0,
-      newBusinessRejection: d.newBusinessRejection ?? 0,
-      riskControlPct: d.riskControlPct,
-      dividendPct: d.dividendPct,
-      assessmentPct: d.assessmentPct,
+      nonRenewal: d.nonRenewal ?? 0,
+      newMembers: d.newMembers ?? 0,
+      // The line's Risk Control slider (wip/risk-control) — not the retired
+      // pool-wide spend, which is pinned at 0. Absent reads as 0%.
+      riskControlPct: d.riskControlIncentivePct ?? 0,
+      dividendAmount: d.dividendAmount,
+      assessmentAmount: d.assessmentAmount,
       allocation: {
         cashPct: d.assetAllocation.cashPct,
         bondsPct: d.assetAllocation.bondsPct,
@@ -170,12 +216,12 @@ export function summarize(
     const slice = r.byLine[line];
     // A line the team does not write has no slice to report. Skipping it rather
     // than writing zeroes is the entire basis of the host table's "absent" state.
-    if (slice) byLine[line] = figuresOf(slice);
+    if (slice) byLine[line] = { ...figuresOf(slice), ...statementFiguresOf(gs, r, line) };
   }
   return {
     yearNumber: r.yearNumber,
     calendarYear: r.calendarYear,
-    pool: poolFiguresOf(r, Object.values(byLine)),
+    pool: { ...poolFiguresOf(r, Object.values(byLine)), ...statementFiguresOf(gs, r, 'pool') },
     byLine,
     developed: developedAt(gs, lines),
     decisions: decisionsOf(r, lines),

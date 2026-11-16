@@ -30,25 +30,23 @@
 // Screens that list claims read a world's own rows and say which.
 // ============================================================================
 
-import { WORLD_COUNT, newLossEngineRuns } from '../data/pricingParameters';
+import { SHOCK_FREE_PRICING, WORLD_COUNT, newLossEngineRuns } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS } from '../data/defaultAssumptions';
 import { exposureFactor } from '../data/exposureTrend';
 import { deriveSubRng } from './random';
-import { lineBookRisk } from './bookUnits';
-import { averageLedgerYear } from './bookUnderwriting';
 import {
   aggregateLineResults, applyLoanAuthorizations, fundedNetExpectedLoss, processYear,
   stampPricingTriangle, strikeBookRate,
   type LoanOffer, type ProcessYearResult, type StruckLineRate,
 } from './simulationEngine';
 import type {
-  AccidentYearSplit, CoverageLine, DecisionSet, GameInstance, GameState, InterLineLoan,
+  AccidentYearSplit, AttritionalCoverRecord, CoverageLine, DecisionSet, GameInstance, GameState, InterLineLoan,
   LinePoolState, LineResultSet, PlayedYear, PoolState, RateBasis, ReserveCohort, ReserveDevelopmentRow, ResultSet, WorldState,
 } from '../types/simulation';
 import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
-import { gameShocksOn, resolveShockYear, shockTimingOf } from './shockLosses';
+import { applyMarketShock, gameShocksOn, resolveShockYear, shockRecordKeys, shockTimingOf } from './shockLosses';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -75,27 +73,11 @@ export function worldInstance(instance: GameInstance, i: number): GameInstance {
 export function openWorlds(gs: GameState): GameState {
   const n = worldCount();
   if (n <= 1) return gs;
-  const opening = withoutBook(gs.poolState);
+  const opening = gs.poolState;
   return {
     ...gs,
     worlds: Array.from({ length: n }, () => ({ poolState: opening, lockedResults: gs.lockedResults })),
   };
-}
-
-// ⚠ THE BOOK OF UNITS IS THE GAME'S, NOT A WORLD'S. Every world holds the same
-// book (underwriting is shared; only loss draws differ), so it is kept once, on
-// the game's pool state (PoolState.bookUnits): a world's state never carries a
-// copy, and the averaged state takes the game's, not world 1's.
-// The underwriting ledger (PoolState.bookLedger) travels with it, the same way.
-function withBook(ps: PoolState, game: PoolState): PoolState {
-  if (game.bookUnits === undefined) return ps;
-  return { ...ps, bookUnits: game.bookUnits, ...(game.bookLedger ? { bookLedger: game.bookLedger } : {}) };
-}
-function withoutBook(ps: PoolState): PoolState {
-  if (ps.bookUnits === undefined && ps.bookLedger === undefined) return ps;
-  const { bookUnits: _book, bookLedger: _ledger, ...rest } = ps;
-  void _book; void _ledger;
-  return rest;
 }
 
 // ----------------------------------------------------------------------------
@@ -103,6 +85,8 @@ function withoutBook(ps: PoolState): PoolState {
 // ----------------------------------------------------------------------------
 
 export interface WorldsYear {
+  /** The shock-free shadow's year, played alongside (SHOCK_FREE_PRICING). */
+  shadow?: { state: GameState; played: WorldsYear };
   /** Each world's processed year, in world order. One entry on a one-world game. */
   perWorld: ProcessYearResult[];
   /** The one rate per line, struck from the averaged history. Absent on one world. */
@@ -117,14 +101,32 @@ export interface WorldsYear {
   decisions: DecisionSet;
 }
 
+/**
+ * THE LINE STATE A PURE PREMIUM IS STRUCK FROM (SHOCK_FREE_PRICING): the game's
+ * own, with its ledger swapped for the shock-free shadow's once there is one —
+ * the experience as it would stand had no shock fired. Every reader of the
+ * pure premium (the struck rate, the Decisions panel, the Model tab) reads this.
+ */
+export function pricingLineState(gs: GameState, line: CoverageLine): LinePoolState {
+  const own = gs.poolState.lines[line];
+  const shadow = SHOCK_FREE_PRICING.enabled ? gs.pricingShadow?.poolState.lines[line] : undefined;
+  return shadow ? { ...own, reserveDevelopment: shadow.reserveDevelopment } : own;
+}
+
+/** Does this year need the shadow — is a shock in force and is there none yet? */
+function shadowStartsNow(gs: GameState): boolean {
+  if (!SHOCK_FREE_PRICING.enabled || !newLossEngineRuns() || gs.instance.shockFree || gs.pricingShadow) return false;
+  return resolveShockYear(gs.instance, shockTimingOf(gs.setup), gs.currentYearNumber).inForce.length > 0;
+}
+
 /** The rate each active line charges this team-year, struck on the averaged state. */
 export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Record<CoverageLine, StruckLineRate>> {
   const out: Partial<Record<CoverageLine, StruckLineRate>> = {};
   for (const line of gs.setup.activeLines) {
-    const struck = strikeBookRate(line, gs.poolState.lines[line], decisions.byLine[line], gs.currentYearNumber, {
+    const struck = strikeBookRate(line, pricingLineState(gs, line), decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
-    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger), gameShocksOn(gs.setup, gs.instance));
+    }, 1, gameShocksOn(gs.setup, gs.instance));
     if (struck) out[line] = struck;
   }
   return out;
@@ -132,35 +134,47 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
 
 /** Run the year in every world. Nothing is committed — see settleWorldsYear. */
 export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYear {
+  // THE SHOCK-FREE SHADOW (SHOCK_FREE_PRICING), played beside the game with the
+  // same decisions: from the first year a shock is in force it is this game with
+  // nothing firing, and the pure premium is struck from its ledger. Before then
+  // the game is its own shadow.
+  const shadowBase = gs.pricingShadow
+    ?? (shadowStartsNow(gs) ? { ...gs, instance: { ...gs.instance, shockFree: true as const }, pricingShadow: undefined } : undefined);
+  // ⚠ THE MARKET'S MOVES REACH THE SHADOW (hosted market competition): the
+  // shadow's setup was copied when it was made, and a market result arrives a
+  // year at a time, so the game's current one is forwarded each year — the
+  // shadow's book moves as the game's does and the rate learns the book risk
+  // from its ledger too. Absent (every game without the market), nothing is copied.
+  const shadowState = shadowBase && gs.setup.marketByYear && shadowBase.setup.marketByYear !== gs.setup.marketByYear
+    ? { ...shadowBase, setup: { ...shadowBase.setup, marketByYear: gs.setup.marketByYear } }
+    : shadowBase;
+  const shadow = shadowState ? { state: shadowState, played: playWorldsYear(shadowState, decisions) } : undefined;
   if (!gs.worlds) {
     const p = processYear(gs, decisions);
-    return { perWorld: [p], loanOffers: p.loanOffers, decisions };
+    return { perWorld: [p], loanOffers: p.loanOffers, decisions, ...(shadow ? { shadow } : {}) };
   }
   const struckRates = strikeRates(gs, decisions);
-  // The game's book reaches every world for the year (withBook); it is never
-  // stored on a world's state (settleWorldsYear strips it).
   // ⚠ A WORLD'S PAST IS THE AVERAGED ROWS WITH ITS OWN LAST ONE (commit 10).
   // The engine reads the previous row's figures — the world's own — and, from
   // the rows before it, only the pool-wide decisions, which every world shares
   // with the average. So a world need keep no row but its last.
   const perWorld = gs.worlds.map((w, i) => processYear(
-    { ...gs, instance: worldInstance(gs.instance, i), poolState: withBook(w.poolState, gs.poolState),
+    { ...gs, instance: worldInstance(gs.instance, i), poolState: w.poolState,
       lockedResults: worldPast(gs.lockedResults, w.lockedResults) },
     decisions,
     { struckRates },
   ));
-  return { perWorld, struckRates, loanOffers: mergeLoanOffers(perWorld), decisions };
+  return { perWorld, struckRates, loanOffers: mergeLoanOffers(perWorld), decisions, ...(shadow ? { shadow } : {}) };
 }
 
 /**
  * World i's market this year, as the engine drew it: its own seed's draw, with
- * the year's Investment Loss taken off equities (simulationEngine).
+ * the year's Investment Loss on each asset class (simulationEngine).
  */
 function worldMarket(gs: GameState, i: number): MarketReturns {
   const inst = worldInstance(gs.instance, i);
   const drawn = simulateMarketReturns(deriveSubRng(inst.seed, gs.currentYearNumber, 'invest'));
-  const shock = resolveShockYear(inst, shockTimingOf(gs.setup), gs.currentYearNumber).equityShock;
-  return shock !== 0 ? { ...drawn, equities: drawn.equities + shock } : drawn;
+  return applyMarketShock(drawn, resolveShockYear(inst, shockTimingOf(gs.setup), gs.currentYearNumber).marketShock);
 }
 
 /** A world's played years as the engine reads them: the averaged rows, the last one the world's own. */
@@ -181,6 +195,8 @@ function mergeLoanOffers(perWorld: ProcessYearResult[]): LoanOffer[] {
 }
 
 export interface SettledYear {
+  /** The shock-free shadow's year, settled on the same loan choices (SHOCK_FREE_PRICING). */
+  shadow?: { state: GameState; settled: SettledYear };
   /** The averaged pool state — or the one world's, on a one-world game. */
   poolState: PoolState;
   /** The averaged result — or the one world's. */
@@ -201,13 +217,17 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
       authorizedLines.filter(l => p.loanOffers.some(o => o.line === l)))
     : { updatedPoolState: p.updatedPoolState, result: p.result });
   const played: PlayedYear = { yearNumber: gs.currentYearNumber, decisions: played_.decisions, authorizedLines: [...authorizedLines] };
-  if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result, played };
+  // The shadow takes the team's loan choices wherever its own worlds need them.
+  const shadow = played_.shadow
+    ? { state: played_.shadow.state, settled: settleWorldsYear(played_.shadow.state, played_.shadow.played, authorizedLines) }
+    : undefined;
+  if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result, played, ...(shadow ? { shadow } : {}) };
 
   // ⚠ EACH WORLD KEEPS ONLY THIS YEAR'S ROW; WORLD 1 KEEPS ALL OF ITS OWN, for
   // its claims (the claims download). What the screens read of the worlds is
   // struck below onto the averaged row, while every world's row is in hand.
   const worlds: WorldState[] = gs.worlds.map((w, i) => ({
-    poolState: withoutBook(settled[i].updatedPoolState),
+    poolState: settled[i].updatedPoolState,
     lockedResults: i === 0 ? [...w.lockedResults, settled[i].result] : [settled[i].result],
     closedCohorts: archiveClosedCohorts(w, settled[i].updatedPoolState, gs.setup.activeLines),
   }));
@@ -217,17 +237,8 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
     worldSummary: summarizeWorlds(settled.map(s => s.result), gs.setup.activeLines, i => worldMarket(gs, i)),
   }, played_.struckRates);
   const averaged = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
-  // The book as underwriting left it — the same in every world (it reads only
-  // the game's seed and the team's decision), so world 1's is the game's.
-  const moved = settled[0].updatedPoolState.bookUnits ?? gs.poolState.bookUnits;
-  // ⚠ ITS LEDGER IS THE WORLDS' AVERAGE: shares and joins are the same in every
-  // world, and each world's record of this year is averaged across them
-  // (averageLedgerYear), so next year's renewals rank one history.
-  const ledgers = settled.map(s => s.updatedPoolState.bookLedger);
-  const bookLedger = ledgers[0] ? Object.fromEntries(Object.keys(ledgers[0]).map(l => [l,
-    averageLedgerYear(ledgers.map(x => x![l as CoverageLine]!), gs.currentYearNumber)])) as PoolState['bookLedger'] : undefined;
-  const poolState = moved ? { ...averaged, bookUnits: moved, ...(bookLedger ? { bookLedger } : {}) } : averaged;
-  return { poolState, result, worlds, played };
+  const poolState = averaged;
+  return { poolState, result, worlds, played, ...(shadow ? { shadow } : {}) };
 }
 
 /**
@@ -255,12 +266,18 @@ function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): Re
 }
 
 /** The game after a settled year: the averaged state, the worlds, the year appended. */
-export function commitSettledYear(gs: GameState, s: SettledYear): Pick<GameState, 'poolState' | 'lockedResults' | 'worlds' | 'playedYears'> {
+export function commitSettledYear(
+  gs: GameState, s: SettledYear,
+): Pick<GameState, 'poolState' | 'lockedResults' | 'worlds' | 'playedYears' | 'pricingShadow'> {
+  const shadow = s.shadow
+    ? { ...s.shadow.state, ...commitSettledYear(s.shadow.state, s.shadow.settled), currentYearNumber: s.shadow.state.currentYearNumber + 1 }
+    : gs.pricingShadow;
   return {
     poolState: s.poolState,
     lockedResults: [...gs.lockedResults, s.result],
     ...(s.worlds ? { worlds: s.worlds } : {}),
     playedYears: [...(gs.playedYears ?? []), s.played],
+    ...(shadow ? { pricingShadow: shadow } : {}),
   };
 }
 
@@ -293,15 +310,16 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
  */
 export function deriveLineRatios(r: Pick<LineResultSet,
   'poolPremium' | 'selectedFundingCLF' | 'poolPremiumAndAdminExpense' | 'totalMemberCharge' | 'adminExpense' | 'operatingExpense'
-  | 'reinsuranceCost' | 'netIncurredLoss' | 'poolLayerLoss' | 'reserveRiskMarginNeeded' | 'excessAvailableSurplus'
+  | 'reinsuranceCost' | 'riskControlInvestment' | 'netIncurredLoss' | 'poolLayerLoss' | 'reserveRiskMarginNeeded' | 'excessAvailableSurplus'
   | 'activeExposure' | 'totalMarketExposure' | 'laeIncurred'> & { bookedGrossUltimate?: number; grossUltimateLoss: number }) {
   const funded = fundedNetExpectedLoss({ poolPremium: r.poolPremium, selectedFundingCLF: r.selectedFundingCLF });
   const expectedLossRatio = funded / Math.max(r.poolPremiumAndAdminExpense, 1);
   const expectedLossRatioMemberBasis = funded / Math.max(r.totalMemberCharge, 1);
-  const expectedExpenseRatio = (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
+  // Risk control is an expense, charged and paid away exactly (wip/risk-control).
+  const expectedExpenseRatio = (r.adminExpense + r.reinsuranceCost + r.riskControlInvestment) / Math.max(r.totalMemberCharge, 1);
   const actualLossRatio = r.netIncurredLoss / Math.max(r.totalMemberCharge, 1);
   // The admin BOOKED, with the year's overrun (ADMIN_OVERRUN_RANGE); expected is the admin priced.
-  const actualExpenseRatio = (r.operatingExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
+  const actualExpenseRatio = (r.operatingExpense + r.reinsuranceCost + r.riskControlInvestment) / Math.max(r.totalMemberCharge, 1);
   const actualLaeRatio = r.laeIncurred / Math.max(r.totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
   const excessCapitalRatio = r.reserveRiskMarginNeeded > 0
@@ -380,6 +398,10 @@ export function averageLineResults(rs: LineResultSet[], startBooks?: number[]): 
     if (vals.every(v => same(v, vals[0]))) { out[key] = vals[0]; continue; }
     if (key === 'cededByLayer') { out[key] = elementwiseMean(rs.map(r => r.cededByLayer)); continue; }
     if (key === 'reserveSplitByYear') { out[key] = averageSplitRows(rs.map(r => r.reserveSplitByYear)); continue; }
+    // The aggregate cover on attritional losses: one option in every world (the
+    // decisions are shared), each figure the mean — the recovery a mean over
+    // worlds, counting a world it did not pay in as zero.
+    if (key === 'attritionalCover') { out[key] = averageAttritionalCover(rs.map(r => r.attritionalCover)); continue; }
     if (vals.every(v => typeof v === 'number' || v === undefined || v === null)) {
       out[key] = mean(vals.map(v => (typeof v === 'number' ? v : 0)));
       continue;
@@ -410,6 +432,18 @@ export function averageLineResults(rs: LineResultSet[], startBooks?: number[]): 
   return avg;
 }
 
+function averageAttritionalCover(rs: (AttritionalCoverRecord | undefined)[]): AttritionalCoverRecord {
+  const present = rs.filter((r): r is AttritionalCoverRecord => r !== undefined);
+  if (present.length !== rs.length || present.some(r => r.optionId !== present[0].optionId)) {
+    throw new Error('averageLineResults: attritionalCover differs in its option across worlds');
+  }
+  const out = { optionId: present[0].optionId } as Record<string, unknown>;
+  for (const k of Object.keys(present[0]) as (keyof AttritionalCoverRecord)[]) {
+    if (k !== 'optionId') out[k] = mean(present.map(r => r[k] as number));
+  }
+  return out as unknown as AttritionalCoverRecord;
+}
+
 /** Claim-level and per-world records an averaged row does not carry. */
 const PER_WORLD_ONLY = new Set([
   'claims', 'occurrences', 'drawnCatastrophes', 'newLossEngine', 'poolValue', 'memberValueRows',
@@ -437,12 +471,14 @@ function averageSplitRows(perWorld: AccidentYearSplit[][]): AccidentYearSplit[] 
   });
 }
 
-/** One row per event: dollars and claim counts averaged over ALL worlds, with the count it fired in. */
+/** One row per firing: dollars and claim counts averaged over ALL worlds, with the count it fired in. */
 export function averageShockEvents(perWorld: (ShockRecord[] | undefined)[], n: number): ShockRecord[] | undefined {
   const merged = new Map<string, { rec: ShockRecord; fired: number; region: string | undefined; regionSame: boolean }>();
   for (const recs of perWorld) {
-    for (const rec of recs ?? []) {
-      const key = `${rec.shockId}|${rec.yearFired}`;
+    // Per firing (shockRecordKeys): a host's same event twice in one year stays two rows.
+    const keys = shockRecordKeys(recs ?? []);
+    for (const [i, rec] of (recs ?? []).entries()) {
+      const key = keys[i];
       const m = merged.get(key);
       if (!m) {
         merged.set(key, {

@@ -12,56 +12,34 @@
 // `npm run dev` to play it. The advance-single-player branch also carries the
 // full old engine, as its own game.
 //
-// WHAT AN EVENT DOES, per line, on the R model's shock map:
+// WHAT AN EVENT DOES, per line, on the R model's shock map (wip/shocks test
+// build — see SHOCK_A_YEARS and SHOCK_T_CLAIM_RANGE in pricingParameters.ts):
 //
-//   A  raises the year's ORDINARY losses by a share drawn uniformly within
-//      the level's range, decaying at 0.65 a year over the event's duration.
-//      A regional event's A reaches only its region's share of the line
-//      (REGION_EXPOSURE_SHARE).
-//   T  arrives at onset as LARGE INDIVIDUAL LOSSES (SHOCK_LOSS_COUNT of them,
-//      each lognormal around T / count), through the engine's occurrence
-//      path, so the tower answers them per occurrence. T is the EXPECTED
-//      aggregate; the realised total varies and is never rescaled.
+//   A  raises the program year's ORDINARY losses x (1 + A), A drawn uniformly
+//      within the level's range — in the year the event fires ONLY, on the
+//      whole line (no decay, no regional share).
+//   T  ONE additional large claim in the year it fires, its size drawn
+//      uniformly within the level's range, unscaled, its own occurrence —
+//      the claim the per-occurrence T covers answer. A regional event's claim
+//      lands in the struck region.
 //   R  extra adverse development on outstanding PRIOR-YEAR reserves, decaying
 //      at 0.65, recognised in the year it applies and routed through the same
-//      code as the host's development % — on top of it.
+//      code as the host's development % — on top of it. Unchanged.
 //
 // And three events act off the map: Economic Inflation adds 12% to every
-// line's ordinary losses, decaying; Investment Loss takes 20 points off the
-// equity return in its year; Member Withdrawal removes 25% of each line's
-// exposure at the following year's renewal.
-//
-// ⚠ T SCALING — PER LINE, AND ON A BASIS THAT DOES NOT MOVE WITH FUNDING.
-// The R model's T is in ITS dollars, sized against its own book. Each line's
-// T is scaled by that line's own ratio:
-//
-//   scale = the line's expected ORDINARY loss this year
-//           / (the R model's base premium x its target loss ratio, same line)
-//
-// Both halves are ordinary losses — the R model's base premium times its
-// target loss ratio is ITS ordinary expectation — so the ratio compares like
-// with like. It moves with the book's exposure and the 5% trend and with
-// nothing a team decides about price: a team that funds at 90% faces the same
-// verdict as one that funds at expected. Never one pool-wide factor: the R
-// model's Property book is $4.5M and its GL book $7M.
-//
-// ⚠ A REGIONAL T LANDS WHOLE IN ITS REGION. Its size is the event's — it is
-// not cut to the region's share, because a disaster is sized by what happened
-// rather than by how the book is split — and every loss lands on a member in
-// the struck region, drawn in proportion to exposure. A region is drawn for
-// every regional firing BY ITS EXPOSURE SHARE (regionByShare, four regions
-// since book units; it was uniform over three), from the firing's own stream;
-// one event's region is the same on every line it touches.
+// line's ordinary losses, decaying (unchanged); Investment Loss hits each
+// asset class's return in its year (INVESTMENT_LOSS_BY_ASSET); Member
+// Withdrawal removes 25% of each line's exposure at the following year's
+// renewal (unchanged).
 //
 // TIMING. Multiplayer: the host's schedule (setup.shockTiming === 'host').
-// Singleplayer: the schedule the game drew once at its start, by the same rule
-// as the host's Randomise (setup.shockTiming === 'solo'; utils/soloGame). Both
-// are the instance's scheduledShocks, so every world fires the same events in
-// the same years and no probability is consulted. Only a harness's bare
-// instance, unmarked, fires each event with the catalogue's annual probability
-// on the labelled sub-stream 'nle_fire' — per world. Every SIZE is drawn from a
-// stream keyed on the world's seed, the event, the firing year and its ordinal,
-// so the same seed gives the same shock and each world its own severity.
+// Singleplayer: the schedule the game drew once at its start
+// (setup.shockTiming === 'solo'; utils/soloGame, SOLO_SHOCK_DRAW). Both are the
+// instance's scheduledShocks, so every world fires the same events in the same
+// years. Only a harness's bare instance, unmarked, fires each event with the
+// catalogue's annual probability on the labelled sub-stream 'nle_fire'.
+// ⚠ EVERY SHOCK DRAW IS KEYED ON THE GAME'S SEED (shockSeedOf), not the
+// world's: every world shares the same events AND the same sizes.
 //
 // ⚠ NO SHOCKS BEFORE YEAR 1, in either mode. The pre-game is history the
 // players inherit and is told as it stands; its expectation below is ordinary
@@ -69,14 +47,13 @@
 // ============================================================================
 
 import {
-  GAME_REGIONS, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare,
-  SHOCK_CATALOGUE_SCALE, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
+  GAME_REGIONS, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
+  regionByShare, SHOCK_A_YEARS, SHOCK_CATALOGUE_SCALE, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
-import { bookOrdinaryRisk, bookedCostLevel, shockBasisCostPer100 } from './ordinaryLoss';
-import type { BookUnit } from './bookUnits';
-import { drawRoutineLargeSize, lognormalFromMean, routineLargeBasis, routineLargeCount } from './largeLosses';
+import { bookedCostLevel } from './ordinaryLoss';
+import { drawRoutineLargeSize, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ratingGroupOf } from './wcClaimEngine';
 import type { Claim, CoverageLine, GameInstance, Member, Occurrence, Region } from '../types/simulation';
 import type { ShockBand, ShockHorizon } from '../types/shocks';
@@ -118,7 +95,11 @@ export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
   '#2': { name: 'Winterstorm/Rainstorm', eventName: 'Winterstorm', band: 'high', horizon: 'current' },
   '#3': { name: 'Wildfire', eventName: 'Wildfire', band: 'high', horizon: 'current' },
   '#4': { name: 'Legislation Change impacting both old and new claims', eventName: 'Legislation Change', band: 'severe', horizon: 'current' },
-  '#5': { name: 'WC Reform', eventName: 'WC Reform', band: 'moderate', horizon: 'current' },
+  // ⚠ RENAMED FROM "WC Reform" (pr/wc-legislation-name), ON SCREEN ONLY: the id
+  // (#5) and the catalogue key ('WC Reform' in R_MODEL, which eventLines and the
+  // engine read) are unchanged, so saves, rooms and every draw are untouched.
+  // `name` is what the host's screens show, `eventName` what a player reads.
+  '#5': { name: 'Workers Comp Legislation', eventName: 'Workers Compensation Legislation: Increased Medical Fee Schedule', band: 'moderate', horizon: 'current' },
   '#6': { name: 'Economic Recession', eventName: 'Economic Recession', band: 'moderate', horizon: 'current' },
   '#7': { name: 'Nuclear Verdict', eventName: 'Nuclear Verdict', band: 'severe', horizon: 'current' },
   '#8': { name: 'Social Inflation (GL)', eventName: 'Social Inflation', band: 'high', horizon: 'future' },
@@ -127,6 +108,18 @@ export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
   '#11': { name: 'Large Investment Loss', eventName: 'Large Investment Loss', band: 'severe', horizon: 'current' },
   '#12': { name: 'Large Member Withdrawal', eventName: 'Large Member Withdrawal', band: 'severe', horizon: 'current' },
 };
+
+/**
+ * AN EVENT AS A PLAYER READS IT, FROM ITS CATALOGUE KEY — for the screens that
+ * work from the catalogue (the Year Walkthrough, the audit's description). The
+ * catalogue's own name everywhere except an event renamed on screen since: its
+ * key stays (R_MODEL, eventLines), its player name is SHOCK_EVENT_LABELS'.
+ */
+const RENAMED_CATALOGUE_KEYS: Readonly<Record<string, string>> = { 'WC Reform': '#5' };
+export function catalogueDisplayName(key: string): string {
+  const id = RENAMED_CATALOGUE_KEYS[key];
+  return id ? SHOCK_EVENT_LABELS[id].eventName : key;
+}
 
 const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
 export const DECAY = R_MODEL.shockDecayRate;
@@ -155,14 +148,44 @@ export interface EventFiring {
 
 const firingKey = (f: EventFiring) => `${f.event.index}_${f.ordinal}`;
 
+// ⚠ ONE RECORD PER FIRING, NOT PER EVENT. An event that fires again while its
+// earlier firing is still in force (a host's Recession in years 2 and 3) is two
+// rows, each costing what IT added: keyed by event alone, the year-3 dollars
+// were credited to both rows and the pool merge then summed them twice
+// (shock-record-key-check). The key is the event, the year it fired and which
+// firing of that year it is — a result's records carry the first two, and
+// come in firing order, so the third is their position among equals.
+export const firingRecordKey = (f: Pick<EventFiring, 'event' | 'firedYear' | 'ordinal'>) =>
+  `${f.event.id}@${f.firedYear}#${f.ordinal}`;
+export function shockRecordKeys(recs: readonly { shockId: string; yearFired: number }[]): string[] {
+  const seen = new Map<string, number>();
+  return recs.map(r => {
+    const base = `${r.shockId}@${r.yearFired}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}#${n}`;
+  });
+}
+
+/**
+ * THE GAME'S SEED, which every shock draw is keyed on (wip/shocks test build):
+ * a world's instance carries its own seed and the game's as marketSeed
+ * (worlds.worldInstance), so every world fires the same events with the same
+ * A, T and R sizes and lands each T in the same region. Only the ordinary year
+ * and the market remain each world's own.
+ */
+export const shockSeedOf = (instance: Pick<GameInstance, 'seed' | 'marketSeed'>): number =>
+  instance.marketSeed ?? instance.seed;
+
 /** The events that START in `yearNumber`. None before year 1. */
 export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, yearNumber: number): EventFiring[] {
-  if (yearNumber < 1) return [];
+  // A shock-free shadow (SHOCK_FREE_PRICING): nothing fires.
+  if (yearNumber < 1 || instance.shockFree) return [];
   const started: { event: ShockEvent; region?: Region }[] = [];
   if (timing === 'catalogue') {
     // One draw per event per year, ALWAYS, in catalogue order — so whether
     // one event fires cannot move another's.
-    const rng = deriveSubRng(instance.seed, yearNumber, 'nle_fire');
+    const rng = deriveSubRng(shockSeedOf(instance), yearNumber, 'nle_fire');
     for (const e of SHOCK_EVENTS) if (rng.next() < e.probability) started.push({ event: e });
   } else {
     // A stable sort, so two entries of one event keep their order — the order
@@ -180,7 +203,7 @@ export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, y
   return started.map(({ event, region: scheduled }) => {
     const ordinal = seen.get(event.index) ?? 0;
     seen.set(event.index, ordinal + 1);
-    const rng = deriveSubRng(instance.seed, yearNumber, `nle_event_${event.index}_${ordinal}`);
+    const rng = deriveSubRng(shockSeedOf(instance), yearNumber, `nle_event_${event.index}_${ordinal}`);
     // ⚠ THE WORLD'S OWN REGION DRAW IS STILL TAKEN, AND THEN SET ASIDE FOR THE
     // SCHEDULE'S. A scheduled regional event strikes the region the schedule
     // resolved once (generateGameInstance), in every world; consuming the draw
@@ -198,8 +221,26 @@ export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, y
 
 const within = (range: readonly number[], u: number) => range[0] + u * (range[1] - range[0]);
 
-/** A firing's T on one line, in the R model's dollars, before scaling. */
-export interface TArrival { firing: EventFiring; line: CoverageLine; level: ShockLevel; tModel: number; count: number; oneOccurrence: boolean; }
+/** A firing's T on one line: ONE claim of `size` dollars (SHOCK_T_CLAIM_RANGE). */
+export interface TArrival { firing: EventFiring; line: CoverageLine; level: Exclude<ShockLevel, 'None'>; size: number; }
+
+/** The T claim's size for a level and a uniform draw — the one rule the engine and the gates share. */
+export const tClaimSize = (line: CoverageLine, level: Exclude<ShockLevel, 'None'>, u: number) =>
+  within(SHOCK_T_CLAIM_RANGE[line][level], u);
+
+/** The A for a level and a uniform draw (R_MODEL.aShock). */
+export const aShare = (line: CoverageLine, level: Exclude<ShockLevel, 'None'>, u: number) =>
+  within(R_MODEL.aShock[line][level], u);
+
+/** What the Investment Loss adds to each asset class's return in its year. */
+export interface MarketShock { cash: number; bonds: number; equities: number }
+export const NO_MARKET_SHOCK: MarketShock = { cash: 0, bonds: 0, equities: 0 };
+export const marketShockOn = (m: MarketShock) => m.cash !== 0 || m.bonds !== 0 || m.equities !== 0;
+/** A market's returns with the year's Investment Loss on each class. The same object when none fired. */
+export function applyMarketShock<T extends MarketShock>(market: T, shock: MarketShock): T {
+  if (!marketShockOn(shock)) return market;
+  return { ...market, cash: market.cash + shock.cash, bonds: market.bonds + shock.bonds, equities: market.equities + shock.equities };
+}
 
 export interface LineShockYear {
   /** Total share added to ordinary losses this year — every A and Economic Inflation. */
@@ -218,8 +259,8 @@ export interface ShockYear {
   /** Every firing in force this year, with its age (0 at onset). */
   inForce: { firing: EventFiring; age: number }[];
   byLine: Record<CoverageLine, LineShockYear>;
-  /** Added to the equity return this year. */
-  equityShock: number;
+  /** Added to each asset class's return this year — the Investment Loss (INVESTMENT_LOSS_BY_ASSET). */
+  marketShock: MarketShock;
   /** A Member Withdrawal fired last year, so 25% of exposure leaves at this renewal. */
   withdrawal: boolean;
 }
@@ -229,7 +270,7 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
   const byLine = {} as Record<CoverageLine, LineShockYear>;
   for (const line of LINES) byLine[line] = { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
   const inForce: ShockYear['inForce'] = [];
-  let equityShock = 0;
+  const marketShock: MarketShock = { ...NO_MARKET_SHOCK };
   let withdrawal = false;
   for (let age = MAX_DURATION - 1; age >= 0; age--) {
     for (const firing of firingsStartingIn(instance, timing, yearNumber - age)) {
@@ -244,23 +285,19 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
         perLine[line] = p;
       };
       if (e.name === 'Economic Inflation') for (const line of LINES) add(line, R_MODEL.economicInflationInitialRate * decay, 0);
-      if (e.name === 'Investment Loss' && age === 0) equityShock += R_MODEL.investmentLossAdjustment;
+      if (e.name === 'Investment Loss' && age === 0) {
+        marketShock.cash += INVESTMENT_LOSS_BY_ASSET.cash;
+        marketShock.bonds += INVESTMENT_LOSS_BY_ASSET.bonds;
+        marketShock.equities += INVESTMENT_LOSS_BY_ASSET.equities;
+      }
       if (e.name === 'Member Withdrawal' && age === 1) withdrawal = true;
       for (const row of eventLines(e.name)) {
         const d = firing.draws[row.line];
-        if (row.a !== 'None') {
-          const share = firing.region ? REGION_EXPOSURE_SHARE[firing.region] : 1;
-          add(row.line, within(R_MODEL.aShock[row.line][row.a], d.a) * decay * share, 0);
-        }
+        // A: the firing year only (SHOCK_A_YEARS), on the whole line, undecayed.
+        if (row.a !== 'None' && age < SHOCK_A_YEARS) add(row.line, aShare(row.line, row.a, d.a), 0);
         if (row.r !== 'None') add(row.line, 0, within(R_MODEL.rShock[row.r], d.r) * decay);
         if (row.t !== 'None' && age === 0) {
-          const count = SHOCK_LOSS_COUNT[e.name]?.[row.line];
-          if (!count) throw new Error(`shockLosses: no SHOCK_LOSS_COUNT for ${e.name} on ${row.line}`);
-          byLine[row.line].arrivals.push({
-            firing, line: row.line, level: row.t, count,
-            tModel: within(R_MODEL.tShock[row.line][row.t], d.t),
-            oneOccurrence: SHOCK_ONE_OCCURRENCE.includes(e.name),
-          });
+          byLine[row.line].arrivals.push({ firing, line: row.line, level: row.t, size: tClaimSize(row.line, row.t, d.t) });
         }
       }
       for (const line of LINES) {
@@ -272,17 +309,7 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
       }
     }
   }
-  return { yearNumber, timing, inForce, byLine, equityShock, withdrawal };
-}
-
-/** The R model's ORDINARY expectation for a line — its base premium x target loss ratio. */
-export const rModelOrdinary = (line: CoverageLine) => R_MODEL.basePremium[line] * R_MODEL.targetLossRatio[line];
-
-/** T_SCALE: this line's expected ordinary loss this year over the R model's. See the header. */
-export function tScale(line: CoverageLine, exposure: number, yearNumber: number): number {
-  // Off SHOCK_T_BASIS_PER_100 (stable-scenarios commits 1-2): the $0 – $1M layer
-  // on WC and GL, Property's cost without the routine fold.
-  return (exposure * 10_000 * shockBasisCostPer100(line, yearNumber)) / rModelOrdinary(line);
+  return { yearNumber, timing, inForce, byLine, marketShock, withdrawal };
 }
 
 /** The year's factor on year-1 sizes — the booked cost level ordinary losses
@@ -304,11 +331,6 @@ export interface LargeLossDraw {
   grossAdded: number;
   /** Per member, the same. */
   byMember: Map<string, number>;
-  /**
-   * Per book unit, for its loss history (bookUnderwriting.ts): each shock
-   * claim's pool amount, and the routine claims' excess. Empty with no units.
-   */
-  byUnit: Map<number, { routine: number; shock: number[] }>;
   /** Above the GL pool limit — the member's, in no pool total. */
   memberShareAboveLimit: number;
   /** Per firing key: the pool's T losses and their count. */
@@ -320,7 +342,7 @@ export interface LargeLossDraw {
  * WHERE A LARGE LOSS LANDS. A member (MEMBER_LEVEL on), or — with no roster —
  * the line's book in one of its regions, carrying BOOK_MEMBER_ID.
  */
-type Lander = Pick<Member, 'id' | 'region'> & { wcRatingGroup?: Member['wcRatingGroup']; unit?: number };
+type Lander = Pick<Member, 'id' | 'region'> & { wcRatingGroup?: Member['wcRatingGroup'] };
 
 /** The id a large loss carries when there is no member to carry it. */
 export const BOOK_MEMBER_ID = 'book';
@@ -333,24 +355,14 @@ function pickMember(rng: SeededRandom, pool: { m: Lander; w: number }[], total: 
 }
 
 /**
- * The pool losses land on. A book of UNITS (book units commit 5): each unit,
- * weighted by its size x its true risk — a riskier unit draws more of the
- * book's large losses — and for a regional T only the units in the struck
- * region. A roster: each member by exposure. Neither: the book's four regions
- * at REGION_EXPOSURE_SHARE. A unit's loss carries BOOK_MEMBER_ID and its
- * index on Claim.unit; it is never shown.
+ * The pool losses land on. A roster: each member by exposure. With no roster —
+ * the book of 100 equal members, which shocks never reach one by one — THE
+ * LINE, in its four regions at REGION_EXPOSURE_SHARE (simple underwriting;
+ * book units weighted their units by size x risk before).
  */
 function weighted(
   members: readonly Member[] | null, line: CoverageLine, yearNumber: number, region?: Region,
-  units?: readonly BookUnit[],
 ) {
-  if (members === null && units) {
-    const pool = units
-      .filter(u => !region || u.region === region)
-      .map(u => ({ m: { id: BOOK_MEMBER_ID, region: u.region, unit: u.index } as Lander, w: u.size * u.risk }))
-      .filter(p => p.w > 0);
-    return { pool, total: pool.reduce((s, p) => s + p.w, 0) };
-  }
   const pool: { m: Lander; w: number }[] = members === null
     ? GAME_REGIONS
       .filter(r => !region || r === region)
@@ -373,76 +385,54 @@ export function drawLargeLosses(
   // null with MEMBER_LEVEL off: losses land on the book, by region.
   line: CoverageLine, members: readonly Member[] | null, yearNumber: number, calendarYear: number,
   seed: number, shocks: LineShockYear, exposure: number,
-  // THE BOOK'S UNITS (book units commit 5): losses land on them by size x
-  // true risk, and the book's routine claim count carries its risk.
-  units?: readonly BookUnit[],
+  // The GAME's seed (shockSeedOf), for where each T claim lands. Absent: `seed`.
+  gameSeed: number = seed,
+  // The year's shock cost factor (utils/shockCost): each T claim is its drawn
+  // table size x this. Absent: 1, the table.
+  tFactor = 1,
 ): LargeLossDraw {
   const out: LargeLossDraw = {
-    claims: [], occurrences: [], grossAdded: 0, byMember: new Map(), byUnit: new Map(),
+    claims: [], occurrences: [], grossAdded: 0, byMember: new Map(),
     memberShareAboveLimit: 0, tByFiring: new Map(), routine: { count: 0, groundUp: 0, excess: 0 },
   };
-  const book = weighted(members, line, yearNumber, undefined, units);
+  const book = weighted(members, line, yearNumber);
   const credit = (memberId: string, amount: number) =>
     out.byMember.set(memberId, (out.byMember.get(memberId) ?? 0) + amount);
-  const onUnit = (m: Lander) => {
-    if (m.unit === undefined) return undefined;
-    let u = out.byUnit.get(m.unit);
-    if (!u) out.byUnit.set(m.unit, (u = { routine: 0, shock: [] }));
-    return u;
-  };
   const claimOf = (id: string, occurrenceId: string, m: Lander, tier: string, amount: number, shockId?: string): Claim => ({
     id, occurrenceId, memberId: m.id, line, accidentYear: yearNumber, calendarYear, tier,
     ...(line === 'WC' && m.wcRatingGroup ? { ratingClass: ratingGroupOf(m as Member) } : {}),
     status: 'open', reportedYear: yearNumber, grossUltimate: amount, paidToDate: 0, caseReserve: amount,
     ...(shockId !== undefined ? { shockId } : {}),
-    ...(m.unit !== undefined ? { unit: m.unit } : {}),
   });
 
-  // --- T: each arriving event's large losses --------------------------------
-  const scale = tScale(line, exposure, yearNumber);
+  // --- T: each arriving event's ONE claim ---------------------------------
+  // Its size was drawn with the firing (tClaimSize); where it lands is drawn
+  // from the GAME's seed, so every world puts it in the same region.
   for (const arrival of shocks.arrivals) {
     const f = arrival.firing;
     const key = firingKey(f);
     const tag = `${f.event.index}-${f.ordinal}`;
-    const T = arrival.tModel * scale;
-    const { mu, sigma } = lognormalFromMean(T / arrival.count, SHOCK_LOSS_CV);
-    const sizeRng = deriveSubRng(seed, f.firedYear, `nle_t_${f.event.index}_${f.ordinal}_${line}`);
-    const whoRng = deriveSubRng(seed, f.firedYear, `nle_tm_${f.event.index}_${f.ordinal}_${line}`);
-    const where = weighted(members, line, yearNumber, f.region, units);
+    const whoRng = deriveSubRng(gameSeed, f.firedYear, `nle_tm_${f.event.index}_${f.ordinal}_${line}`);
+    const where = weighted(members, line, yearNumber, f.region);
     const rec = { gross: 0, claims: 0 };
-    // Sizes are drawn whether or not anyone is there to take them, so the
-    // stream's meaning does not depend on the book.
-    const sizes = Array.from({ length: arrival.count }, () => sizeRng.lognormal(mu, sigma));
     if (where.total > 0) {
-      const occId = `nle-occ-${line}-${yearNumber}-t${tag}`;
-      const shared: string[] = [];
-      const hit = new Set<string>();
-      sizes.forEach((x, i) => {
-        const m = pickMember(whoRng, where.pool, where.total);
-        const pool = poolShare(line, x);
-        out.memberShareAboveLimit += x - pool;
-        const id = `nle-${line}-${yearNumber}-t${tag}-${i}`;
-        const occurrenceId = arrival.oneOccurrence ? occId : `nle-occ-${line}-${yearNumber}-t${tag}-${i}`;
-        out.claims.push(claimOf(id, occurrenceId, m, 'shock', pool, f.event.id));
-        if (arrival.oneOccurrence) { shared.push(id); hit.add(m.id); } else {
-          out.occurrences.push({
-            id: occurrenceId, line, memberId: m.id, memberIds: [m.id], accidentYear: yearNumber, calendarYear,
-            region: m.region, isCatastrophe: false, claimIds: [id],
-          });
-        }
-        credit(m.id, pool);
-        onUnit(m)?.shock.push(pool);
-        rec.gross += pool;
-        rec.claims += 1;
+      const x = arrival.size * tFactor;
+      const m = pickMember(whoRng, where.pool, where.total);
+      const pool = poolShare(line, x);
+      out.memberShareAboveLimit += x - pool;
+      const id = `nle-${line}-${yearNumber}-t${tag}-0`;
+      const occurrenceId = `nle-occ-${line}-${yearNumber}-t${tag}`;
+      out.claims.push(claimOf(id, occurrenceId, m, 'shock', pool, f.event.id));
+      // No peril: the T covers answer the claim from their own attachment, with
+      // no peril deductible ahead of them. A regional event's claim is a
+      // catastrophe, booked at its drawn size (bookedOccurrenceTotals).
+      out.occurrences.push({
+        id: occurrenceId, line, memberId: m.id, memberIds: [m.id], accidentYear: yearNumber, calendarYear,
+        region: m.region, isCatastrophe: f.event.regional, claimIds: [id],
       });
-      if (arrival.oneOccurrence) {
-        const ids = [...hit];
-        out.occurrences.push({
-          id: occId, line, ...(ids.length === 1 ? { memberId: ids[0] } : {}), memberIds: ids,
-          accidentYear: yearNumber, calendarYear, region: f.region ?? where.pool[0].m.region,
-          isCatastrophe: true, claimIds: shared, peril: f.event.name.toLowerCase(),
-        });
-      }
+      credit(m.id, pool);
+      rec.gross += pool;
+      rec.claims += 1;
     }
     out.grossAdded += rec.gross;
     const prior = out.tByFiring.get(key);
@@ -455,9 +445,8 @@ export function drawLargeLosses(
     const g = trendFactor(line, yearNumber);
     const rng = deriveSubRng(seed, yearNumber, `nle_routine_${line}`);
     const whoRng = deriveSubRng(seed, yearNumber, `nle_routine_m_${line}`);
-    // A riskier book draws more routine large claims: the count is on its
-    // exposure x its size-weighted true risk (1 with no units).
-    const n = rng.poisson(routineLargeCount(line, exposure * (units ? bookOrdinaryRisk(units) : 1)));
+    // The count is on the book's exposure: its members carry no risk score.
+    const n = rng.poisson(routineLargeCount(line, exposure));
     for (let i = 0; i < n; i++) {
       const x = g * drawRoutineLargeSize(rng, basis);
       const m = pickMember(whoRng, book.pool, book.total);
@@ -475,8 +464,6 @@ export function drawLargeLosses(
         region: m.region, isCatastrophe: false, claimIds: [id],
       });
       credit(m.id, excess);
-      const onU = onUnit(m);
-      if (onU) onU.routine += excess;
       out.grossAdded += excess;
       out.routine.count += 1;
       out.routine.groundUp += pool;
@@ -513,9 +500,19 @@ export const shockTimingOf = (setup: { shockTiming?: 'host' | 'solo' }): ShockTi
  * every simulated year, attached the covers that far above the real mean and
  * priced them for recoveries that never came.
  */
+//
+// ⚠ A SOLO GAME WITH SOLO_SHOCKS ON IS ALWAYS ON (wip/shocks), whatever its
+// draw. At the catalogue's odds a ten-year game draws no event about one time
+// in fifteen; read off the schedule, that game would hide the covers and its
+// shock expectation — telling the player nothing will fire.
+// ⚠ `shocksOn`, WHERE SET, IS THE SWITCH PINNED AT SETUP (wip/mid-game-edits):
+// a game edited mid-way reads it in place of the schedule's length, so a shock
+// added to — or the last removed from — a game cannot flip pricing for every
+// year on replay. Absent on every game never edited.
 export const gameShocksOn = (
-  setup: { shockTiming?: 'host' | 'solo' }, instance: { scheduledShocks?: readonly unknown[] },
-): boolean => shockTimingOf(setup) === 'catalogue' || (instance.scheduledShocks?.length ?? 0) > 0;
+  setup: { shockTiming?: 'host' | 'solo'; shocksOn?: boolean }, instance: { scheduledShocks?: readonly unknown[] },
+): boolean => shockTimingOf(setup) === 'catalogue' || (setup.shockTiming === 'solo' && SOLO_SHOCKS.enabled)
+  || (setup.shocksOn !== undefined ? setup.shocksOn : (instance.scheduledShocks?.length ?? 0) > 0);
 
 /**
  * MEMBER WITHDRAWAL: 25% of the line's exposure leaves at this renewal.

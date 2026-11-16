@@ -26,10 +26,14 @@ import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWE
 import { lineDisplayName } from '../utils/lineDisplay';
 import { eventLabel, yearEvents } from '../utils/yearEvents';
 import { MEMBER_LEVEL } from '../data/pricingParameters';
+import type { TeamMarketShareOfYear } from '../session/contract';
+import { roomShareFor } from '../session/marketShares';
 
 interface ResultsPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
   lineView: LineView;
+  /** A hosted team's room share and its year; absent in single player (no market share shown). */
+  roomMarketShare?: TeamMarketShareOfYear | null;
   /** Ending surplus across the worlds, by played year, at this view's scope (loss engine commit 4b). */
 }
 
@@ -114,7 +118,7 @@ function formatChange(kind: MetricKind, change: number): string {
 }
 
 function changeColor(polarity: MetricPolarity, change: number): string {
-  if (polarity === 'neutral' || change === 0) return 'text-gray-600';
+  if (polarity === 'neutral' || change === 0) return 'text-black';
   const isGoodDirection = polarity === 'goodUp' ? change > 0 : change < 0;
   return isGoodDirection ? 'text-emerald-600' : 'text-red-600';
 }
@@ -123,7 +127,7 @@ function formatMetricValue(kind: MetricKind, value: number): string {
   return kind === 'ratio' ? formatPct(value) : formatCurrency(value);
 }
 
-export default function ResultsPage({ lockedResults, lineView }: ResultsPageProps) {
+export default function ResultsPage({ lockedResults, lineView, roomMarketShare }: ResultsPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
@@ -158,7 +162,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
       </div>
 
       {lockedResults.length === 0 && (
-        <div className="text-center py-20 text-gray-400">
+        <div className="text-center py-20 text-black">
           <ClipboardList size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No results yet</p>
           <p className="text-sm mt-1">Complete a year to see detailed results here.</p>
@@ -260,7 +264,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                         const change = currentValue - priorValue;
                         return (
                           <tr key={metric.key} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-3 py-2 text-gray-600">{metric.label}</td>
+                            <td className="px-3 py-2 text-black">{metric.label}</td>
                             <td className="px-3 py-2 text-right font-mono text-gray-500">{formatMetricValue(metric.kind, priorValue)}</td>
                             <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800">{formatMetricValue(metric.kind, currentValue)}</td>
                             <td className={`px-3 py-2 text-right font-mono font-semibold ${changeColor(metric.polarity, change)}`}>{formatChange(metric.kind, change)}</td>
@@ -272,7 +276,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                   </table>
                 </div>
               )}
-              <p className="text-xs text-gray-400 mt-4 border-t border-gray-100 pt-3">
+              <p className="text-xs text-black mt-4 border-t border-gray-100 pt-3">
                 Shock Events: not yet implemented — Phase 4 will show which specific event(s) fired this year.
               </p>
             </div>
@@ -290,9 +294,9 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
               <Row label="Funding Confidence Level"
                 value={lineRow ? formatPct(lineRow.decisions.fundingConfidenceLevel, 0) : VARIES} />
               <Row label="Dividend / Return of Pool Premium"
-                value={lineRow ? formatPct(lineRow.decisions.dividendPct, 1) : VARIES} />
+                value={lineRow ? formatCurrency(lineRow.decisions.dividendAmount) : VARIES} />
               <Row label="Assessment"
-                value={lineRow ? formatPct(lineRow.decisions.assessmentPct, 1) : VARIES} />
+                value={lineRow ? formatCurrency(lineRow.decisions.assessmentAmount) : VARIES} />
               <Row label="Risk Control Investment"
                 value={formatPct(lineRow ? lineRow.decisions.riskControlPct : (result as ResultSet).pool.riskControlPct, 1)} />
               {/* TWO PRODUCTS ARE LIVE. WC/GL run the per-occurrence tower and have
@@ -339,7 +343,15 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
               <Row label="Combined Ratio" value={formatPct(result.actualCombinedRatio)} />
               <Row label="Payroll Exposure ($M)" value={formatMillions(result.activeExposure)} />
               <Row label="Total Market Payroll ($M)" value={formatMillions(result.totalMarketExposure)} />
-              <Row label="Exposure-Based Market Share" value={formatPct(result.marketShare)} valueColor="text-sky-600" />
+              {/* ⚠ THE ROOM SHARE IN A HOSTED GAME, NONE IN SINGLE PLAYER — the
+                  top bar's figure and the host's column, for the latest known
+                  year (a dash on another year). The engine's marketShare is
+                  the share of the whole market of potential members, not of
+                  anything a player competes for. */}
+              {roomMarketShare !== undefined && (() => {
+                const v = roomShareFor(roomMarketShare, result.yearNumber, lineView);
+                return <Row label="Market Share (of the room)" value={v === undefined ? '—' : formatPct(v)} valueColor="text-sky-600" />;
+              })()}
             </ResultCard>
 
             <ResultCard title="Premium & Losses" icon={<DollarSign size={16} />}>
@@ -494,7 +506,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                 value={formatCurrency(result.surplusTieOutDifference)}
                 valueColor={Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? 'text-emerald-600' : 'text-amber-600'}
               />
-              <p className="text-xs text-gray-400 mt-2">
+              <p className="text-xs text-black mt-2">
                 Balance check: {formatCurrency(result.totalAssets)} Assets - {formatCurrency(result.totalLiabilities)} Liabilities ={' '}
                 {formatCurrency(result.endingSurplus)}
               </p>
@@ -636,7 +648,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                 {result.narrativeExplanation ? (
                   <p className="text-gray-700 text-sm leading-relaxed">{result.narrativeExplanation}</p>
                 ) : (
-                  <p className="text-gray-400 text-sm italic">
+                  <p className="text-black text-sm italic">
                     No narrative for this line — narratives are generated pool-wide only. Switch to Pool view to read it.
                   </p>
                 )}

@@ -16,37 +16,26 @@ better loss experience than others. Your underwriting decisions help shape the o
 
 Each year, you will make two underwriting decisions for each active coverage line.
 
-## Renewal Declinations
+## Non-Renewal
 
-You will decide what percentage of existing members the Pool will not renew.
+You will decide what percentage of the existing book the Pool will not renew.
 
-Members with the worst recent loss experience are more likely to be declined. A higher declination rate can improve the
-quality of the remaining membership, but it also reduces the size of the Pool.
+The business the Pool lets go tends to be worse than average, so the book that remains runs a little cheaper that year.
+The tradeoff is a smaller Pool. The benefit lasts only for the year you make the decision.
 
-Loss history is not perfect. A member with one bad year may still be a good long-term risk, while another member with
-good recent results may perform poorly in the future.
+## New Members
 
-## New Business Rejection Rate
+You will decide how much the Pool grows by adding new members.
 
-Each year, new members may apply to join the Pool.
-
-You will decide what percentage of those applicants to reject.
-
-A higher rejection rate makes the Pool more selective and can reduce the risk that comes with adding unfamiliar members.
-The tradeoff is slower growth.
-
-A lower rejection rate allows the Pool to grow faster, but it also means accepting more uncertainty.
+New members are unfamiliar to the Pool, and in their first year they cost more than the existing book. Growth brings
+more premium, but it also brings that first-year uncertainty.
 
 ## What to Expect
 
-Underwriting decisions usually take time to show up in the results.
-
-A stronger book should eventually lead to better loss experience. A weaker book can have the opposite effect. These
-changes may take several years to become fully visible.
+Underwriting decisions show up in the year you make them, and pricing learns from them over the years that follow.
 
 There is no perfect underwriting strategy.
 
-Being more selective can improve risk quality but reduce growth. Being less selective can increase growth but also bring
-more risk into the Pool.
+Shedding business can improve results but shrinks the Pool. Adding members grows the Pool but costs more at first.
 
 The right balance depends on the Pool's current position and the strategy you want to follow.

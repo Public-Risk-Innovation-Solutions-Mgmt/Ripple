@@ -23,20 +23,23 @@
 //   onAdvanceYear   solo processes the year immediately; a session locks and
 //                   waits for the host. Same button, same words, different verb
 //                   underneath — which is the whole of the difference the
-//                   session layer exists to make.
+//                   session layer exists to make. ⚠ EITHER WAY IT RUNS ONLY
+//                   FROM THE LOCK CONFIRMATION BOX's "Lock decisions": the
+//                   button opens the box here, so every caller gets it.
 //   loanPrompt      solo blocks on the modal; a session cannot (see JoinScreen).
 //   banner          the save-failure banner, which is solo-only because a
 //                   session player does not write the save at all.
 // ============================================================================
 
 import React from 'react';
-import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
+import { Layers, HardHat, Scale, Building2, ChevronRight } from 'lucide-react';
 
 import type {
   CoverageLine, DecisionSet, GameState, LineView, Member, StartingFinancials,
 } from '../types/simulation';
 import { endingPosition } from '../utils/endingPosition';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
+import { EventNewsBanner, EventsPanel } from '../components/EventNews';
 import { useGameDerivations } from './derivations';
 import { claimsPoolStateAsOf, knownGameState, latestKnownYearNumber } from '../utils/knownYears';
 import { selectResultView } from '../utils/lineHelpers';
@@ -51,7 +54,10 @@ import DecisionHistoryPage from '../pages/DecisionHistoryPage';
 import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
 import MembershipPage from '../pages/MembershipPage';
-import CalculationAuditPage from '../pages/CalculationAuditPage';
+import YearWalkthroughPanel from '../components/YearWalkthroughPanel';
+import LockConfirmModal from '../components/LockConfirmModal';
+import { lockSummary } from '../utils/lockSummary';
+import { walkthroughHeader, walkthroughSheetRows } from '../utils/yearWalkthrough';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import ResultsStatementPage from '../pages/ResultsStatementPage';
 import IntroductionPage from '../pages/IntroductionPage';
@@ -60,7 +66,7 @@ import InvestmentsPage from '../pages/InvestmentsPage';
 import RateIndicationPage from '../pages/RateIndicationPage';
 import ModelPage from '../pages/ModelPage';
 import { isHiddenTab, topBarTabs } from './tabs';
-import { shockTimingOf } from '../utils/shockLosses';
+import type { TeamMarketShareOfYear } from '../session/contract';
 
 const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
@@ -119,31 +125,87 @@ export interface GameShellProps {
   statusStrip?: React.ReactNode;
   /** A hosted session's screen — players and viewers. Hides tabs.tsx's MULTIPLAYER_HIDDEN_TABS too. */
   multiplayer?: boolean;
+  /**
+   * A hosted session's own room market share and its year — for the header,
+   * the Results page and the Calculation Audit. Absent in single player, which
+   * shows no market share anywhere.
+   */
+  roomMarketShare?: TeamMarketShareOfYear | null;
+  /**
+   * Whether the Year Walkthrough — on screen and in the Results download — may
+   * show the scenario's fixed seed. ⚠ TEST PLAYER ONLY: single player and a
+   * hosted team leave it unset and see the version alone.
+   */
+  showSeed?: boolean;
+  /**
+   * The Market Survey tab's page — a hosted session's alone (session/screens/
+   * MarketSurveyTab); the tab is hidden without `multiplayer` (tabs.ts).
+   */
+  marketSurvey?: React.ReactNode;
+  /**
+   * ⚠ A FIRST SLICE, NOT THE FINISHED RULE — per-tab "has this tab had
+   * activity", driving the Decisions sub-menu's "n of N" badge, keyed by
+   * LineView so Pool ('pool') and each line share one map. Today a caller
+   * sets a line from one signal (its reinsurance choice differing from
+   * carry-forward) and Pool from one of its own (investment allocation
+   * differing from carry-forward); more can OR into either side later.
+   * `undefined` (the default) renders no badge at all, which is what a
+   * caller that has not wired this up yet — solo, today — gets.
+   */
+  lineActivity?: Partial<Record<LineView, boolean>>;
+  /**
+   * ⚠ A SEPARATE SIGNAL FROM lineActivity, NOT A DUPLICATE OF IT — clicking
+   * Next (TabNav's onNext) means "I reviewed this tab," independent of
+   * whether anything on it actually changed from carry-forward. Called with
+   * the tab being LEFT. Absent: Next behaves as a plain step, same as before
+   * this existed.
+   */
+  onLineReviewed?: (line: LineView) => void;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey,
+  lineActivity, onLineReviewed,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
+  // The sub-menu's "n of N" badge — Pool plus each active line.
+  const lineActivityTotal = activeLines.length + 1;
+  const lineActivityDone = lineActivity
+    ? (lineActivity.pool ? 1 : 0) + activeLines.filter(l => lineActivity[l]).length
+    : 0;
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
-  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): every screen that shows
-  // results reads the KNOWN view — cut at the latest known year, the current
-  // year less one — and only Decisions, Decision History, the Rate Indication
-  // and the Model tab's rate read the whole game. At game end they are the same.
+  // THE LOCK CONFIRMATION: the header's lock button opens the box; only its
+  // "Lock decisions" calls the caller's onAdvanceYear, once. The box closes
+  // before the call, so a second click cannot lock twice.
+  const [confirmingLock, setConfirmingLock] = React.useState(false);
+  const openLockConfirm = React.useCallback(() => setConfirmingLock(true), []);
+  const cancelLock = React.useCallback(() => setConfirmingLock(false), []);
+  const confirmLock = React.useCallback(() => {
+    setConfirmingLock(false);
+    onAdvanceYear?.();
+  }, [onAdvanceYear]);
+  const lockYear = gameState ? gameState.setup.startingYear + gameState.currentYearNumber - 1 : '';
+
+  // ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears): every
+  // screen that shows results reads the KNOWN view — cut at the latest known
+  // year, the top bar's year — and only Decisions, Decision History, the Rate
+  // Indication and the Model tab's rate read the whole game. Since the year in
+  // progress is never played until it is locked, the two cut at the same year;
+  // the known view stays so the rule has one home.
   const known = React.useMemo(() => (gameState ? knownGameState(gameState) : null), [gameState]);
   const knownYear = gameState ? latestKnownYearNumber(gameState) : Number.POSITIVE_INFINITY;
   const knownViewResults = React.useMemo(() => d.viewResults.filter(r => r.yearNumber <= knownYear), [d.viewResults, knownYear]);
   const knownPriorResults = React.useMemo(() => d.viewPriorResults.filter(r => r.yearNumber <= knownYear), [d.viewPriorResults, knownYear]);
   // ⚠ EVERY KNOWN YEAR, PRE-GAME INCLUDED, for the pages that listed played
-  // years alone. After the first lock the newly known year is 2026 — the
-  // opening, a pre-game year — and a list of played years would be empty, so
-  // the game would look stuck. Oldest first: the early pre-game, then the rest.
+  // years alone. Before the first lock the newest known year is 2026 — the
+  // opening, a pre-game year — and a list of played years would be empty.
+  // Oldest first: the early pre-game, then the rest.
   const knownPreGame = React.useMemo(() => (known ? [...(known.earlyPreGameHistory ?? []), ...known.priorHistory] : []), [known]);
   const knownPreGameView = React.useMemo(() => selectResultView(knownPreGame, lineView), [knownPreGame, lineView]);
   // The claims workbook reads the live reserve cohorts, so it is handed them as
@@ -178,10 +240,15 @@ export default function GameShell({
       <Header
         gameState={known}
         onNewGame={onNewGame}
-        onAdvanceYear={onAdvanceYear}
+        onAdvanceYear={onAdvanceYear ? openLockConfirm : undefined}
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
-        lineView={lineView}
+        // ⚠ THE TOP BAR READS THE POOL EVERYWHERE BUT A LINE ON DECISIONS. The
+        // line view outlives the tab it was picked on, so the bar used to keep a
+        // line's figures on every other tab; only the Decisions page, where a
+        // line is being decided, shows that line's. The bar names which it shows.
+        lineView={shownTab === 'decisions' ? lineView : 'pool'}
+        roomMarketShare={roomMarketShare}
       />
 
       {isStarted && (
@@ -200,12 +267,39 @@ export default function GameShell({
           ]}
           activeTab={lineView}
           onSelect={onSelectLineView}
+          onNext={onLineReviewed}
           stickyTop={108}
           zIndex={20}
+          showArrows
+          trailing={lineActivity && (
+            <span
+              data-testid="line-activity-badge"
+              className={`ml-2 shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                lineActivityDone === lineActivityTotal ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {lineActivityDone} of {lineActivityTotal}
+            </span>
+          )}
         />
       )}
 
       {statusStrip}
+
+      {confirmingLock && onAdvanceYear && gameState && (
+        <LockConfirmModal
+          year={lockYear}
+          summary={lockSummary(currentDecisions, activeLines)}
+          onConfirm={confirmLock}
+          onCancel={cancelLock}
+        />
+      )}
+
+      {/* THE NEWS OF AN EVENT (components/EventNews): the year just played, off
+          the whole game — the same year the result screens now show. */}
+      {isStarted && gameState && (
+        <EventNewsBanner played={gameState.lockedResults} startingYear={gameState.setup.startingYear} />
+      )}
 
       <main>
         {shownTab === 'setup' && setupPage}
@@ -217,10 +311,10 @@ export default function GameShell({
         {shownTab === 'investments' && !hidden('investments') && gameState && <InvestmentsPage gameState={gameState} />}
 
         {shownTab === 'rateIndication' && gameState && (
-          <RateIndicationPage gameState={gameState} decisions={currentDecisions} />
+          <RateIndicationPage gameState={gameState} decisions={currentDecisions} multiplayer={!!multiplayer} />
         )}
 
-        {/* Solo only: hidden in multiplayer (MULTIPLAYER_HIDDEN_TABS), so never rendered there. */}
+        {/* Hidden everywhere since the tab cleanup (HIDDEN_TABS), so never rendered. */}
         {shownTab === 'model' && !hidden('model') && gameState && known && (
           <ModelPage gameState={gameState} knownState={known} decisions={currentDecisions} />
         )}
@@ -251,6 +345,9 @@ export default function GameShell({
         )}
 
         {shownTab === 'decisions' && gameState && (
+          <EventsPanel played={gameState.lockedResults} startingYear={gameState.setup.startingYear} />
+        )}
+        {shownTab === 'decisions' && gameState && (
           <DecisionsPage
             /* ⚠ priorProgramIds AND activeLines ARE NO LONGER PASSED. The
                first derived each program's tenure for the Risk Control
@@ -278,9 +375,43 @@ export default function GameShell({
           />
         )}
 
+        {/* ⚠ A SECOND LOCK BUTTON, NOT A DIFFERENT ONE — same openLockConfirm
+            as the header's, so a long line screen (reinsurance, aggregate
+            cover, dividend/assessment) doesn't need a scroll back to the top
+            to lock. ⚠ THE LAST TAB ONLY, NOT EVERY LINE — the sub-menu's
+            final tab (whichever line that is: Property if the room plays
+            all three, General Liability if it doesn't, and so on), so a
+            team reviewing WC then GL then Property sees it exactly once,
+            at the end of the review, rather than repeated on every line.
+            Pool is never the last tab (it's always first), so it stays
+            header-only along with every line before the last one. */}
+        {shownTab === 'decisions' && gameState && !gameState.isComplete
+          && lineView === activeLines[activeLines.length - 1] && onAdvanceYear && (
+          // ⚠ SAME WRAPPER AS DecisionsPage's OWN (max-w-screen-2xl mx-auto
+          // px-4) AND THE HEADER'S — this is a sibling of DecisionsPage
+          // inside <main>, which has no padding of its own, so without this
+          // the button sits at the true viewport edge instead of the same
+          // inset every card and the header button already share.
+          <div className="max-w-screen-2xl mx-auto px-4">
+            <div className="mt-6 mb-6 flex justify-end">
+              <button
+                type="button"
+                onClick={openLockConfirm}
+                disabled={!canAdvance}
+                className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {advanceLabel ?? `Lock Program Year ${lockYear}`}
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {shownTab === 'decisionHistory' && gameState && (
           <DecisionHistoryPage lockedResults={d.viewResults} lineView={lineView} />
         )}
+
+        {shownTab === 'marketSurvey' && !hidden('marketSurvey') && marketSurvey}
 
         {shownTab === 'financials' && !hidden('financials') && gameState && startingFinancials && (
           <FinancialsPage
@@ -291,10 +422,10 @@ export default function GameShell({
         )}
 
         {shownTab === 'results' && !hidden('results') && gameState && (
-          <ResultsPage lockedResults={[...knownPreGameView, ...knownViewResults]} lineView={lineView} />
+          <ResultsPage lockedResults={[...knownPreGameView, ...knownViewResults]} lineView={lineView} roomMarketShare={roomMarketShare} />
         )}
 
-        {shownTab === SPREADSHEET_TAB && known && (
+        {shownTab === SPREADSHEET_TAB && !hidden(SPREADSHEET_TAB) && known && (
           <ResultSpreadsheetPage
             lockedResults={known.lockedResults}
             preGameResults={knownPreGame}
@@ -304,18 +435,19 @@ export default function GameShell({
             instanceId={known.setup.instanceId}
             poolState={knownClaimsPool ?? known.poolState}
             claimsWorld={knownClaimsWorld}
+            walkthroughRows={gameState
+              ? () => walkthroughSheetRows(gameState, walkthroughHeader(gameState.instance, !multiplayer && !!showSeed), roomMarketShare)
+              : undefined}
           />
         )}
 
+        {/* ⚠ THE YEAR WALKTHROUGH IS THE WHOLE TAB, IN EVERY MODE. The old
+            Calculation Audit page (pages/CalculationAuditPage) is unrouted; its
+            derivations are still held to the engine by audit-formula-check. The
+            seed is Test player's alone — never a team's or single player's. */}
         {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
-          <CalculationAuditPage
-            lockedResults={known?.lockedResults ?? gameState.lockedResults}
-            priorHistory={known?.priorHistory ?? gameState.priorHistory}
-            instanceSeed={gameState.instance.seed}
-            lineView={lineView}
-            instance={gameState.instance}
-            shockTiming={shockTimingOf(gameState.setup)}
-          />
+          <YearWalkthroughPanel gameState={gameState} lineView={lineView}
+            showSeed={!multiplayer && !!showSeed} roomMarketShare={roomMarketShare} />
         )}
 
         {shownTab === 'membership' && gameState && startingFinancials && (

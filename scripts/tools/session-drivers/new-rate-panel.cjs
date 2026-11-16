@@ -13,25 +13,46 @@
 // will report SKIPPED and exit 0.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+//
+// ⚠ RESTATED FOR pr/pregame-65: WC now opens on the play default's per-claim
+// cover, $19M xs $1M (PLAY_DEFAULTS), not None. The cover block opens on it,
+// moves the Reinsurance line by choosing None (38 xs 2 and 19 xs 1 both read
+// $0.11 per $100 with the default aggregate cover beside them, so None is the
+// move that shows at the panel's rounding), still selects 38 xs 2 alone, and
+// requires the panel to return exactly when the default, $19M xs $1M, is chosen
+// again. Against the aws build (None the default) the opening check fails.
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
 
 const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
+// The expense block at a slider: Admin 20.0%, Risk control, Total expense
+// ratio, Permissible loss ratio = 1 - the total — each row in both columns.
+const p1 = v => `${(v * 100).toFixed(1)}%`;
+function expenseBlockReads(body, rc) {
+  const row = (label, v) => new RegExp(`${label}\\s*${p1(v).replace('.', '\\.')}\\s*${p1(v).replace('.', '\\.')}`).test(body);
+  return row('Admin', 0.2) && row('Risk control', rc) && row('Total expense ratio', 0.2 + rc) && row('Permissible loss ratio', 0.8 - rc);
+}
+let page;
+async function plrIs(rc) {
+  const i = Number(await page.getAttribute('[data-testid="new-rate-indicated-plr"]', 'data-value'));
+  const y = Number(await page.getAttribute('[data-testid="new-rate-yours-plr"]', 'data-value'));
+  return Math.abs(i - (0.8 - rc)) < 1e-12 && Math.abs(y - (0.8 - rc)) < 1e-12;
+}
 
 (async () => {
   await requireServer();
   const browser = await launchBrowser();
   const ctx = await browser.newContext({ baseURL: BASE });
-  const page = await ctx.newPage();
+  page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
 
   // The same route solo-oracle takes — /solo, start, then the Decisions tab.
   await page.goto('/solo');
   await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
-  await page.getByRole('button', { name: /Start/i }).last().click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1500);
@@ -65,23 +86,70 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/\+ Reinsurance\s*—/.test(body) || body.includes('+ Reinsurance —'),
      'the Indicated column shows a dash for reinsurance, not $0.00');
 
-  ok(/Pure premium/.test(body) && /\+ Admin/.test(body) && /\+ Risk Control/.test(body)
-    && /\+ Profit & contingency/.test(body) && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
-    && !/Risk control & contingency/.test(body),
-     'each piece its own row: Pure premium, Admin, Risk Control, Profit & contingency, Reinsurance, = Rate');
+  // RESTATED at wip/pricing-rework: Profit & contingency is retired, admin is
+  // 20% of premium and labelled so, and the permissible loss ratio (80%) is
+  // printed under the rate.
+  ok(/Pure premium/.test(body) && /\+ Admin \(20% of premium\)/.test(body) && /\+ Risk Control/.test(body)
+    && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
+    && !/contingency/i.test(body),
+     'each piece its own row: Pure premium, Admin (20% of premium), Risk Control, Reinsurance, = Rate — no Profit & contingency');
   // ⚠ EACH COLUMN ADDS EXACTLY TO ITS RATE, in the cents printed; Risk Control
-  // reads $0.00 in both while risk control is off.
+  // reads $0.00 in both at the default 0%.
   {
     const cents = async id => { const t = await page.textContent(`[data-testid="${id}"]`); return Math.round(money(t) * 100); };
-    const rows = ['pure-premium', 'admin', 'risk-control', 'contingency'];
+    const rows = ['pure-premium', 'admin', 'risk-control'];
     const ind = await Promise.all(rows.map(r => cents(`new-rate-indicated-${r}`)));
     const yours = await Promise.all([...rows, 'reins'].map(r => cents(`new-rate-yours-${r}`)));
     const indRate = await cents('new-rate-indicated'), yourRate = await cents('new-rate-final');
     ok(ind.reduce((a, b) => a + b, 0) === indRate, `the Indicated rows add to the Indicated rate (${ind.join(' + ')} = ${indRate} cents)`);
     ok(yours.reduce((a, b) => a + b, 0) === yourRate, `Your rate's rows add to Your rate (${yours.join(' + ')} = ${yourRate} cents)`);
-    ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns while risk control is off');
-    // The panel is on Workers' Compensation, which carries 2% (GL and Property carry none).
-    ok(ind[3] > 0 && yours[3] > 0, 'Profit & contingency is charged in both columns (WC, 2%)');
+    ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns at 0%');
+    // Admin is 20% of the rate before reinsurance in both columns, to the cent
+    // the printed rows can carry (admin takes the rounding, a cent at most).
+    const yourBefore = yourRate - yours[3];
+    ok(Math.abs(ind[1] - Math.round(indRate * 0.2)) <= 1 && Math.abs(yours[1] - Math.round(yourBefore * 0.2)) <= 1,
+      `Admin is 20% of the rate before reinsurance in both columns (${ind[1]} of ${indRate}, ${yours[1]} of ${yourBefore} cents)`);
+    // THE EXPENSE RATIO BLOCK (restated at wip/risk-control-divisor): Admin
+    // 20.0%, Risk control (the line's choice), Total expense ratio, Permissible
+    // loss ratio = 1 - the total, in both columns, to one decimal.
+    ok(expenseBlockReads(body, 0) && await plrIs(0), 'the expense block reads Admin 20.0%, Risk control 0.0%, Total 20.0%, Permissible loss ratio 80.0% in both columns');
+  }
+
+  // ---- the Risk Control slider at 2%: the divisor (wip/risk-control-divisor) --
+  // Drive WC's slider to 2%. Risk control is in the divisor beside admin, so
+  // the block reads 20.0 / 2.0 / 22.0 / 78.0%, the Risk Control row is 2% of
+  // the rate before reinsurance and admin 20% of it, to the cent the printed
+  // rows carry; then back to 0%, and the panel is exactly as it was.
+  {
+    const before0 = (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
+    const box = page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: /^Safety & Return-to-Work$/ }) }).first();
+    const input = box.locator('input[type=range]');
+    await input.focus();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(800);
+    ok(Number(await input.inputValue()) === 0.02, `the WC Risk Control slider moves to 2% (${await input.inputValue()})`);
+    const at2 = (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
+    ok(expenseBlockReads(at2, 0.02) && await plrIs(0.02), 'at 2%: Admin 20.0%, Risk control 2.0%, Total expense ratio 22.0%, Permissible loss ratio 78.0% in both columns');
+    const cents = async id => Math.round(money(await page.textContent(`[data-testid="${id}"]`)) * 100);
+    const yourRate = await cents('new-rate-final'), reins = await cents('new-rate-yours-reins');
+    const rc = await cents('new-rate-yours-risk-control'), admin = await cents('new-rate-yours-admin');
+    const before = yourRate - reins;
+    ok(Math.abs(rc - Math.round(before * 0.02)) <= 1 && Math.abs(admin - Math.round(before * 0.2)) <= 1,
+      `at 2%: Risk Control is 2% and admin 20% of the rate before reinsurance (${rc} and ${admin} of ${before} cents)`);
+    // The line "Average saving equals the cost." is removed (wip/display-removals); the cost in dollars stays.
+    ok(!/Average saving equals the cost/.test(await page.locator('main').innerText())
+      && await page.locator('[data-testid="risk-control-neutral"]').count() === 0
+      && money(await page.textContent('[data-testid="risk-control-cost"]')) > 0,
+      'at 2%: the box shows the cost in dollars, and no longer says the average saving equals the cost');
+    await input.focus();
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(800);
+    ok((await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ') === before0, 'back at 0%, the panel is exactly as it was');
+    // THE CONTROL: wip/risk-control's multiplier gave a permissible loss ratio of
+    // (1 - admin) / (1 + slider) = 78.4% at 2%. The block's predicate must refuse it.
+    ok(!expenseBlockReads(at2.replace(/78\.0%/g, '78.4%'), 0.02), 'control: the multiplier\'s 78.4% is refused by the expense block\'s predicate');
   }
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
@@ -172,23 +240,34 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     .includes('border-blue-500');
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
-  // The aggregate stop's covers (stable-scenarios commit 6). A solo game's
-  // shocks are off, so only None and the Working cover are offered and None is
-  // the default (AGGREGATE_STOP_OFFERED_SHOCKS_OFF / _DEFAULT_SHOCKS_OFF).
-  ok(await chosen('none'), 'WC opens on the default cover, None (a solo game\'s shocks are off)');
-  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null,
-     'the Low-attachment cover is offered');
-  ok(await page.$('[data-testid="reins-option-WC-bad-year"]') === null
-     && await page.$('[data-testid="reins-option-WC-catastrophe"]') === null,
-     'the Medium- and High-attachment covers are hidden while the shocks are off');
+  // THE T COVERS (wip/shocks). A solo game's shocks are on, so None and all
+  // eight covers are offered, $19M xs $1M the default (pr/pregame-65); each
+  // shows its name and price.
+  // Choosing one moves only the Reinsurance row: the pure premium is never
+  // lowered by cover.
+  const T_COVERS = ['$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M', '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M'];
+  const DEFAULT_COVER = '$19M xs $1M';
+  ok(await chosen(DEFAULT_COVER) && !(await chosen('none')), `WC opens on the default cover, ${DEFAULT_COVER}`);
+  const offered = [];
+  for (const id of T_COVERS) if (await page.$(`[data-testid="reins-option-WC-${id}"]`) !== null) offered.push(id);
+  ok(offered.length === 8, `all eight T covers are offered (${offered.join(', ')})`);
+  const wcPrice = (await page.textContent('[data-testid="reins-option-WC-$38M xs $2M"]')).replace(/\s+/g, ' ');
+  // wip/reinsurance-layers: priced by the workbook's method on the year's claims —
+  // year 1, growth 1: WC 38 xs 2 = 1.2 x (5.25% x $2.5M + 2.25% x $21M) = $724,500.
+  ok(/\$724,500\/yr/.test(wcPrice), `38 xs 2 on WC shows its year-1 price by the method ("${wcPrice}")`);
+  const ppLine = t => (t.match(/Pure premium[^+]*/) || [''])[0];
   const atDefault = await panelText();
-  await page.click('[data-testid="reins-option-WC-working"]');
+  await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');
   await page.waitForTimeout(800);
-  const atWorking = await panelText();
-  ok(await chosen('working') && !(await chosen('none')), 'clicking the Low-attachment cover selects it, and only it');
-  ok(reinsLine(atWorking) !== reinsLine(atDefault),
-     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
+  ok(await chosen('$38M xs $2M') && !(await chosen(DEFAULT_COVER)) && !(await chosen('none')), 'clicking 38 xs 2 selects it, and only it');
   await page.click('[data-testid="reins-option-WC-none"]');
+  await page.waitForTimeout(800);
+  const atNone = await panelText();
+  ok(await chosen('none') && !(await chosen(DEFAULT_COVER)), 'clicking None selects it, and only it');
+  ok(reinsLine(atNone) !== reinsLine(atDefault),
+     `the Reinsurance line moves with the cover ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
+  ok(ppLine(atNone) === ppLine(atDefault), `the pure premium does not move ("${ppLine(atDefault)}")`);
+  await page.click(`[data-testid="reins-option-WC-${DEFAULT_COVER}"]`);
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 
@@ -196,16 +275,28 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   // Lock a year. Players are never told about the worlds: neither the Results
   // page nor the Decisions page shows the surplus range across them, or says
   // they exist. The range stays in the session's posted results, for the host.
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+  // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
+  const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+  if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   // ⚠ THE RESULTS PAGE NO LONGER SHOWS THE RANGE EITHER — players are never
-  // told about the worlds, on any page. The range stays for the host.
-  await page.getByRole('button', { name: /^Results$/ }).first().click();
-  await page.waitForTimeout(1000);
-  ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Results: no surplus range across the worlds');
-  ok(!/\bworlds?\b/i.test((await page.locator('main').innerText()).replace(/\s+/g, ' ')), 'Results: the page never mentions the worlds');
+  // told about the worlds, on any page. Its two checks run ONLY WHEN THE TAB IS
+  // OFFERED: the tab cleanup (multiplayer 3bd6d2b, tabs.tsx HIDDEN_TABS) hides
+  // it, and clicking an absent tab timed out. When hidden no player can reach
+  // it, so there is nothing to check there; the same "worlds" checks still run
+  // on the Decisions page and the Annual Statement below.
+  const resultsTab = page.getByRole('button', { name: /^Results$/ });
+  if (await resultsTab.count() > 0) {
+    await resultsTab.first().click();
+    await page.waitForTimeout(1000);
+    ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Results: no surplus range across the worlds');
+    ok(!/\bworlds?\b/i.test((await page.locator('main').innerText()).replace(/\s+/g, ' ')), 'Results: the page never mentions the worlds');
+  } else {
+    console.log('  skip  Results: the tab is not offered (hidden), so its two worlds checks do not run');
+  }
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
   // ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS (the documents commit): the

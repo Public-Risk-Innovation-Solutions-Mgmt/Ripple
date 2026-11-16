@@ -2,7 +2,7 @@
 // REAL game UI, not a four-slider panel.
 // One context: localStorage is the server here, so separate contexts would give
 // four private universes in which everything passes and nothing is shared.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley', 'Tri-County'];
 const YEARS = 3;
 const SKIP_YEAR = 2;
@@ -67,6 +67,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // different books any more, so the room declares the set and all three teams
   // play it. Property is unticked; WC and GL stay.
   await host.uncheck('[data-testid="line-Property"]');
+  // Market competition Off: this driver plays the underwriting sliders as they work without the market
+  // (New Members as growth, Non-Renewal as an assumption). A market room is market-competition.cjs's.
+  await host.selectOption('[data-testid="market-level"]', 'off');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -122,15 +125,17 @@ const roomRecord = (page, code) => page.evaluate(c =>
   {
     const p = players[0];
     // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool
-    // in aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial
-    // Statements and Calculation Audit (GameShell's MULTIPLAYER_HIDDEN_TABS);
-    // single-player keeps them, and solo-oracle holds that. The PAGES are intact.
+    // in aggregate. ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND
+    // MODEL ARE HIDDEN since the tab cleanup, in multiplayer and single player
+    // alike (src/game/tabs.tsx HIDDEN_TABS). The PAGES are intact. The Year
+    // Walkthrough is hidden in a hosted session (MULTIPLAYER_HIDDEN_TABS;
+    // year-walkthrough.cjs).
     // ⚠ DASHBOARD AND DEPARTMENTS ARE HIDDEN IN BOTH (src/game/tabs.tsx), and
     // Rate Indication joined the bar, and Investments is hidden too (its memo is
     // in the Introduction tab); navigation.cjs holds the order.
     const tabs = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                  'Decision History', 'Result Spreadsheet'];
-    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments', 'Investments'];
+                  'Decision History'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments', 'Year Walkthrough'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
@@ -176,12 +181,10 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // code comments, so this assertion had been failing for a legitimate reason.
     // It checks BOTH sliders rather than either, which is stricter than the
     // or-test it replaces. Intake is labelled "New business" to players (UI tidy).
-    // uw-hybrid: the two sliders by their names and values — "Existing Book:
-    // Non-Renewal Assumption" and "New Business: Growth Assumption" (renamed
-    // from "Renewals declined" and "New Business, rejection rate" when the
-    // Decisions layout moved), each at 0% — and nothing of the retired intake
-    // positions.
-    ok(/Existing Book: Non-Renewal Assumption\s*0%/.test(main) && /New Business: Growth Assumption\s*0%/.test(main)
+    // Simple underwriting: the two sliders by their names and values — "Non-Renewal"
+    // and "New Members" ("Existing Book: Non-Renewal Assumption" and "New Members:
+    // Growth Assumption" before) each at 0% — and nothing of the retired intake positions.
+    ok(/Non-Renewal\s*0%/.test(main) && /New Members\s*0%/.test(main)
        && !/\bIntake\b|No New Business|Renew all/.test(main), 'the two underwriting sliders render, by name and value');
   }
 
@@ -214,8 +217,8 @@ const roomRecord = (page, code) => page.evaluate(c =>
            `carry-forward setup: ${TEAMS[i]} moved Funding Confidence on the real page (${moved && moved.before} -> ${moved && moved.after})`);
       }
 
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
-      await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+      await lockAndConfirm(p);
+      await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     }
     ok(true, `year ${year}: teams locked in${year === SKIP_YEAR ? ` (${TEAMS[SKIPPER]} deliberately did not)` : ''}`);
 
@@ -230,8 +233,8 @@ const roomRecord = (page, code) => page.evaluate(c =>
 
     for (let i = 0; i < 3; i++) {
       await players[i].waitForFunction(y => {
-        const el = document.querySelector('[data-testid="posted-year"]');
-        return !!el && el.textContent.includes(`year ${y} result posted`);
+        // A player's strip no longer SHOWS the posted year; it carries it as data-posted-year.
+        return document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(y);
       }, year, { timeout: 180000 });
     }
     ok(true, `year ${year}: all three tabs computed their own result`);
@@ -287,9 +290,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // ---- the results pages render another year's real output ----------------
   {
     const p = players[0];
-    // The three results pages are hidden in multiplayer; the Annual Statement and
-    // the Result Spreadsheet carry the year's output here.
-    for (const tab of ['Annual Statement', 'Result Spreadsheet']) {
+    // The results pages are hidden (the tab cleanup), and in a hosted session the
+    // Year Walkthrough too; the Annual Statement carries the year's output here.
+    for (const tab of ['Annual Statement']) {
       await p.getByRole('button', { name: tab, exact: true }).click();
       await p.waitForTimeout(500);
       const txt = await p.locator('main').innerText();
@@ -297,7 +300,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
     }
   }
 
-  for (let i = 0; i < 3; i++) await players[i].waitForSelector('[data-testid="player-complete"]', { timeout: 40000 });
+  for (let i = 0; i < 3; i++) await players[i].waitForSelector('[data-testid="session-strip"][data-lock="complete"]', { timeout: 40000 });
   ok(true, 'every player tab reports the session complete');
 
   await browser.close();

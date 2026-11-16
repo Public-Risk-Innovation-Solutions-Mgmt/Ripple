@@ -24,8 +24,11 @@ import HostTeamsTab from './HostTeamsTab';
 import HostChartsTab from './HostChartsTab';
 import HostDecisionsTab from './HostDecisionsTab';
 import { useRoom } from '../client/useRoom';
+import { SESSION_POLL_INTERVAL_MS } from '../../data/pricingParameters';
 import { loadActive, loadHeld } from '../client/identity';
 import { currentAdmin } from '../../admin/client/adminAuth';
+import { gameIdentity } from '../../utils/scenarios';
+import { walkthroughHeader } from '../../utils/yearWalkthrough';
 
 interface Props {
   /** Absent on /host, where the room does not exist yet. */
@@ -46,7 +49,7 @@ export default function HostScreen({ code }: Props) {
   // every action. A second reader is cheap (the poll is shared per code) and
   // keeps the chrome from having to be told what the room is called.
   const hostToken = code ? (loadActive(code).hostToken ?? loadHeld(code).hostToken) : undefined;
-  const { room } = useRoom(code ?? '', hostToken, code ? 3000 : 3_600_000);
+  const { room } = useRoom(code ?? '', hostToken, code ? SESSION_POLL_INTERVAL_MS : 3_600_000);
 
   if (admin === undefined) return null;
   if (admin === null) {
@@ -64,22 +67,30 @@ export default function HostScreen({ code }: Props) {
       hasRoom={!!code}
       code={code}
       eventName={code ? room?.eventName : undefined}
+      // The host sees the room's fixed seed beside the version (a team never does).
+      version={code && room ? (() => {
+        const id = gameIdentity(room.seed);
+        return walkthroughHeader({ instanceId: id.gameId, scenario: id.scenario }, true);
+      })() : undefined}
     >
       {activeTab === 'setup' && (code ? <HostRoomScreen code={code} /> : <HostCreateScreen />)}
       {activeTab === 'teams' && (
-        room
-          ? <HostTeamsTab room={room} />
-          : <p className="text-sm text-slate-400">Loading room…</p>
+        room && code
+          // ⚠ code AND hostToken, FOR "MOVE TO NEW DEVICE" — HostTeamsTab needs
+          // its own host-authenticated call (createHandoff), not just a view of
+          // the room this screen already polls.
+          ? <HostTeamsTab room={room} code={code} hostToken={hostToken} />
+          : <p className="text-sm text-black">Loading room…</p>
       )}
       {activeTab === 'charts' && (
         room
           ? <HostChartsTab room={room} />
-          : <p className="text-sm text-slate-400">Loading room…</p>
+          : <p className="text-sm text-black">Loading room…</p>
       )}
       {activeTab === 'decisions' && (
         room
           ? <HostDecisionsTab room={room} />
-          : <p className="text-sm text-slate-400">Loading room…</p>
+          : <p className="text-sm text-black">Loading room…</p>
       )}
     </HostShell>
   );

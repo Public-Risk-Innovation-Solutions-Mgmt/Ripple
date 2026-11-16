@@ -135,9 +135,11 @@ function section(
  * ⚠ `liveDecisions` IS A PARAMETER BECAUSE gameState.currentDecisions IS NOT THE
  * PLAYER'S BAR, AND THIS PAGE EXISTS TO SHOW THE CONSEQUENCE OF THAT BAR.
  *
- * Locking a year replaces gameState.currentDecisions with defaultDecisionSet for
- * the next one, and the decisions the player is actually editing live in the
- * shell's own state until they commit. So this memo read the DEFAULT renewal
+ * Locking a year replaced gameState.currentDecisions with defaultDecisionSet for
+ * the next one (single player carries the played set instead since
+ * wip/carry-decisions; a hosted game's state still opens on the defaults, its
+ * team's set coming from session/client/decisions.ts), and the decisions the
+ * player is actually editing live in the shell's own state until they commit. So this memo read the DEFAULT renewal
  * threshold on every render after the first lock: the "who would be declined"
  * list was computed against a bar nobody set, and with the default bar nothing
  * is declined — the page said "renew every member" whatever the player chose.
@@ -215,7 +217,7 @@ export function buildUnderwritingMemo(gameState: GameState, liveDecisions?: Deci
 
     // THE SAME FUNCTION THE ENGINE CALLS, so the list is the list the year will
     // apply rather than a second reading of the rule.
-    const cut = currentDecisions.byLine[line]?.renewalsDeclined ?? 0;
+    const cut = currentDecisions.byLine[line]?.nonRenewal ?? 0;
     const overBar = renewalDeclines(members, line, history, currentYearNumber, cut)
       .map(dec => ({ dec, member: members.find(x => x.id === dec.memberId) }))
       .filter((x): x is { dec: RenewalDecision; member: Member } => x.member !== undefined);

@@ -43,24 +43,37 @@
 import type {
   AdvanceRequest, AdvanceResponse,
   CallerRole, CallerView,
+  CreateHandoffRequest, CreateHandoffResponse,
   EventStatus,
   ListEventsResponse, LobbyEvent,
   SetEventHiddenRequest, SetEventHiddenResponse,
+  EditGameRequest, EditGameResponse, GameEdit,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
-  PriorDevelopment,
+  MarketLevel, MarketLockInput, StoredMarketYear,
+  PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
+  ReclaimTeamRequest, ReclaimTeamResponse,
   RoomStatus, RoomView,
+  SaveDraftRequest, SaveDraftResponse,
   ScheduledShockSpec,
   SessionTransport,
   TeamYearSummary,
   SubmitRequest, SubmitResponse,
   TeamView,
+  UndoLockRequest, UndoLockResponse,
 } from './contract';
-import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
+import {
+  SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
+  normalizeRecoveryCode, eventStatusOf, mayCreateTeam, teamNumbers,
+} from './contract';
 import { Faults } from './faults';
+import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
+import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
+import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../utils/gameEdits';
+import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, teamMarketByYear, validMarketLockInput } from './market';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
 // /health used to report `store.length` as the room count, which was true while
@@ -179,6 +192,103 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PIN_ALPHABET = '0123456789';
 const PIN_LENGTH = 6;
 
+// ⚠ DUPLICATED IN server/dynamo.ts, NOT IMPORTED — same reasoning as
+// PIN_ALPHABET above: that file must stay importable with nothing
+// browser-reaching it. Reuses the same digit alphabet as the viewer PIN — a
+// recovery code is also read off a screen and typed on a different device.
+//
+// ⚠ 4 DIGITS, NOT THE 12-CHARACTER/60-BIT CODE RECOVERY-CODE GUIDES OFTEN
+// SPEC — confirmed with the user as a deliberate reduction for this project.
+// This secret rotates a team's bearer token (full control, not just
+// viewing), so the 5-attempts/15-minute limiter below is this code's PRIMARY
+// defense, not a backstop on top of real entropy.
+const RECOVERY_CODE_LENGTH = 4;
+
+function newRecoveryCode(): string {
+  return randomFrom(PIN_ALPHABET, RECOVERY_CODE_LENGTH);
+}
+
+// ⚠ reclaimTeam's ATTEMPT LIMITER — a localStorage equivalent of keys.ts's
+// attemptSk/server/rooms.ts's ATTEMPT# item. No native TTL here, so the fixed
+// window is checked by hand: a record's windowStartMs is set once, on its
+// first failure, and never moved by a later one — the same if_not_exists
+// semantic the DynamoDB write uses, worked out explicitly because
+// localStorage has neither an ADD nor an if_not_exists.
+const ATTEMPT_PREFIX = 'ripple.session.v1.attempt.';
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_RECLAIM_ATTEMPTS = 5;
+
+interface AttemptRecord {
+  count: number;
+  windowStartMs: number;
+}
+
+// Keyed by team NAME, not a teamId — this file has no teamId, and a team's
+// name IS its local identity (see keys.ts's note on the hosted side's teamId
+// existing only because names are not safe DynamoDB keys).
+function attemptKeyFor(code: string, teamName: string): string {
+  return `${ATTEMPT_PREFIX}${code}.${teamName}`;
+}
+
+function loadAttempt(key: string): AttemptRecord | null {
+  const raw = storage().getItem(key);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as AttemptRecord;
+  } catch {
+    return null;
+  }
+}
+
+function recordAttemptFailure(key: string): void {
+  const now = Date.now();
+  const existing = loadAttempt(key);
+  const fresh = !existing || now - existing.windowStartMs > ATTEMPT_WINDOW_MS;
+  const next: AttemptRecord = fresh
+    ? { count: 1, windowStartMs: now }
+    : { count: existing.count + 1, windowStartMs: existing.windowStartMs };
+  storage().setItem(key, JSON.stringify(next));
+}
+
+function isReclaimBlocked(key: string): boolean {
+  const a = loadAttempt(key);
+  return !!a && a.count >= MAX_RECLAIM_ATTEMPTS && Date.now() - a.windowStartMs <= ATTEMPT_WINDOW_MS;
+}
+
+// ⚠ THE HOST HAND-OFF INDEX — keys.ts's handoffSk, worked out here by hand.
+// Same-partition there (ROOM#<code> / HANDOFF#<hash>); here it is simply its
+// own flat key, since this file has no concept of a partition to nest it in.
+// PLAIN, NOT HASHED — same reasoning recoveryHash already documents: no
+// network boundary separates the comparison from an attacker here, so a
+// stored hash would buy nothing a plain value does not already have.
+const HANDOFF_PREFIX = 'ripple.session.v1.handoff.';
+const HANDOFF_WINDOW_MS = 10 * 60 * 1000;
+
+interface HandoffRecord {
+  teamName: string;
+  expiresAtMs: number;
+}
+
+function handoffKeyFor(code: string, handoffToken: string): string {
+  return `${HANDOFF_PREFIX}${code}.${handoffToken}`;
+}
+
+/** The team a hand-off token names, or null if it never existed or has expired. */
+function resolveHandoff(code: string, handoffToken: string): string | null {
+  const raw = storage().getItem(handoffKeyFor(code, handoffToken));
+  if (raw === null) return null;
+  try {
+    const record = JSON.parse(raw) as HandoffRecord;
+    // ⚠ CHECKED HERE, NOT LEFT TO EXPIRE ON ITS OWN — localStorage has no TTL
+    // at all, so an item this file does not delete itself would sit there
+    // forever; the stamp is what makes it actually stop working on time.
+    if (record.expiresAtMs <= Date.now()) return null;
+    return record.teamName;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- records
 
 // What is actually stored. Holds the SECRETS (host token, team tokens) and every
@@ -197,14 +307,57 @@ interface TeamRecord {
    * the way `token` is.
    */
   pin?: string;
+  /**
+   * ⚠ NOT ACTUALLY HASHED HERE, AND THE FIELD NAME SAYS SO ONLY FOR NAMING
+   * PARITY WITH server/views.ts's RosterEntry — same distinction keys.ts
+   * already draws for the player token: the local implementation keys on the
+   * secret itself, no worse than the room record beside it already holding
+   * other secrets in the clear in the same localStorage. Holds
+   * normalizeRecoveryCode(code) directly. A true hash would need
+   * crypto.subtle.digest, which is ASYNC — incompatible with this file's
+   * `work MUST STAY SYNCHRONOUS` invariant for exclusive calls — and buys
+   * nothing against a timing attack that does not exist locally (no network
+   * round trip separates the comparison from an attacker).
+   */
+  recoveryHash?: string;
+  /**
+   * The team's number in the room (contract teamNumbers): given at join, never
+   * changed. ⚠ OPTIONAL ON THE RECORD: a team written before numbers existed has
+   * none, and loadRoom numbers it by join order.
+   */
+  teamNumber?: number;
   joined: boolean;
   lockedYear: number | null;
+  /**
+   * ⚠ MIRRORS server/views.ts's RosterEntry.lockedYears — added for undoLock.
+   * Before it existed, `decisionsByYear[year] !== undefined` WAS "locked for
+   * year" (storeSharesIfComplete's own inline check), which is exactly what
+   * undoLock must stop being true: it deliberately leaves `decisionsByYear`
+   * untouched (so a team's form reopens on what it submitted, not a reset),
+   * so "locked" needs a flag independent of "has decisions on file." Year
+   * number (as a string key) -> whether the team is currently locked for it.
+   */
+  lockedYears?: Record<string, boolean>;
   // Year number (as a string key, per JSON) -> that year's submitted decisions.
   // Stored whole and never read here (uw-hybrid's two sliders changed only
   // contract.ts's shape, not this store).
   decisionsByYear: Record<string, JsonValue>;
+  /**
+   * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING, AND ONE SLOT, NOT A
+   * HISTORY LIKE decisionsByYear ABOVE. A team has at most one live draft, for
+   * whichever year the room is currently deciding; saveDraft overwrites this
+   * whole, submit's decisions branch deletes it (see submit() — that is what
+   * makes a locked year always win over its draft).
+   */
+  draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
   // Year number (as a string key, per JSON) -> that year's posted summary.
   resultsByYear: Record<string, TeamYearSummary>;
+  /**
+   * MARKET COMPETITION: the market input sent with each lock (MarketLockInput),
+   * by year. The advance's market step reads the latest at or before the year.
+   * Absent on a team that never locked with the market on.
+   */
+  marketInputByYear?: Record<string, MarketLockInput>;
 }
 
 interface ViewerRecord {
@@ -227,12 +380,25 @@ interface RoomRecord {
   // stays readable rather than rendering an empty game.
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
+  developmentLevels?: DevelopmentLevels;
+  /** Mid-game edits (EditGameRequest): the levels in force by year, the pinned switch, the history. Absent until edited. */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
+  shocksOn?: boolean;
+  editHistory?: GameEdit[];
   /** Taken off the lobby by the host. Absent reads as false — see the contract. */
   hidden?: boolean;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamRecord[];
+  /** The number the room gives its next team. ⚠ Absent on a room written before numbers existed. */
+  nextTeamNumber?: number;
   viewers: ViewerRecord[];
+  /** Every year's room market shares, as each year completed — see RoomMarketShares. */
+  marketSharesByYear?: RoomSharesByYear;
+  /** Market competition's level. ⚠ Absent on a room written before it existed: reads 'off'. */
+  market?: MarketLevel;
+  /** Every year's market step, stored once by advance (StoredMarketYear). */
+  marketByYear?: Record<string, StoredMarketYear>;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -292,16 +458,31 @@ function storage(): Storage {
   }
 }
 
+// Rooms loaded with team numbers given in memory but not yet saved — an older
+// room, numbered by join order on load; `read` saves them (see read).
+const numberedOnLoad = new WeakSet<RoomRecord>();
+
 function loadRoom(code: string): RoomRecord {
   const raw = storage().getItem(KEY_PREFIX + code);
   if (raw === null) {
     throw new SessionError('ROOM_NOT_FOUND', `No room with code ${code}.`);
   }
+  let room: RoomRecord;
   try {
-    return JSON.parse(raw) as RoomRecord;
+    room = JSON.parse(raw) as RoomRecord;
   } catch {
     throw new SessionError('TRANSPORT_FAILURE', `The stored room ${code} is unreadable.`);
   }
+  // ⚠ TEAM NUMBERS, GIVEN TO AN OLDER ROOM BY JOIN ORDER (contract teamNumbers).
+  // room.teams is already in join order. Every path that saves the room keeps
+  // them; a read saves them itself.
+  const { numbers, next } = teamNumbers(room.teams, room.nextTeamNumber);
+  if (room.nextTeamNumber !== next || room.teams.some((t, i) => t.teamNumber !== numbers[i])) {
+    room.teams.forEach((t, i) => { t.teamNumber = numbers[i]; });
+    room.nextTeamNumber = next;
+    numberedOnLoad.add(room);
+  }
+  return room;
 }
 
 function saveRoom(room: RoomRecord): void {
@@ -368,10 +549,18 @@ function summaryFor(s: TeamYearSummary, role: CallerRole): TeamYearSummary {
   return rest;
 }
 
-function teamView(t: TeamRecord, currentYear: number, role: CallerRole): TeamView {
-  const results = Object.entries(t.resultsByYear);
+// ⚠ THE OVER-SEND ABOVE IS CLOSED NOW (room market share): resultsByYear goes to
+// the host for every team, to a player or viewer for its own team only, and to
+// an anonymous caller for none — what the DynamoDB transport's role-keyed Query
+// already did (keys.ts, READ). Players never see another team's figures, which
+// the room market share would otherwise have handed them by a side door.
+function teamView(t: TeamRecord, currentYear: number, role: CallerRole, ownTeam?: string): TeamView {
+  const sees = role === 'host' || ((role === 'player' || role === 'viewer') && t.name === ownTeam);
+  const results = sees ? Object.entries(t.resultsByYear) : [];
   return {
     name: t.name,
+    // Given on load to any team without one, so always present here.
+    teamNumber: t.teamNumber ?? 0,
     lines: [...t.lines],
     joined: t.joined,
     lockedYear: t.lockedYear,
@@ -387,7 +576,7 @@ function teamView(t: TeamRecord, currentYear: number, role: CallerRole): TeamVie
 }
 
 // `role` defaults to the restrictive case on purpose — see summaryFor.
-function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
+function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: string): RoomView {
   return {
     code: room.code,
     status: statusOf(room),
@@ -398,6 +587,13 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
     // with an empty game.
     lines: [...(room.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(room.priorDevelopment ?? {}) },
+    ...(room.developmentLevels ? { developmentLevels: { ...room.developmentLevels } } : {}),
+    ...(room.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(room.developmentLevelsByYear)) } : {}),
+    ...(room.shocksOn !== undefined ? { shocksOn: room.shocksOn } : {}),
+    ...(role === 'host' && room.editHistory ? { editHistory: room.editHistory.map(e => ({ ...e })) } : {}),
+    // Market competition: absent on an older room, which reads 'off' — shown as off, not omitted.
+    market: marketLevelOf(room.market),
+    ...(role === 'host' && room.marketByYear ? { marketByYear: JSON.parse(JSON.stringify(room.marketByYear)) } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
     poolName: room.poolName || room.eventName,
@@ -406,7 +602,18 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
     expectedTeams: room.expectedTeams,
     currentYear: room.currentYear,
     shocks: room.shocks.map(s => ({ ...s })),
-    teams: room.teams.map(t => teamView(t, room.currentYear, role)),
+    teams: room.teams.map(t => teamView(t, room.currentYear, role, ownTeam)),
+    // Host only, the latest known year's: every other caller gets its own team's on CallerView.
+    ...(role === 'host' && shownShares(room, room.marketSharesByYear)
+      ? { marketShares: shownShares(room, room.marketSharesByYear) } : {}),
+    // EVERY TEAM'S STANDING, a player's or a viewer's (the Market Survey tab):
+    // the host's table's figures alone, built as the server builds them.
+    ...(role === 'player' || role === 'viewer'
+      ? { standings: buildStandings(
+        room.teams.map(t => ({ name: t.name, teamNumber: t.teamNumber ?? 0, lines: t.lines, results: t.resultsByYear })),
+        room.currentYear,
+        shownShares(room, room.marketSharesByYear),
+      ) } : {}),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     rev: room.rev,
@@ -435,9 +642,13 @@ function callerOf(room: RoomRecord, token: string | undefined): { role: CallerRo
   throw new SessionError('BAD_TOKEN', 'That token does not belong to this room.');
 }
 
-function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
+function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord): CallerView {
   const view: CallerView = { role };
   if (!team) return view;
+
+  const shown = room ? shownShares(room, room.marketSharesByYear) : undefined;
+  const share = shown?.byTeam[team.name];
+  if (shown && share) view.marketShare = { year: shown.year, pool: share.pool, byLine: { ...share.byLine } };
 
   view.teamName = team.name;
   view.lines = [...team.lines];
@@ -448,6 +659,15 @@ function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
   if (Object.keys(team.decisionsByYear).length > 0) {
     view.decisionsByYear = { ...team.decisionsByYear };
   }
+  // ⚠ PLAYER ONLY, NOT A VIEWER — callerView is called with the SAME team
+  // object for a viewer watching it, so the role check is what keeps a
+  // viewer from ever seeing a draft it has no form to restore into.
+  if (role === 'player' && room && team.draft && team.draft.yearNumber === room.currentYear) {
+    view.draft = { ...team.draft };
+  }
+  // The team's own market results — a player's and its viewers' — for its game to play and replay.
+  const market = teamMarketByYear(room?.marketByYear, team.name);
+  if (market) view.marketByYear = JSON.parse(JSON.stringify(market));
   const postedYears = Object.keys(team.resultsByYear)
     .map(Number)
     .filter(Number.isFinite)
@@ -467,6 +687,39 @@ function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
     view.lastResultYear = played;
   }
   return view;
+}
+
+// ---------------------------------------------------------------- market competition
+
+/** The team's latest locked market input at or before `year` (the market counts a team that did not lock at its last lock). */
+function latestMarketInput(t: TeamRecord, year: number): { year: number; input: MarketLockInput } | undefined {
+  for (let y = year; y >= 1; y--) {
+    const k = String(y);
+    const locked = t.lockedYears ? t.lockedYears[k] === true : t.decisionsByYear[k] !== undefined;
+    const input = t.marketInputByYear?.[k];
+    if (locked && input) return { year: y, input };
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------- market share
+
+// ⚠ IN THE SUBMIT THAT COMPLETES THE YEAR. See RoomMarketShares: the set for a
+// played year is written once, when the last team that locked that year posts
+// it; year 0 is rewritten as opening posts arrive. Every year's set is kept;
+// a reader shows the latest known year's (shownShares).
+function storeSharesIfComplete(room: RoomRecord, year: number): void {
+  const set = roomSharesFor(year, room.teams.filter(t => t.joined).map(t => ({
+    name: t.name,
+    // ⚠ THE FLAG, PREFERRED OVER INFERENCE — same fallback shape rooms.ts's
+    // own storeSharesIfComplete already uses. A team written before
+    // lockedYears existed has none, and keeps reading "locked" from whether
+    // it has decisions on file, same as every room did before undoLock.
+    lockedYear: t.lockedYears ? t.lockedYears[String(year)] === true : t.decisionsByYear[String(year)] !== undefined,
+    results: t.resultsByYear,
+  })), room.lines ?? LINE_ORDER);
+  if (!set || !mayStoreShares(room.marketSharesByYear, year, Object.keys(set.byTeam).length)) return;
+  room.marketSharesByYear = { ...(room.marketSharesByYear ?? {}), [String(year)]: set.byTeam };
 }
 
 // ---------------------------------------------------------------- locking
@@ -566,6 +819,26 @@ export class LocalSessionTransport implements SessionTransport {
         const v = req.priorDevelopment?.[l];
         if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
       }
+      // Adverse development levels (wip/adverse-development): a real level, or
+      // None ('Off'), per played line is kept; anything else is dropped, and
+      // reads the default.
+      const roomDevLevels: DevelopmentLevels = {};
+      for (const l of roomLines) {
+        const v = req.developmentLevels?.[l];
+        if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
+      }
+      // THE ADVANCED SETUP (pr/advanced-development): levels by year, checked by
+      // the rules Edit game shares; absent on a simple setup, which stores none.
+      let startByYear: Record<string, DevelopmentLevels> | undefined;
+      try {
+        startByYear = startingLevelsByYear(req.developmentLevelsByYear, req.yearCount, roomLines);
+      } catch (e) {
+        if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+        throw e;
+      }
+      // Market competition: absent reads 'off' (the form always sends the host's choice).
+      const market = requestedMarketLevel(req.market);
+      if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
 
       const store = storage();
 
@@ -599,12 +872,16 @@ export class LocalSessionTransport implements SessionTransport {
         expectedTeams: req.expectedTeams,
         lines: roomLines,
         priorDevelopment: roomPriorDev,
+          developmentLevels: roomDevLevels,
+        ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
+        ...(market !== 'off' ? { market } : {}),
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
         // advance, because a team's name and its coverage lines are one act of
         // setup performed by the team itself.
         teams: [],
+        nextTeamNumber: 1,
         viewers: [],
         createdAt: now,
         updatedAt: now,
@@ -675,7 +952,7 @@ export class LocalSessionTransport implements SessionTransport {
         if (existing) {
           // ⚠ NO pin HERE — a viewer's JoinResponse never carries one. See
           // JoinResponse.pin: only the team's own player ever learns it.
-          return { teamToken: existing.token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: true, room: roomView(room) };
+          return { teamToken: existing.token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: true, room: roomView(room, 'viewer', team.name) };
         }
         // ⚠ THE CALLER'S OWN TOKEN WHEN IT SUPPLIED ONE, so a retried viewer
         // join lands on the `existing` branch above instead of stacking a
@@ -684,7 +961,7 @@ export class LocalSessionTransport implements SessionTransport {
         if (req.token) assertTokenFree(room, req.token);
         room.viewers.push({ token, teamName: team.name });
         saveRoom(room);
-        return { teamToken: token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: false, room: roomView(room) };
+        return { teamToken: token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: false, room: roomView(room, 'viewer', team.name) };
       }
 
       // ---- a player, on a team that already exists ------------------------
@@ -702,7 +979,7 @@ export class LocalSessionTransport implements SessionTransport {
           // ⚠ pin, AGAIN, EVERY REJOIN — not only on create, so a reloaded
           // player's screen can show it without a second lookup. Absent only
           // for a team created before this field existed.
-          return { teamToken: team.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room) };
+          return { teamToken: team.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name) };
         }
         // The name is the identity now, so a second person arriving with a name
         // already in the room is a COLLISION rather than a claim on a seat.
@@ -757,6 +1034,12 @@ export class LocalSessionTransport implements SessionTransport {
       for (let i = 0; store.getItem(PIN_PREFIX + pin) !== null && i < 50; i++) {
         pin = randomFrom(PIN_ALPHABET, PIN_LENGTH);
       }
+      // A recovery code for getting this team back from a new device if this
+      // one is lost — see contract.ts's JoinResponse.recoveryCode. Only its
+      // normalized form is ever stored (see TeamRecord.recoveryHash); the
+      // plaintext is returned once, below, and nowhere else.
+      const recoveryCode = newRecoveryCode();
+      const recoveryHash = normalizeRecoveryCode(recoveryCode);
       const created: TeamRecord = {
         name,
         // Canonical WC/GL/Property order regardless of click sequence, so two
@@ -764,11 +1047,16 @@ export class LocalSessionTransport implements SessionTransport {
         lines: LINE_ORDER.filter(l => lines.includes(l)),
         token,
         pin,
+        recoveryHash,
+        // The room's next number, which loadRoom has made one past every number given.
+        teamNumber: room.nextTeamNumber ?? teamNumbers(room.teams).next,
         joined: true,
         lockedYear: null,
+        lockedYears: {},
         decisionsByYear: {},
         resultsByYear: {},
       };
+      room.nextTeamNumber = created.teamNumber! + 1;
       room.teams.push(created);
       saveRoom(room);
       store.setItem(PIN_PREFIX + pin, JSON.stringify({ code: room.code, teamName: created.name } satisfies PinIndexEntry));
@@ -776,7 +1064,150 @@ export class LocalSessionTransport implements SessionTransport {
       // lobby shows it — a listing that said "0 teams so far" under a room six
       // people had joined would be worse than no count at all.
       updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
-      return { teamToken: token, teamName: created.name, lines: [...created.lines], pin, role: 'player' as const, rejoined: false, room: roomView(room) };
+      return {
+        teamToken: token, teamName: created.name, lines: [...created.lines], pin, recoveryCode,
+        role: 'player' as const, rejoined: false, room: roomView(room, 'player', created.name),
+      };
+    }, true);
+  }
+
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
+    return this.call(() => {
+      if (typeof req.code !== 'string') throw new SessionError('INVALID_REQUEST', 'code must be a string.');
+      if (!SESSION_TOKEN_PATTERN.test(req.token)) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs a valid new device token.');
+      }
+      // ⚠ EXACTLY ONE SECRET. See contract.ts's ReclaimTeamRequest.
+      const hasRecoveryCode = req.recoveryCode !== undefined;
+      const hasHandoffToken = req.handoffToken !== undefined;
+      if (hasRecoveryCode === hasHandoffToken) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs exactly one of recoveryCode or handoffToken.');
+      }
+
+      const room = loadRoom(req.code);
+
+      // ⚠ IDEMPOTENCY, CHECKED FIRST, BY TOKEN ALONE — covers BOTH secrets,
+      // same reasoning as server/rooms.ts's reclaimTeam. A handoff reclaim
+      // that is retried can no longer re-resolve the team through its
+      // (now-consumed) handoff record, but it can always be found by the
+      // token it already holds.
+      const already = room.teams.find(t => t.token === req.token);
+      if (already) {
+        return { teamToken: req.token, teamName: already.name, lines: [...already.lines], pin: already.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', already.name) };
+      }
+
+      let team: TeamRecord;
+      let reissuedRecoveryCode: string | undefined;
+      let handoffKey: string | undefined;
+
+      if (hasHandoffToken) {
+        if (typeof req.handoffToken !== 'string') throw new SessionError('INVALID_REQUEST', 'handoffToken must be a string.');
+        const teamName = resolveHandoff(room.code, req.handoffToken);
+        if (teamName === null) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link is invalid or has expired.');
+        }
+        const entry = room.teams.find(t => t.name === teamName);
+        if (!entry) throw new SessionError('TEAM_NOT_FOUND', 'That team no longer exists in this room.');
+        // ⚠ A DEFENSIVE CROSS-CHECK, NOT THE NORMAL PATH — see contract.ts.
+        if (typeof req.teamName === 'string' && req.teamName.trim() !== entry.name) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link does not match the team named.');
+        }
+        team = entry;
+        reissuedRecoveryCode = newRecoveryCode();
+        handoffKey = handoffKeyFor(room.code, req.handoffToken);
+        // No attempt-limiter touch, no hash compare — resolving the real
+        // handoff record already IS the authentication. See
+        // server/rooms.ts's reclaimTeam for the full reasoning.
+      } else {
+        if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+        if (typeof req.recoveryCode !== 'string') throw new SessionError('INVALID_REQUEST', 'recoveryCode must be a string.');
+        const name = req.teamName.trim();
+        const found = room.teams.find(t => t.name === name);
+        if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+        team = found;
+
+        const key = attemptKeyFor(room.code, name);
+        if (isReclaimBlocked(key)) {
+          throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
+        }
+
+        const presented = normalizeRecoveryCode(req.recoveryCode);
+        if (team.recoveryHash === undefined || team.recoveryHash !== presented) {
+          recordAttemptFailure(key);
+          throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+        }
+      }
+
+      assertTokenFree(room, req.token);
+      team.token = req.token;
+      // ⚠ ONLY ON THE HANDOFF PATH — the recoveryCode path never touches the
+      // team's existing code.
+      if (reissuedRecoveryCode) team.recoveryHash = normalizeRecoveryCode(reissuedRecoveryCode);
+      saveRoom(room);
+      if (handoffKey) storage().removeItem(handoffKey);
+      else storage().removeItem(attemptKeyFor(room.code, team.name));
+      return {
+        teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin,
+        ...(reissuedRecoveryCode ? { recoveryCode: reissuedRecoveryCode } : {}),
+        role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name),
+      };
+    }, true); // exclusive — it mutates the room, same as join/submit/advance
+  }
+
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      // Authority first, as everywhere else here: a non-host must not learn
+      // anything about the room from the shape of the refusal. Same check
+      // setEventHidden already makes.
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') {
+        throw new SessionError('NOT_HOST', 'Only the host may hand off a team.');
+      }
+      if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+      const name = req.teamName.trim();
+      const team = room.teams.find(t => t.name === name);
+      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+
+      const handoffToken = newSessionToken();
+      const expiresAtMs = Date.now() + HANDOFF_WINDOW_MS;
+      storage().setItem(
+        handoffKeyFor(room.code, handoffToken),
+        JSON.stringify({ teamName: team.name, expiresAtMs } satisfies HandoffRecord),
+      );
+      return { handoffToken, expiresAtSec: Math.floor(expiresAtMs / 1000) };
+    }, true); // exclusive — reads then writes the room's secret-adjacent index
+  }
+
+  /**
+   * ⚠ A HOST ACTION, NOT A TEAM ONE — see contract.ts's UndoLockRequest.
+   * Leaves decisionsByYear untouched, same reasoning as server/rooms.ts's
+   * own undoLock: the team's form reopens on what it submitted, not a reset.
+   */
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') {
+        throw new SessionError('NOT_HOST', 'Only the host may undo a lock.');
+      }
+      if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+      const name = req.teamName.trim();
+      const team = room.teams.find(t => t.name === name);
+      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      if (req.yearNumber !== room.currentYear) {
+        throw new SessionError(
+          'WRONG_YEAR',
+          `The room is on year ${room.currentYear}; that lock is for year ${req.yearNumber}.`,
+        );
+      }
+      if (team.lockedYear !== room.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is not locked, so there is nothing to undo.');
+      }
+      team.lockedYear = null;
+      if (team.lockedYears) team.lockedYears[String(req.yearNumber)] = false;
+      saveRoom(room);
+      return { room: roomView(room) };
     }, true);
   }
 
@@ -801,11 +1232,39 @@ export class LocalSessionTransport implements SessionTransport {
             `The room is on year ${room.currentYear}; those decisions are for year ${req.yearNumber}.`,
           );
         }
+        // ⚠ REAL LOCKING (pr/market-competition). A team locked for the year may
+        // not send a different set; the host unlocks it first (undoLock). The
+        // SAME set again is a retry of a lost response and succeeds unchanged.
+        const y = String(req.yearNumber);
+        const lockedNow = team.lockedYears ? team.lockedYears[y] === true : team.lockedYear === req.yearNumber;
+        const market = marketLevelOf(room.market) !== 'off'
+          ? validMarketLockInput(req.market, room.lines ?? LINE_ORDER) : undefined;
+        if (market === null) {
+          throw new SessionError('INVALID_REQUEST', 'A lock in a room with market competition needs its rates and book.');
+        }
+        if (lockedNow) {
+          const same = JSON.stringify(team.decisionsByYear[y]) === JSON.stringify(req.decisions)
+            && JSON.stringify(team.marketInputByYear?.[y]) === JSON.stringify(market);
+          if (!same) {
+            throw new SessionError('ALREADY_LOCKED', `${team.name} has already locked year ${req.yearNumber}; the host must unlock it first.`);
+          }
+        }
         // ⚠ RECORDED AGAINST ITS YEAR, NOT INTO A SLOT. Re-submitting the same
         // year overwrites that year and leaves every other year alone, which is
         // what makes a reload able to replay what was actually played.
         team.decisionsByYear[String(req.yearNumber)] = req.decisions;
+        if (market) {
+          if (!team.marketInputByYear) team.marketInputByYear = {};
+          team.marketInputByYear[y] = market;
+        }
         team.lockedYear = req.yearNumber;
+        if (!team.lockedYears) team.lockedYears = {};
+        team.lockedYears[String(req.yearNumber)] = true;
+        // ⚠ THE DRAFT DIES WITH THE LOCK. A locked year always wins over its
+        // draft (contract.ts's CallerView.draft) — deleting it here, in the
+        // same saveRoom this whole method already ends with, is what makes
+        // that true rather than merely usually true.
+        delete team.draft;
       }
 
       if (req.result !== undefined) {
@@ -832,10 +1291,42 @@ export class LocalSessionTransport implements SessionTransport {
         // ⚠ RECORDED AGAINST ITS YEAR. A re-post of the same year (which a
         // reloaded tab does) replaces that year and leaves every other alone.
         team.resultsByYear[String(req.yearNumber)] = req.result;
+        storeSharesIfComplete(room, req.yearNumber);
       }
 
       saveRoom(room);
-      return { room: roomView(room, role), you: callerView(role, team) };
+      return { room: roomView(room, role, team.name), you: callerView(role, team, room) };
+    }, true);
+  }
+
+  /**
+   * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. NOT submit: this never
+   * locks a year and is not a second way to edit one already locked — see
+   * SaveDraftRequest. Mirrors server/rooms.ts's saveDraft rule for rule: the
+   * same WRONG_YEAR/INVALID_REQUEST guards, checked against this room rather
+   * than conditioned, since there is nothing here for a condition to race
+   * against (navigator.locks already makes this whole call exclusive).
+   */
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role, team } = callerOf(room, req.token);
+      if (role !== 'player' || !team) {
+        throw new SessionError('BAD_TOKEN', 'Only a team player may save a draft.');
+      }
+      if (req.yearNumber !== room.currentYear) {
+        throw new SessionError(
+          'WRONG_YEAR',
+          `The room is on year ${room.currentYear}; that draft is for year ${req.yearNumber}.`,
+        );
+      }
+      if (team.lockedYear === room.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is already locked in — a draft cannot replace it.');
+      }
+      const savedAt = Date.now();
+      team.draft = { yearNumber: req.yearNumber, decisions: req.decisions, savedAt };
+      saveRoom(room);
+      return { savedAt };
     }, true);
   }
 
@@ -964,6 +1455,38 @@ export class LocalSessionTransport implements SessionTransport {
     }, true);
   }
 
+  editGame(req: EditGameRequest): Promise<EditGameResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') throw new SessionError('NOT_HOST', 'Only the host may change the game.');
+      if (room.currentYear > room.yearCount) throw new SessionError('GAME_COMPLETE', 'The game is over: no year is left to change.');
+      if (!req.years || typeof req.years !== 'object') throw new SessionError('INVALID_REQUEST', 'years must be an object of year settings.');
+      const lines = room.lines ?? LINE_ORDER;
+      let out;
+      try {
+        out = applyGameEdit(
+          { developmentLevels: room.developmentLevels ?? {}, developmentLevelsByYear: room.developmentLevelsByYear, shocks: room.shocks },
+          req.years,
+          { firstEditable: room.currentYear, yearCount: room.yearCount, lines, by: 'Host', now: Date.now() },
+        );
+      } catch (e) {
+        if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+        throw e;
+      }
+      const lockedTeams = room.teams.filter(t => t.lockedYear === room.currentYear).map(t => t.name);
+      if (out.edits.length > 0) {
+        // The switch is pinned from the schedule AS IT STOOD before the first edit.
+        if (room.shocksOn === undefined) room.shocksOn = room.shocks.length > 0;
+        room.shocks = out.settings.shocks;
+        if (out.settings.developmentLevelsByYear) room.developmentLevelsByYear = out.settings.developmentLevelsByYear;
+        room.editHistory = [...(room.editHistory ?? []), ...out.edits];
+        saveRoom(room);
+      }
+      return { room: roomView(room, 'host'), edits: out.edits, lockedTeams };
+    }, true);
+  }
+
   advance(req: AdvanceRequest): Promise<AdvanceResponse> {
     return this.call(() => {
       const room = loadRoom(req.code);
@@ -992,6 +1515,29 @@ export class LocalSessionTransport implements SessionTransport {
         );
       }
 
+      // ⚠ A TEAM UNLOCKED AND NOT RE-LOCKED PLAYS ITS PREVIOUS LOCKED DECISIONS
+      // (real locking). undoLock keeps the set it had sent so its form reopens on
+      // it; if the team never locks it again, it never counted — drop it, so the
+      // replay (decisionsForYear) and the market both read the last lock.
+      const y = String(room.currentYear);
+      for (const t of room.teams) {
+        if (t.lockedYears?.[y] === false) {
+          delete t.decisionsByYear[y];
+          if (t.marketInputByYear) delete t.marketInputByYear[y];
+        }
+      }
+      // MARKET COMPETITION: the year's market step, stored once, with the advance.
+      const level = marketLevelOf(room.market);
+      if (level !== 'off') {
+        const stored = marketYearForAdvance({
+          code: room.code, seed: room.seed, level, lines: room.lines ?? LINE_ORDER, year: room.currentYear,
+          roster: room.teams.filter(t => t.joined).map(t => ({
+            name: t.name, teamNumber: t.teamNumber ?? 0, latest: latestMarketInput(t, room.currentYear),
+          })),
+          previous: room.marketByYear?.[String(room.currentYear - 1)],
+        });
+        room.marketByYear = { ...(room.marketByYear ?? {}), [y]: stored };
+      }
       room.currentYear += 1;
       saveRoom(room);
       // START and FINISH, the second and third of the four moments. Both are
@@ -1007,8 +1553,11 @@ export class LocalSessionTransport implements SessionTransport {
   read(req: ReadRequest): Promise<ReadResponse> {
     return this.call(() => {
       const room = loadRoom(req.code);
+      // An older room numbered on this load is saved with its numbers, so they
+      // never change after. ⚠ NO rev BUMP: the view is the same either way.
+      if (numberedOnLoad.has(room)) storage().setItem(KEY_PREFIX + room.code, JSON.stringify(room));
       const { role, team } = callerOf(room, req.token);
-      return { room: roomView(room, role), you: callerView(role, team) };
+      return { room: roomView(room, role, team?.name), you: callerView(role, team, room) };
     });
   }
 }

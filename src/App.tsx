@@ -2,10 +2,12 @@ import React, { useState, useCallback } from 'react';
 
 import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, CoverageLine, LineView } from './types/simulation';
 import { openSoloInstance } from './utils/soloGame';
+import type { ScheduledShock } from './types/shocks';
 import { gameShocksOn } from './utils/shockLosses';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
+import { carryDecisions } from './utils/carryDecisions';
 import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SavedGame, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
 import { restoreSavedGame } from './utils/saveRestore';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
@@ -19,6 +21,9 @@ import SetupPage from './pages/SetupPage';
 // processes the year immediately. The session player screen is the second
 // caller and owns a different advance. Neither owns a copy of the game.
 import GameShell from './game/GameShell';
+import { EditGamePanel } from './components/EditGamePanel';
+import { editSoloGame } from './utils/soloGameEdit';
+import type { YearSettings } from './utils/gameEdits';
 import { openingRoster } from './game/openingRoster';
 
 export default function App() {
@@ -27,6 +32,8 @@ export default function App() {
   const [startingFinancials, setStartingFinancials] = useState<StartingFinancials | null>(null);
   const [initialMembers, setInitialMembers] = useState<Member[]>([]);
   const [currentDecisions, setCurrentDecisions] = useState<DecisionSet>(defaultDecisionSet(1));
+  // Test player's "Edit game" panel, open or closed (wip/mid-game-edits).
+  const [editOpen, setEditOpen] = useState(false);
   // A year that has been processed but is awaiting the player's loan decisions
   // before it can be committed (see handleAdvanceYear / handleResolveLoans).
   const [pendingYear, setPendingYear] = useState<WorldsYear | null>(null);
@@ -162,10 +169,10 @@ export default function App() {
     );
   }
 
-  const handleStartGame = useCallback((settings: GameSetupSettings) => {
-    // THE SHOCK SCHEDULE IS DRAWN HERE, ONCE, by the host's Randomise rule on the
-    // solo stream, and rides on the instance into the save and every world.
-    const { setup, instance } = openSoloInstance(settings);
+  const handleStartGame = useCallback((settings: GameSetupSettings, test?: { schedule: ScheduledShock[] }) => {
+    // THE SHOCK SCHEDULE IS DRAWN HERE, ONCE (or, for Test player, is the one the
+    // player set), and rides on the instance into the save and every world.
+    const { setup, instance } = openSoloInstance(settings, test);
     // Stage 2.10: each active line simulates its own 3-year pre-game past
     // through the real engine; the ending state is the Year 1 opening position.
     const { poolState, startingFinancials: sf, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
@@ -217,30 +224,25 @@ export default function App() {
     const result = settled.result;
     const nextYearNumber = baseGs.currentYearNumber + 1;
     const isComplete = nextYearNumber > baseGs.setup.gameLength;
-    // ⚠ RISK-CONTROL PROGRAMS ARE OPT-OUT: a program that ran this year arrives
-    // NEXT year already committed, and the player unticks it to stop. Every
-    // other decision resets to its default, which is right for a yearly choice
-    // and wrong for a multi-year commitment — nobody re-signs a safety
-    // consultant each January, and a commitment a player can end by forgetting
-    // is not a commitment.
+    // ⚠ EVERY DECISION CARRIES INTO THE NEXT YEAR, as a hosted team's does
+    // (carryDecisions.ts): the year opens on the set it was played on, and only
+    // the first year opens on the defaults. Single player and Test player both
+    // commit here.
     //
-    // ⚠ CARRIED FROM `result.decisions`, THE ENGINE'S OWN ECHO OF WHAT WAS
-    // PLAYED, not from `currentDecisions`. This function is handed the state it
+    // ⚠ CARRIED FROM `settled.played.decisions`, THE SET THE YEAR WAS PLAYED ON,
+    // not from `currentDecisions`. This function is handed the state it
     // committed; reading the live editing buffer instead would carry forward
-    // whatever the player had half-typed when the year locked. The echo is what
-    // the engine actually charged and benefited, so the carry-forward and the
-    // derived tenure read the same source.
+    // whatever the player had half-typed when the year locked.
     //
-    // ⚠ THIS IS THE ONLY PLACE THE OPT-OUT LIVES. The engine has no notion of
-    // continuing — it reads the list it is given. That keeps the default a UI
-    // policy rather than a rule buried in the loss draw, and it is why the
-    // pre-game (which runs on defaultDecisionSet) commits nothing.
-    const nextDecisions: DecisionSet = {
-      ...defaultDecisionSet(nextYearNumber, gameShocksOn(baseGs.setup, baseGs.instance)),
-      // Pool-wide, so it comes off the pool row's own `pool` field now rather
-      // than off a line's echo of it. Same list, named where it belongs.
-      riskControlProgramIds: [...(result.pool?.riskControlProgramIds ?? [])],
-    };
+    // ⚠ RISK-CONTROL PROGRAMS STILL COME OFF THE POOL ROW'S OWN ECHO
+    // (result.pool.riskControlProgramIds), which is what the engine actually
+    // charged and benefited, so the carry-forward and the derived tenure read
+    // the same source. The engine has no notion of continuing — it reads the
+    // list it is given — and the pre-game, which runs on defaultDecisionSet,
+    // commits nothing.
+    const nextDecisions: DecisionSet = carryDecisions(
+      settled.played.decisions, nextYearNumber, result.pool?.riskControlProgramIds ?? [],
+    );
 
     const newGs: GameState = {
       ...baseGs,
@@ -253,7 +255,9 @@ export default function App() {
     setGameState(newGs);
     setCurrentDecisions(nextDecisions);
     persistState(newGs, startingFinancials!, initialMembers, nextDecisions);
-    setActiveTab('results');
+    // The Annual Statement, the year just played: Results is hidden since the
+    // tab cleanup (tabs.tsx), and a hidden tab would fall back to Introduction.
+    setActiveTab('statement');
   }, [startingFinancials, initialMembers]);
 
   const handleAdvanceYear = useCallback(() => {
@@ -278,6 +282,16 @@ export default function App() {
     setPendingYear(null);
     commitYear(gameState, settled);
   }, [gameState, pendingYear, commitYear]);
+
+  // ⚠ TEST PLAYER'S MID-GAME EDIT (wip/mid-game-edits): the host's rules
+  // (editSoloGame -> applyGameEdit) on this game's own setup and instance, then
+  // saved at once, so a reload replays each year on what was in force in it.
+  const handleEditGame = useCallback(async (years: Record<string, YearSettings>) => {
+    if (!gameState || !startingFinancials) return;
+    const { gameState: next } = editSoloGame(gameState, years, Date.now());
+    setGameState(next);
+    persistState(next, startingFinancials, initialMembers, currentDecisions);
+  }, [gameState, startingFinancials, initialMembers, currentDecisions]);
 
   const handleNewGame = useCallback(() => {
     setGameState(null);
@@ -339,6 +353,33 @@ export default function App() {
       onNewGame={handleNewGame}
       onAdvanceYear={handleAdvanceYear}
       canAdvance={isStarted && !gameState?.isComplete}
+      showSeed={gameState?.setup.testPlayer === true}
+      statusStrip={gameState?.setup.testPlayer === true && gameState.isStarted && !gameState.isComplete ? (
+        <div data-testid="test-edit-strip" className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+          <button type="button" data-testid="test-edit-toggle" onClick={() => setEditOpen(o => !o)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">
+            {editOpen ? 'Close Edit game' : 'Edit game'}
+          </button>
+          {editOpen && (
+            <div className="mt-2">
+              <EditGamePanel
+                lines={gameState.setup.activeLines}
+                yearCount={gameState.setup.gameLength}
+                startingYear={gameState.setup.startingYear}
+                firstEditable={gameState.currentYearNumber}
+                settings={{
+                  developmentLevels: gameState.setup.developmentLevels ?? {},
+                  developmentLevelsByYear: gameState.setup.developmentLevelsByYear,
+                  shocks: (gameState.instance.scheduledShocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
+                }}
+                lockedTeams={[]}
+                history={gameState.setup.gameEdits ?? []}
+                onApply={handleEditGame}
+              />
+            </div>
+          )}
+        </div>
+      ) : undefined}
       setupPage={<SetupPage onStart={handleStartGame} />}
       loanPrompt={pendingYear
         ? <LoanPromptModal offers={pendingYear.loanOffers} onResolve={handleResolveLoans} />

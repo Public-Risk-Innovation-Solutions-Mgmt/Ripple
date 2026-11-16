@@ -21,7 +21,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Eye, KeyRound, LogOut, Play, Plus, Shield, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, KeyRound, LogOut, Play, Plus, RotateCcw, Shield, Trash2 } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
 import { newSessionToken } from '../contract';
 import { navigate } from '../client/navigation';
@@ -85,9 +85,103 @@ function WatchByPinModal({ onClose }: { onClose: () => void }) {
             type="button"
             disabled={joining || !pin.trim()}
             onClick={() => { void submit(); }}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
           >
             {joining ? 'Finding team…' : 'Watch'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ⚠ THREE FIELDS, NOT ONE — UNLIKE WatchByPinModal. A viewer PIN resolves
+// globally (keys.ts's PIN# index) with no room in hand; a recovery code has
+// no such index in this phase (contract.ts's ReclaimTeamRequest), so the room
+// code has to come from the caller the same way it always has everywhere
+// else in this app.
+function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
+  const [roomCode, setRoomCode] = useState('');
+  const [teamName, setTeamName] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [reclaiming, setReclaiming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setReclaiming(true);
+    setError(null);
+    try {
+      const token = newSessionToken();
+      const res = await sessionTransport().reclaimTeam({
+        code: roomCode.trim().toUpperCase(), teamName: teamName.trim(), recoveryCode: recoveryCode.trim(), token,
+      });
+      saveActive(res.room.code, { teamToken: res.teamToken, teamName: res.teamName, role: 'player', pin: res.pin });
+      rememberTeamCredential(res.room.code, { teamToken: res.teamToken, teamName: res.teamName, role: 'player', pin: res.pin });
+      navigate(`/join/${res.room.code}`);
+    } catch (e) {
+      setError(isSessionError(e) ? e.message : 'Could not reclaim that team.');
+    } finally {
+      setReclaiming(false);
+    }
+  }
+
+  const canSubmit = roomCode.trim() && teamName.trim() && recoveryCode.trim();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-slate-900">Reclaim a team</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          Lost your device? Enter the room code, your team&rsquo;s name, and its recovery code
+          to pick up where you left off on this one.
+        </p>
+        <div className="mt-4 space-y-2">
+          <input
+            type="text"
+            autoFocus
+            data-testid="reclaim-room-code"
+            value={roomCode}
+            onChange={e => setRoomCode(e.target.value)}
+            placeholder="Room code"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-sm uppercase tracking-widest text-slate-900"
+          />
+          <input
+            type="text"
+            data-testid="reclaim-team-name"
+            value={teamName}
+            onChange={e => setTeamName(e.target.value)}
+            placeholder="Team name"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            data-testid="reclaim-code"
+            value={recoveryCode}
+            onChange={e => setRecoveryCode(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && canSubmit && !reclaiming) void submit(); }}
+            placeholder="4-digit recovery code"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest text-slate-900"
+          />
+        </div>
+        {error && <p data-testid="reclaim-error" className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={reclaiming}
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            data-testid="submit-reclaim"
+            disabled={reclaiming || !canSubmit}
+            onClick={() => { void submit(); }}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {reclaiming ? 'Reclaiming…' : 'Reclaim'}
           </button>
         </div>
       </div>
@@ -138,6 +232,7 @@ export default function LobbyScreen() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showWatchByPin, setShowWatchByPin] = useState(false);
+  const [showReclaim, setShowReclaim] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -186,7 +281,7 @@ export default function LobbyScreen() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-6 py-4">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">R</div>
             <span className="text-lg font-bold tracking-tight text-slate-900">RIPPLE</span>
@@ -201,7 +296,7 @@ export default function LobbyScreen() {
               type="button"
               data-testid="admin-login"
               onClick={() => { if (isAdmin) navigate('/admin'); else setShowAdminLogin(true); }}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
             >
               <Shield size={14} /> Admin
             </button>
@@ -210,7 +305,7 @@ export default function LobbyScreen() {
                 type="button"
                 data-testid="admin-logout"
                 onClick={() => { void adminLogout().then(() => setAdmin(null)); }}
-                className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+                className="flex items-center gap-1.5 text-sm text-black hover:text-black"
               >
                 <LogOut size={14} /> Log out
               </button>
@@ -227,6 +322,7 @@ export default function LobbyScreen() {
       )}
 
       {showWatchByPin && <WatchByPinModal onClose={() => setShowWatchByPin(false)} />}
+      {showReclaim && <ReclaimTeamModal onClose={() => setShowReclaim(false)} />}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -259,18 +355,28 @@ export default function LobbyScreen() {
         </div>
       )}
 
-      <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mx-auto max-w-screen-2xl px-6 py-8">
         <h1 className="text-2xl font-bold text-slate-900">Welcome</h1>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-500">Join an event your organisation is running.</p>
-          <button
-            type="button"
-            data-testid="watch-by-pin"
-            onClick={() => setShowWatchByPin(true)}
-            className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
-          >
-            <KeyRound size={14} /> Have a PIN? Watch a team
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              data-testid="watch-by-pin"
+              onClick={() => setShowWatchByPin(true)}
+              className="flex items-center gap-1.5 text-sm text-brand-600"
+            >
+              <KeyRound size={14} /> Have a PIN? Watch a team
+            </button>
+            <button
+              type="button"
+              data-testid="reclaim-team"
+              onClick={() => setShowReclaim(true)}
+              className="flex items-center gap-1.5 text-sm text-brand-600"
+            >
+              <RotateCcw size={14} /> Lost your device? Reclaim a team
+            </button>
+          </div>
         </div>
 
         {isAdmin && (SHOW_PLAY_SOLO || SHOW_HOST_AN_EVENT) && (
@@ -307,16 +413,16 @@ export default function LobbyScreen() {
         )}
 
         {events === null && (
-          <p data-testid="lobby-loading" className="mt-8 text-sm text-slate-400">Loading events…</p>
+          <p data-testid="lobby-loading" className="mt-8 text-sm text-black">Loading events…</p>
         )}
 
         {events !== null && (
           <>
             <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Open events</h2>
-            <p className="mt-1 text-xs text-slate-400">Anyone can join these as a team leader or as a viewer.</p>
+            <p className="mt-1 text-xs text-black">Anyone can join these as a team leader or as a viewer.</p>
             <div data-testid="open-events" className="mt-3 space-y-3">
               {open.length === 0 && (
-                <p data-testid="no-open-events" className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center text-sm text-slate-400">
+                <p data-testid="no-open-events" className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center text-sm text-black">
                   No events are open right now.
                 </p>
               )}
@@ -336,7 +442,7 @@ export default function LobbyScreen() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-slate-400">{e.code}</span>
+                    <span className="font-mono text-xs text-black">{e.code}</span>
                     {/* ⚠ AN ADMIN RUNS THE EVENT, NOT JOINS IT. Everyone else gets
                         Join; an admin gets Host, straight to that event's host
                         screen (HostScreen's own admin gate is already satisfied,
@@ -367,7 +473,7 @@ export default function LobbyScreen() {
                       <button
                         data-testid={`join-${e.code}`}
                         onClick={() => navigate(`/join/${e.code}`)}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+                        className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white"
                       >
                         Join
                       </button>
@@ -395,19 +501,28 @@ export default function LobbyScreen() {
                         <div className="flex items-center gap-2.5">
                           <p className="text-base font-semibold text-slate-700">{e.eventName}</p>
                           <StatusBadge status="IN_PROGRESS" />
-                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600">VIEWERS ONLY</span>
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-black">VIEWERS ONLY</span>
                         </div>
                         <p className="mt-1 text-sm text-slate-500">
                           Year {e.currentYear} of {e.yearCount} · {e.teams} {e.teams === 1 ? 'team' : 'teams'} · no new teams can join
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="font-mono text-xs text-slate-400">{e.code}</span>
-                        {/* ⚠ NOT SHOWN TO AN ADMIN. Watching is a spectator's
-                            action; an admin running events has no use for it
-                            here, and nothing replaces it the way Host replaces
-                            Join above — there is simply nothing to click. */}
-                        {!isAdmin && (
+                        <span className="font-mono text-xs text-black">{e.code}</span>
+                        {/* ⚠ AN ADMIN STILL RUNS A STARTED EVENT, SAME AS AN
+                            OPEN ONE. Advancing the year, checking the Teams/
+                            Charts/Decisions tabs, or deleting it don't stop
+                            once the event is under way — Host still goes
+                            straight to this event's host screen. */}
+                        {isAdmin ? (
+                          <button
+                            data-testid={`host-link-${e.code}`}
+                            onClick={() => navigate(`/host/${e.code}`)}
+                            className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white"
+                          >
+                            Host
+                          </button>
+                        ) : (
                           <button
                             data-testid={`watch-${e.code}`}
                             onClick={() => navigate(`/view/${e.code}`)}

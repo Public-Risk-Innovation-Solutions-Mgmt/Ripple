@@ -216,7 +216,7 @@ function playWith(cut: number): Record<string, { enrolled: number[]; declines: n
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      for (const l of LINES) d.byLine[l].renewalsDeclined = cut;
+      for (const l of LINES) d.byLine[l].nonRenewal = cut;
       const p = processYear(gs, d);
       gs = {
         ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState,

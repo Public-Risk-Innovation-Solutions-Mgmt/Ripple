@@ -1,5 +1,15 @@
 # AWS session handler — handoff
 
+## ⚠ ONE MORE ROUTE: POST /editGame (mid-game edits)
+
+The host's "Edit game" panel (wip/mid-game-edits) calls a new endpoint,
+`POST /editGame`, host token in the body like `setEventHidden`. It is in
+`infra/ripple-backend.yaml` (`EditGameRoute`); a gateway without it 404s and the
+panel reports the change failed. The room header gains three optional
+attributes — `developmentLevelsByYear`, `shocksOn`, `editHistory` — written only
+by an edit; a room never edited carries none and reads exactly as before. Deploy
+the handler first, then the front end, as below.
+
 ## ⚠ TWO NEW ROUTES MIKE MUST ADD
 
 The lobby added two endpoints to the seven-endpoint handler. API Gateway routes
@@ -254,6 +264,14 @@ completing retry against both `LocalSessionTransport` and `DynamoSessionTranspor
   `padYear` allows.
 - **Team order:** the roster is a map with no order, so teams sort on a `joinedAt` stamp, with
   `teamId` breaking ties.
+- **Team numbers:** each roster entry holds `teamNumber` and the header holds `nextTeamNumber`
+  (contract `teamNumbers`). A new team takes `nextTeamNumber` in the join's roster `Update`, which
+  is conditioned on the counter still being the value read, so two teams joining together cannot
+  take one number. The loser re-reads and takes the next one, on its own retry budget
+  (`MAX_NUMBER_RACES`, 60) rather than `MAX_ATTEMPTS`, so a class joining at once is not refused;
+  race probe N∥ holds this. A header written before numbers existed has neither field. Its
+  teams are numbered by join order on the first `read` (one conditioned `UpdateItem`, no `rev`
+  bump) or the first join, whichever comes first.
 - **Viewer joins no longer bump `rev`,** per `keys.ts`; `localTransport` bumps it. No assertion
   depends on it.
 

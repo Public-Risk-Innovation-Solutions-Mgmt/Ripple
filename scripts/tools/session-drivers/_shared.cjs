@@ -31,6 +31,19 @@
 //   four-tabs         15  four tabs sharing one localStorage — the arrangement
 //                         that found the identity leak and the lost update.
 //   host-teams        13  the Teams tab's three states on three line views.
+//   market-survey     91  each team's Market Survey is the host's Teams table,
+//                         cell for cell, its own row highlighted, no decisions;
+//                         absent in single player and Test player.
+//   advanced-development 20  the setup's Advanced development table (Test player and
+//                         hosted): started from the simple choices, Edit game's
+//                         onward rule, the warning back to Simple, the room's
+//                         settings by year, the starting settings in the change
+//                         history, and each played year at its set level.
+//   wc-legislation-name 21  event #5 by its new names: "Workers Comp Legislation"
+//                         on the host's pickers, chips and change history; the
+//                         full "...: Increased Medical Fee Schedule" on the news
+//                         banner, Events so far and the Year Walkthrough; and
+//                         "WC Reform" nowhere — Test player and hosted.
 //   replay-fidelity    8  vary decisions across three years, reload, and require
 //                         the rebuilt results to match what was posted AT THE TIME.
 //   downloads          7  clicks all three export buttons and requires a file to
@@ -141,9 +154,54 @@ function chromiumPath() {
   return undefined;
 }
 
+// ⚠ HOSTING NEEDS AN ADMIN SINCE THE ADMIN ACCOUNTS (aws 20efa6e): /host
+// shows a login in place of the create form when nobody is logged in. With
+// ADMIN_TOKEN set (a token from the admin service's adminLogin — locally,
+// scripts/tools/dev-admin-server.ts, with the build's VITE_ADMIN_API pointing
+// at it) every context this browser opens carries it in localStorage before
+// any page script runs, so the host screens open as a logged-in admin. Unset,
+// nothing changes.
+const ADMIN_TOKEN_KEY = 'ripple.admin.token';
+const AS_PLAYER_KEY = 'ripple.driver.asPlayer';
+
+/**
+ * From here on this page's context is NOT an admin: the admin token is
+ * removed and the launcher stops putting it back. For a driver that plays a
+ * team in the same context it hosted from — on aws's lobby an admin's event
+ * rows offer host and delete, a player's offer join.
+ */
+/** Undo asPlayer: the context is the admin again (ADMIN_TOKEN), for a host step. */
+async function asAdmin(page) {
+  const token = process.env.ADMIN_TOKEN;
+  if (!token) return;
+  await page.evaluate(([k, p, t]) => { localStorage.removeItem(p); localStorage.setItem(k, t); }, [ADMIN_TOKEN_KEY, AS_PLAYER_KEY, token]);
+}
+
+async function asPlayer(page) {
+  await page.evaluate(([k, p]) => { localStorage.setItem(p, '1'); localStorage.removeItem(k); }, [ADMIN_TOKEN_KEY, AS_PLAYER_KEY]);
+}
+
 async function launchBrowser() {
   const executablePath = chromiumPath();
-  return chromium.launch(executablePath ? { executablePath } : {});
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  const token = process.env.ADMIN_TOKEN;
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (opts) => {
+    const ctx = await newContext(opts);
+    // Skipped while the context is acting as a player (asPlayer below).
+    if (token) await ctx.addInitScript(([k, t, p]) => {
+      try { if (localStorage.getItem(p) === null) localStorage.setItem(k, t); } catch { /* opaque origin */ }
+    }, [ADMIN_TOKEN_KEY, token, AS_PLAYER_KEY]);
+    // ⚠ THE RECOVERY CODE (aws 45a7342): a team's creating join shows it once,
+    // in a modal that holds the game screen back until "I've saved it". No
+    // driver asserts it, so every context dismisses it as it appears.
+    await ctx.addInitScript(() => {
+      const dismiss = () => { const b = document.querySelector('[data-testid="recovery-code-saved"]'); if (b) b.click(); };
+      new MutationObserver(dismiss).observe(document, { childList: true, subtree: true });
+    });
+    return ctx;
+  };
+  return browser;
 }
 
 /** Fail loudly and early if nothing is serving, rather than 30s into a timeout. */
@@ -159,4 +217,59 @@ async function requireServer() {
   }
 }
 
-module.exports = { BASE, REPO, launchBrowser, requireServer };
+/**
+ * THE ANNUAL STATEMENT PDF AGAINST THE SCREEN, from a page on the Annual
+ * Statement: on the Pool view, it presses "Download Annual Statement (PDF)",
+ * reads the file with pdf.js, and returns what differs — the file landscape
+ * Letter, the pool's sheet first, every page's header the year the screen
+ * stands at, its first page's Written Premium row the screen's. Empty when it
+ * matches. The statement's results rule (utils/knownYears) is the page's, so the
+ * file follows it in any mode the page runs in.
+ */
+async function statementPdfDiffs(page) {
+  const out = [];
+  const pool = page.getByRole('button', { name: 'Pool', exact: true }).first();
+  if (await pool.count() > 0) { await pool.click(); await page.waitForTimeout(400); }
+  const heads = (await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts()).map(t => t.trim()).filter(t => /^\d{4}$/.test(t));
+  const premium = (await page.locator('[data-testid="statement-operating"] tr[data-row-label="Written Premium"] td').allInnerTexts()).map(t => t.trim().replace(/−/g, '-')).filter(Boolean).slice(1);
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+    page.getByRole('button', { name: 'Download Annual Statement (PDF)' }).first().click(),
+  ]);
+  if (!dl) return ['no PDF arrived'];
+  const file = await dl.path();
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const fonts = path.join(REPO, 'node_modules', 'pdfjs-dist', 'standard_fonts') + path.sep;
+  const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(file)), standardFontDataUrl: fonts, isEvalSupported: false }).promise;
+  for (let p = 1; p <= doc.numPages; p++) {
+    const pg = await doc.getPage(p);
+    const vp = pg.getViewport({ scale: 1 });
+    const items = (await pg.getTextContent()).items;
+    const text = items.map(it => it.str).join(' ');
+    if (vp.width !== 792 || vp.height !== 612) out.push(`page ${p}: ${vp.width}x${vp.height}`);
+    const m = text.match(/ - ([^-]+?) - Annual Statement as of 12\/31\/(\d{4})/);
+    if (!m || m[2] !== heads.at(-1)) out.push(`page ${p}: header "${m ? m[0] : 'none'}", the screen stands at ${heads.at(-1)}`);
+    if (p === 1) {
+      if (!m || m[1] !== 'Pool') out.push('the first page is not the pool\'s');
+      // The Written Premium row: the item and the figures on its baseline, left to right.
+      const label = items.find(it => it.str === 'Written Premium');
+      const row = label ? items.filter(it => Math.abs(it.transform[5] - label.transform[5]) < 0.5 && it !== label).sort((a, b) => a.transform[4] - b.transform[4]).map(it => it.str.trim()).filter(Boolean) : [];
+      if (row.join(' ') !== premium.join(' ')) out.push(`Written Premium: the PDF's ${row.join(' ')} ≠ the screen's ${premium.join(' ')}`);
+    }
+  }
+  if (doc.numPages === 0) out.push('no pages');
+  return out;
+}
+
+// THE LOCK CONFIRMATION (components/LockConfirmModal): the lock button opens a
+// box first, and only its "Lock decisions" locks the year — single player, Test
+// player and hosted. Every driver that locks a year comes through here.
+async function lockAndConfirm(page) {
+  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  const box = page.locator('[data-testid="lock-confirm"]');
+  await box.waitFor({ timeout: 10000 });
+  await box.getByRole('button', { name: 'Lock decisions', exact: true }).click();
+  await box.waitFor({ state: 'detached', timeout: 10000 });
+}
+
+module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin, statementPdfDiffs, lockAndConfirm };

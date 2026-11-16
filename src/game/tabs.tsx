@@ -11,7 +11,7 @@ import type React from 'react';
 import {
   LayoutDashboard, ClipboardList, FileText, Settings, BarChart2,
   Calculator, Table, History as HistoryIcon, ScrollText, BookOpen, Landmark,
-  TrendingUp, Percent, Users, Sigma,
+  TrendingUp, Percent, Users, Sigma, Trophy,
 } from 'lucide-react';
 import type { TabId } from '../components/TabNav';
 
@@ -26,10 +26,12 @@ export const TAB_DEFS: Record<TabId, { label: string; icon: React.ReactNode }> =
   dashboard: { label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
   decisions: { label: 'Decisions', icon: <ClipboardList size={16} /> },
   decisionHistory: { label: 'Decision History', icon: <ScrollText size={16} /> },
+  marketSurvey: { label: 'Market Survey', icon: <Trophy size={16} /> },
   financials: { label: 'Financial Statements', icon: <FileText size={16} /> },
   results: { label: 'Results', icon: <BarChart2 size={16} /> },
   spreadsheet: { label: 'Result Spreadsheet', icon: <Table size={16} /> },
-  audit: { label: 'Calculation Audit', icon: <Calculator size={16} /> },
+  // The Year Walkthrough, in the slot the Calculation Audit held (the id stays 'audit').
+  audit: { label: 'Year Walkthrough', icon: <Calculator size={16} /> },
   // Hidden by being absent from TAB_ORDER — see the note there.
   history: { label: 'Pool History', icon: <HistoryIcon size={16} /> },
   membership: { label: 'Membership', icon: <Users size={16} /> },
@@ -47,6 +49,7 @@ export const TAB_ORDER: readonly TabId[] = [
   'dashboard',
   'decisions',
   'decisionHistory',
+  'marketSurvey',
   'financials',
   'results',
   'spreadsheet',
@@ -61,28 +64,47 @@ export const TAB_ORDER: readonly TabId[] = [
  * starts from (and returns to on New Game); it is off the bar, not removed.
  * Dashboard and Departments are hidden while they are reworked. Investments is
  * hidden because its memorandum moved into the Introduction tab.
+ *
+ * ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND MODEL ARE HIDDEN
+ * EVERYWHERE — single player, Test player and a hosted session — since the tab
+ * cleanup: the Annual Statement and the Year Walkthrough carry what players
+ * need, each with its own download. Ruled acceptable to lose with them: the
+ * Results (.xlsx) and Claims (.xlsx) downloads (Result Spreadsheet only), the
+ * Results page's Reserve View, Financial Statements' Funding Target & Adequacy
+ * in full, and the Model tab's step-by-step rate. The pages, their builders
+ * and their gates are kept; delete a line here to bring one back.
  */
 export const HIDDEN_TABS: readonly TabId[] = [
   'setup',
   'investments',
   'dashboard',
   'departments',
-];
-
-/** Hidden in a hosted session (players and viewers) as well. Result Spreadsheet stays, for testing. */
-export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [
   'results',
+  'spreadsheet',
   'financials',
-  'audit',
-  // ⚠ THE MODEL TAB IS SOLO ONLY, NEVER MULTIPLAYER: it shows every input to
-  // the rate and every expectation against the simulation, for checking the
-  // indication by hand. To hide it in solo as well, add 'model' to HIDDEN_TABS.
   'model',
 ];
 
+/**
+ * Hidden in a hosted session (players and viewers) on top of HIDDEN_TABS.
+ * ⚠ 'audit' — THE YEAR WALKTHROUGH — IS HIDDEN IN A HOSTED SESSION: where the
+ * figures come from is not shown to a team. Single player and Test player keep
+ * it. The page and its code are untouched (gates still read them).
+ */
+export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = ['audit'];
+
+/**
+ * Hidden OUTSIDE a hosted session — single player and Test player — on top of
+ * HIDDEN_TABS. The Market Survey is every team in the ROOM, and those games
+ * have no room.
+ */
+export const SOLO_HIDDEN_TABS: readonly TabId[] = ['marketSurvey'];
+
 /** Whether a tab is hidden on this screen. */
 export function isHiddenTab(t: TabId, multiplayer: boolean): boolean {
-  return HIDDEN_TABS.includes(t) || (multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t));
+  return HIDDEN_TABS.includes(t)
+    || (multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t))
+    || (!multiplayer && SOLO_HIDDEN_TABS.includes(t));
 }
 
 /** The top bar for this screen, in order. */

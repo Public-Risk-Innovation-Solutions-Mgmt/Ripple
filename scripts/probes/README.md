@@ -20,6 +20,7 @@ something else. The copies need `node_modules` beside them:
 | `ri-growth-probe.mts` | e238cbb | The split plus pre-game book growth (`GROWTH` 1% / 2% / 3%) |
 | `capital-solve-probe.mts` | this branch | Paid-in capital by the rule — designed margins at trial capitals (`CAPS`), patching only `STARTING_CAPITAL` |
 | `build-measure-probe.mts` | this branch | The build as it stands, unpatched but for a hook recording the designed margin and guardrail hits |
+| `simple-uw-report.mts` | `wip/simple-underwriting` | Simple underwriting: twenty scenarios at four slider settings (`A1`, `A2`), `YEARS`, `FUNDING`; unpatched. The findings, including the switches measured and removed before landing, are beside `NEW_BUSINESS_PENALTY` in pricingParameters.ts |
 
 The e238cbb probes patch source that this branch has since changed (the
 settings they toggled are now real parameters), so they run against a worktree

@@ -20,7 +20,9 @@ import { CheckCircle2, Circle, Clock, Copy, Eye, EyeOff, KeyRound, Loader2 } fro
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { loadActive, loadHeld, rememberHostToken, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
-import { eventStatusOf } from '../contract';
+import { eventStatusOf, teamLabel } from '../contract';
+import { EditGamePanel } from '../../components/EditGamePanel';
+import type { YearSettings } from '../../utils/gameEdits';
 
 interface Props {
   code: string;
@@ -33,7 +35,7 @@ function EventStatusBadge({ currentYear, yearCount }: { currentYear: number; yea
   const status = eventStatusOf(currentYear, yearCount);
   const tone = status === 'OPEN' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
     : status === 'IN_PROGRESS' ? 'bg-amber-50 text-amber-700 ring-amber-200'
-    : 'bg-slate-100 text-slate-600 ring-slate-200';
+    : 'bg-slate-100 text-black ring-slate-200';
   return (
     <span data-testid={`event-status-${status}`} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tone}`}>
       {status === 'OPEN' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
@@ -51,6 +53,10 @@ export default function HostRoomScreen({ code }: Props) {
   );
   const [resumeInput, setResumeInput] = useState('');
   const [advancing, setAdvancing] = useState(false);
+  // Which team's lock is being undone, or null — a per-row action, so this is
+  // a name rather than a single boolean (only one row at a time, in practice,
+  // but nothing here forces that).
+  const [undoingTeam, setUndoingTeam] = useState<string | null>(null);
   const [actionError, setActionError] = useState<SessionError | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [hiding, setHiding] = useState(false);
@@ -85,6 +91,26 @@ export default function HostRoomScreen({ code }: Props) {
     }
   }
 
+  /**
+   * ⚠ A HOST ACTION — see contract.ts's UndoLockRequest. Reopens a team's
+   * CURRENT year, the one its "locked" cell shows; the team's own decisions
+   * are left untouched server-side, so its Decisions tab reopens on exactly
+   * what it submitted, on its own next poll.
+   */
+  async function handleUndoLock(teamName: string) {
+    if (!hostToken || !room) return;
+    setUndoingTeam(teamName);
+    setActionError(null);
+    try {
+      await sessionTransport().undoLock({ code, token: hostToken, teamName, yearNumber: room.currentYear });
+      refresh();
+    } catch (e) {
+      setActionError(isSessionError(e) ? e : null);
+    } finally {
+      setUndoingTeam(null);
+    }
+  }
+
   function handleResume() {
     const t = resumeInput.trim();
     if (!t) return;
@@ -96,7 +122,7 @@ export default function HostRoomScreen({ code }: Props) {
 
   if (loading && !room) {
     return (
-      <div className="flex items-center justify-center py-16 text-slate-400">
+      <div className="flex items-center justify-center py-16 text-black">
         <Loader2 className="animate-spin" size={18} />
         <span className="ml-2 text-sm">Loading room {code}…</span>
       </div>
@@ -107,7 +133,7 @@ export default function HostRoomScreen({ code }: Props) {
     return (
       <div className="flex items-center justify-center py-16">
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-sm text-slate-600">No room with code <span className="font-mono font-semibold">{code}</span>.</p>
+          <p className="text-sm text-black">No room with code <span className="font-mono font-semibold">{code}</span>.</p>
         </div>
       </div>
     );
@@ -151,7 +177,7 @@ export default function HostRoomScreen({ code }: Props) {
                 {complete ? '—' : room?.currentYear}
               </p>
               {room && !complete && (
-                <p className="text-xs text-slate-400">of {room.yearCount}</p>
+                <p className="text-xs text-black">of {room.yearCount}</p>
               )}
             </div>
           </div>
@@ -172,7 +198,7 @@ export default function HostRoomScreen({ code }: Props) {
         {isHost && room && (
           <div data-testid="hide-from-lobby" className="mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 text-slate-400">{room.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</div>
+              <div className="mt-0.5 text-black">{room.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</div>
               <div>
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-slate-800">Hide from lobby</p>
@@ -245,7 +271,7 @@ export default function HostRoomScreen({ code }: Props) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Host resume code</p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-black">
                   Write this down. It is the only way back into this room from another browser.
                 </p>
               </div>
@@ -257,14 +283,14 @@ export default function HostRoomScreen({ code }: Props) {
                   type="button"
                   data-testid="reveal-resume-code"
                   onClick={() => setShowToken(v => !v)}
-                  className="text-xs text-blue-600"
+                  className="text-xs text-brand-600"
                 >
                   {showToken ? 'Hide' : 'Show'}
                 </button>
                 <button
                   type="button"
                   onClick={() => { void navigator.clipboard?.writeText(hostToken); }}
-                  className="text-slate-400 hover:text-slate-600"
+                  className="text-black hover:text-black"
                   aria-label="Copy resume code"
                 >
                   <Copy size={14} />
@@ -291,7 +317,7 @@ export default function HostRoomScreen({ code }: Props) {
                 the pre-registered roster this design removed. The expectation
                 lives here, beside the real rows, where it is plainly the host's
                 estimate rather than a fact about the room. */}
-            <p className="text-xs text-slate-400" data-testid="joined-count">
+            <p className="text-xs text-black" data-testid="joined-count">
               {expectedTeams === null
                 ? `${teams.length} joined`
                 : teams.length >= expectedTeams
@@ -301,7 +327,8 @@ export default function HostRoomScreen({ code }: Props) {
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+              <tr className="text-left text-xs uppercase tracking-wide text-black">
+                <th className="px-5 py-2 font-medium">Team number</th>
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-5 py-2 font-medium">Lines</th>
                 <th className="px-5 py-2 font-medium">Joined</th>
@@ -312,7 +339,7 @@ export default function HostRoomScreen({ code }: Props) {
             <tbody data-testid="team-table">
               {teams.length === 0 && (
                 <tr>
-                  <td colSpan={4} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-slate-400">
+                  <td colSpan={6} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-black">
                     Waiting for teams to join at /join/{code}. Each names itself and picks its own lines.
                     {expectedTeams !== null && ` Expecting ${expectedTeams}.`}
                   </td>
@@ -320,32 +347,48 @@ export default function HostRoomScreen({ code }: Props) {
               )}
               {teams.map(t => (
                 <tr key={t.name} data-testid={`team-row-${t.name}`} className="border-t border-slate-50">
+                  <td data-testid={`setup-number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-black">Team {t.teamNumber}</td>
                   <td className="px-5 py-2.5 text-slate-700">{t.name}</td>
                   {/* ⚠ THE HOST IS NOW READING A TABLE OF DIFFERENT GAMES, not
                       of seats at one. Two teams' numbers are not comparable
                       unless this column matches, so it sits beside the name
                       rather than behind a hover. */}
                   <td className="px-5 py-2.5">
-                    <span data-testid={`lines-${t.name}`} className="font-mono text-xs text-slate-600">
+                    <span data-testid={`lines-${t.name}`} className="font-mono text-xs text-black">
                       {t.lines.join(' + ')}
                     </span>
                   </td>
                   <td className="px-5 py-2.5">
                     {t.joined
                       ? <span data-testid={`joined-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> in</span>
-                      : <span className="flex items-center gap-1.5 text-slate-300"><Circle size={14} /> waiting</span>}
+                      : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> waiting</span>}
                   </td>
                   <td className="px-5 py-2.5">
                     {t.locked
-                      ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> locked</span>
-                      : <span className="flex items-center gap-1.5 text-slate-300"><Circle size={14} /> open</span>}
+                      ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600">
+                          <CheckCircle2 size={14} /> locked
+                          {/* ⚠ INSTANTLY REVERSIBLE, NO CONFIRM STEP — unlike
+                              the lock itself, which other teams and the
+                              host's own advance decision rely on. The team
+                              locking again is the only "undo" an undo needs. */}
+                          <button
+                            type="button"
+                            data-testid={`undo-lock-${t.name}`}
+                            disabled={undoingTeam === t.name}
+                            onClick={() => void handleUndoLock(t.name)}
+                            className="ml-1 text-xs font-medium text-brand-600 disabled:opacity-50"
+                          >
+                            {undoingTeam === t.name ? 'Unlocking…' : 'Unlock'}
+                          </button>
+                        </span>
+                      : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> open</span>}
                   </td>
                   <td className="px-5 py-2.5">
                     {t.resultYear !== null
-                      ? <span data-testid={`reported-${t.name}`} className="flex items-center gap-1.5 text-slate-600">
+                      ? <span data-testid={`reported-${t.name}`} className="flex items-center gap-1.5 text-black">
                           <CheckCircle2 size={14} className="text-emerald-600" /> year {t.resultYear}
                         </span>
-                      : <span className="flex items-center gap-1.5 text-slate-300"><Circle size={14} /> —</span>}
+                      : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> —</span>}
                   </td>
                 </tr>
               ))}
@@ -366,11 +409,11 @@ export default function HostRoomScreen({ code }: Props) {
                 {/* ⚠ BY NAME, NOT BY COUNT — the names are who gets chased. */}
                 {awaitingResults.length === 0
                   ? <>Year {reportingYear} results are in from every team.</>
-                  : <>Year {reportingYear} results outstanding from <span data-testid="awaiting-results" className="font-medium text-slate-700">{awaitingResults.map(t => t.name).join(', ')}</span></>}
+                  : <>Year {reportingYear} results outstanding from <span data-testid="awaiting-results" className="font-medium text-slate-700">{awaitingResults.map(teamLabel).join(', ')}</span></>}
               </p>
             )}
             {complete ? (
-              <p data-testid="room-complete" className="text-sm text-slate-600">
+              <p data-testid="room-complete" className="text-sm text-black">
                 All {room?.yearCount} years are complete.
               </p>
             ) : (
@@ -383,19 +426,51 @@ export default function HostRoomScreen({ code }: Props) {
                     ? joined.length === 0
                       ? 'No teams have joined yet.'
                       : 'Every team that has joined is locked in.'
-                    : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(t => t.name).join(', ')}</span></>}
+                    : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(teamLabel).join(', ')}</span>.
+                      {' '}<span data-testid="outstanding-note">If you advance now, a team that has not locked plays its last locked decisions
+                      {(room?.market ?? 'off') !== 'off' ? ', and the market counts it at its last locked rate' : ''}
+                      {' '}(one that never locked plays the defaults{(room?.market ?? 'off') !== 'off' ? ' and stays out of the market' : ''}).</span></>}
                 </p>
+                {(room?.market ?? 'off') !== 'off' && (
+                  <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">
+                    Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>.
+                    Advancing moves members between teams on the rates they locked.
+                  </p>
+                )}
                 <button
                   type="button"
                   data-testid="advance"
                   disabled={advancing}
                   onClick={() => { void handleAdvance(); }}
-                  className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+                  className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
                 >
                   {advancing ? 'Advancing…' : `Advance to year ${(room?.currentYear ?? 1) + 1}`}
                 </button>
               </>
             )}
+          </div>
+        )}
+
+        {/* ---- the host's mid-game edits (wip/mid-game-edits) ---- */}
+        {isHost && room && hostToken && (
+          <div className="mt-4">
+            <EditGamePanel
+              lines={room.lines}
+              yearCount={room.yearCount}
+              startingYear={room.startingYear}
+              firstEditable={room.currentYear}
+              settings={{ developmentLevels: room.developmentLevels ?? {}, developmentLevelsByYear: room.developmentLevelsByYear, shocks: room.shocks }}
+              lockedTeams={teams.filter(t => t.locked).map(teamLabel)}
+              history={room.editHistory ?? []}
+              onApply={async (years: Record<string, YearSettings>) => {
+                try {
+                  await sessionTransport().editGame({ code, token: hostToken, years });
+                  refresh();
+                } catch (e) {
+                  throw new Error(isSessionError(e) ? e.message : String(e));
+                }
+              }}
+            />
           </div>
         )}
       </div>

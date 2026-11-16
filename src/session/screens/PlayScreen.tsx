@@ -45,14 +45,16 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, Copy, Eye, Loader2, Lock, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken, eventStatusOf, mayCreateTeam, type EventStatus } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, SessionError as SessionErrorClass, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
-import { decisionsForYear, decisionsToJson } from '../client/decisions';
+import { decisionsForYear, decisionsFromJson, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
+import { marketLockInputFor } from '../client/marketLock';
+import MarketSurveyTab from './MarketSurveyTab';
 import GameShell from '../../game/GameShell';
 import type { TabId } from '../../components/TabNav';
 import type { DecisionSet, LineView } from '../../types/simulation';
@@ -92,10 +94,10 @@ function RoleChoice({ code, role, status, currentYear }: {
           : 'border-slate-200 bg-white'}`}
       >
         <div className="flex items-center gap-2">
-          <span className={lateForTeams ? 'text-slate-400' : 'text-blue-600'}>
+          <span className={lateForTeams ? 'text-black' : 'text-blue-600'}>
             {lateForTeams ? <Lock size={14} /> : <Users size={14} />}
           </span>
-          <p className={`text-sm font-semibold ${lateForTeams ? 'text-slate-400' : 'text-slate-900'}`}>Team Leader</p>
+          <p className={`text-sm font-semibold ${lateForTeams ? 'text-black' : 'text-slate-900'}`}>Team Leader</p>
           {lateForTeams && (
             <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">UNAVAILABLE</span>
           )}
@@ -112,7 +114,7 @@ function RoleChoice({ code, role, status, currentYear }: {
             type="button"
             data-testid="switch-to-player"
             onClick={() => navigate(`/join/${code}`)}
-            className="mt-2 text-xs font-medium text-blue-700 underline"
+            className="mt-2 text-xs font-medium text-brand-600"
           >
             Join as a team instead
           </button>
@@ -134,11 +136,58 @@ function RoleChoice({ code, role, status, currentYear }: {
             type="button"
             data-testid="switch-to-viewer"
             onClick={() => navigate(`/view/${code}`)}
-            className="mt-2 text-xs font-medium text-blue-700 underline"
+            className="mt-2 text-xs font-medium text-brand-600"
           >
             Watch instead
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ⚠ SHOWN EXACTLY ONCE, AND NOTHING HERE PERSISTS IT. This renders off plain
+// component state (enter()'s success branch sets it, directly from the join
+// response) — never written to identity.ts, never re-derived from anything
+// stored. A reload loses it, same as the server never handing it back a
+// second time; the only way back into this team from a new device after that
+// is a reclaim with this code, which is the whole point of saving it now.
+// ⚠ EXPORTED — ClaimScreen.tsx reuses this exact component for the recovery
+// code a hand-off claim reissues (contract.ts's ReclaimTeamResponse). It
+// takes nothing PlayScreen-specific, so sharing it beats a second copy.
+export function RecoveryCodeModal({ code, onClose }: { code: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><KeyRound size={18} /></span>
+          <h2 className="text-lg font-bold text-slate-900">Save your recovery code</h2>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          If you lose this device, this code is the only way back into your team from another
+          one. We won&rsquo;t show it again.
+        </p>
+        <div className="mt-4 flex items-center justify-center gap-3 rounded-lg border border-slate-300 bg-slate-50 py-4">
+          <span data-testid="recovery-code" className="font-mono text-3xl tracking-widest text-slate-900">{code}</span>
+          <button
+            type="button"
+            onClick={() => { void navigator.clipboard?.writeText(code).then(() => setCopied(true)); }}
+            className="text-black hover:text-slate-700"
+            aria-label="Copy recovery code"
+          >
+            <Copy size={16} />
+          </button>
+        </div>
+        {copied && <p className="mt-1.5 text-center text-xs text-emerald-600">Copied.</p>}
+        <button
+          type="button"
+          data-testid="recovery-code-saved"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+        >
+          I&rsquo;ve saved it
+        </button>
       </div>
     </div>
   );
@@ -156,8 +205,32 @@ export default function PlayScreen({ code, role }: Props) {
   const [claiming, setClaiming] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [actionError, setActionError] = useState<SessionError | null>(null);
+  // Set only on a creating join's response — see enter() and RecoveryCodeModal.
+  const [showRecoveryCode, setShowRecoveryCode] = useState<string | null>(null);
+
+  // ---- reclaiming a team on this device, by recovery code -----------------
+  const [showReclaim, setShowReclaim] = useState(false);
+  const [reclaimName, setReclaimName] = useState('');
+  const [reclaimCode, setReclaimCode] = useState('');
+  const [reclaiming, setReclaiming] = useState(false);
+  const [reclaimError, setReclaimError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decisions, setDecisions] = useState<DecisionSet | null>(null);
+  // Auto-save (Mike's device-switching guide, Step 5): "Saving…"/"Saved",
+  // shown beside the status strip's locked/open indicator.
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const lastSavedDecisions = useRef<string | null>(null);
+  // ⚠ ALWAYS CARRY-FORWARD, EVEN WHEN A DRAFT IS WHAT'S SHOWN — the sub-menu's
+  // per-line activity indicator asks "has this line changed from what happens
+  // if nothing is touched this year", not "does it differ from the draft",
+  // so the baseline is the same decisionsForYear() seed regardless of which
+  // one actually populates the form. Set once per year, beside seededYear.
+  const baselineDecisions = useRef<DecisionSet | null>(null);
+  // ⚠ A SEPARATE ACTIVITY SIGNAL, NOT A DATA DIFF — "clicked Next past this
+  // tab" means the team reviewed it, whether or not anything on it actually
+  // changed from carry-forward. Same lifetime as baselineDecisions: reset
+  // once per year, beside it.
+  const reviewedViaNext = useRef<Set<LineView>>(new Set());
 
   const [activeTab, setActiveTab] = useState<TabId>('decisions');
   const [lineView, setLineView] = useState<LineView>('pool');
@@ -165,11 +238,26 @@ export default function PlayScreen({ code, role }: Props) {
   const { room, you, error, loading, refresh } = useRoom(code, token);
   const game = useSessionGame(code, room, you, token);
 
+  // ⚠ HOISTED ABOVE EVERY EARLY RETURN BELOW, because the auto-save effect
+  // further down needs `locked` and hooks cannot follow a conditional return.
+  // Null-safe: `room`/`you` are not yet known this early in a fresh mount.
+  const myTeam = room?.teams.find(t => t.name === you?.teamName);
+  const locked = myTeam?.locked ?? false;
+
+  // ⚠ SET HERE, NEVER INFERRED FROM error ALONE — error.code is BAD_TOKEN for
+  // this AND for a stray/forged token that never belonged to anyone, and the
+  // two need different words. This only fires when `token` was already set
+  // (see the guard below): a credential THIS DEVICE believed was good, that
+  // the server has since stopped honouring — which, for a token minted by a
+  // join or a reclaim on this very device, means another device reclaimed the
+  // team out from under it. See Mike's device-switching guide, Step 7.4.
+  const [movedAway, setMovedAway] = useState(false);
   useEffect(() => {
     if (error?.code === 'BAD_TOKEN' && token) {
       clearActive(code);
       forgetTeamCredential(code, token);
       setToken(undefined);
+      setMovedAway(true);
     }
   }, [error, token, code]);
 
@@ -189,12 +277,86 @@ export default function PlayScreen({ code, role }: Props) {
     // recent lock before it — carry-forward, unchanged in meaning.
     // The room's shocks: a host-scheduled room fires its schedule, so its
     // switch is whether anything is scheduled (shockLosses.gameShocksOn).
-    setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0));
+    const carryForward = decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0);
+    baselineDecisions.current = carryForward;
+    reviewedViaNext.current = new Set();
+    // ⚠ A SAVED DRAFT WINS OVER CARRY-FORWARD, THE FIRST TIME THIS YEAR IS
+    // SEEDED. This runs exactly once per year transition, before anything is
+    // held locally for that year yet, so the draft (if any) is always "newer
+    // than anything held locally" in the simple sense Mike's guide asks for —
+    // see CallerView.draft, which is never present for an already-locked year.
+    if (you.draft && you.draft.yearNumber === room.currentYear) {
+      const restored = { ...decisionsFromJson(you.draft.decisions), yearNumber: room.currentYear } as DecisionSet;
+      setDecisions(restored);
+      // Primed so the auto-save effect below does not immediately re-POST
+      // content that is already saved.
+      lastSavedDecisions.current = JSON.stringify(restored);
+      return;
+    }
+    setDecisions(carryForward);
   }, [room, you, role]);
+
+  // ---- per-tab activity, for the Decisions sub-menu's indicator -----------
+  //
+  // ⚠ SIGNALS SO FAR, EACH OR'D TOGETHER PER TAB: a line's reinsurance
+  // selection, its funding confidence level (the slider OR the Expected
+  // toggle — either one moving counts, same as the funding panel's own
+  // "changed from Expected" read), and Pool's investment allocation, each
+  // compared against carry-forward — PLUS "clicked Next past this tab"
+  // (reviewedViaNext), which is not a data comparison at all. More signals
+  // can OR in later; this is deliberately a first slice, not the finished
+  // rule. `undefined` while there is no baseline yet (still loading) —
+  // GameShell renders nothing in that case rather than a misleading "0 of N".
+  const lineActivity: Partial<Record<LineView, boolean>> | undefined = decisions && baselineDecisions.current
+    ? {
+        pool: reviewedViaNext.current.has('pool')
+          || JSON.stringify(decisions.assetAllocation) !== JSON.stringify(baselineDecisions.current.assetAllocation),
+        ...Object.fromEntries((you?.lines ?? []).map(line => {
+          const mine = decisions.byLine[line];
+          const base = baselineDecisions.current!.byLine[line];
+          return [line, (
+            reviewedViaNext.current.has(line)
+            || mine?.reinsuranceOption !== base?.reinsuranceOption
+            || mine?.fundingAtExpected !== base?.fundingAtExpected
+            || mine?.fundingConfidenceLevel !== base?.fundingConfidenceLevel
+          )];
+        })),
+      }
+    : undefined;
+
+  /** TabNav's onNext — "I reviewed this tab," independent of whether its data changed. */
+  function handleLineReviewed(line: LineView) {
+    reviewedViaNext.current.add(line);
+  }
+
+  // ---- auto-save the current year's draft (Mike's guide, Step 5) ----------
+  //
+  // ⚠ ONE EFFECT, NOT A TIMER AND A LISTENER SPLIT ACROSS TWO. Both the
+  // 3-second debounce and a tab-hide flush must land on the exact same
+  // "has anything changed since the last save" check at the moment they
+  // actually fire — not at schedule time — or a repeated hide/show with no
+  // edits in between would re-POST identical content on every hide.
+  useEffect(() => {
+    if (isViewer || !room || !decisions || !token || locked) return;
+    function save() {
+      const json = JSON.stringify(decisions);
+      if (json === lastSavedDecisions.current) return;
+      setDraftStatus('saving');
+      void sessionTransport().saveDraft({
+        code, token: token!, yearNumber: room!.currentYear, decisions: decisionsToJson(decisions!),
+      }).then(() => { lastSavedDecisions.current = json; setDraftStatus('saved'); })
+        .catch(() => setDraftStatus('idle'));
+    }
+    const id = window.setTimeout(save, 3000);
+    function onVisibility() { if (document.hidden) { window.clearTimeout(id); save(); } }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { window.clearTimeout(id); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [isViewer, room, decisions, token, locked, code]);
 
   async function enter(teamName: string) {
     setClaiming(teamName);
     setActionError(null);
+    setMovedAway(false);
     try {
       const held = heldCreds.find(c => c.teamName === teamName);
       // ⚠ A TOKEN ON THE FIRST JOIN TOO, NOT ONLY ON A REJOIN. Minted here and
@@ -216,6 +378,11 @@ export default function PlayScreen({ code, role }: Props) {
       rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
       setToken(res.teamToken);
       seededYear.current = null;
+      // ⚠ ONLY ON A CREATION. res.recoveryCode is present only on the response
+      // that CREATES the team (contract.ts's JoinResponse.recoveryCode) — this
+      // can never fire a second time for the same team, since the server never
+      // hands the code back again on a rejoin.
+      if (!res.rejoined && res.recoveryCode) setShowRecoveryCode(res.recoveryCode);
       refresh();
     } catch (e) {
       setActionError(isSessionError(e) ? e : null);
@@ -224,14 +391,43 @@ export default function PlayScreen({ code, role }: Props) {
     }
   }
 
+  // ⚠ NO RecoveryCodeModal HERE — a reclaim never reissues or re-returns a
+  // recovery code (contract.ts's ReclaimTeamResponse), so there is nothing to
+  // show once reclaimed.
+  async function reclaim() {
+    setReclaiming(true);
+    setReclaimError(null);
+    setMovedAway(false);
+    try {
+      const res = await sessionTransport().reclaimTeam({
+        code, teamName: reclaimName.trim(), recoveryCode: reclaimCode.trim(), token: newSessionToken(),
+      });
+      saveActive(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
+      rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
+      setToken(res.teamToken);
+      seededYear.current = null;
+      setShowReclaim(false);
+      refresh();
+    } catch (e) {
+      setReclaimError(isSessionError(e) ? e.message : 'Could not reclaim that team.');
+    } finally {
+      setReclaiming(false);
+    }
+  }
+
   async function submit() {
     if (isViewer || !room || !decisions || !token) return;
     setSubmitting(true);
     setActionError(null);
     try {
+      // MARKET COMPETITION: the lock carries the year's struck rate, book and market decisions.
+      const marketOn = (room.market ?? 'off') !== 'off';
+      const market = marketOn && game.gameState ? marketLockInputFor(game.gameState, decisions, room.currentYear) : undefined;
+      if (marketOn && !market) throw new SessionErrorClass('INVALID_REQUEST', 'The year is still being worked out — try again in a moment.', true);
       await sessionTransport().submit({
         code, token, yearNumber: room.currentYear,
         decisions: decisionsToJson(decisions),
+        ...(market ? { market } : {}),
       });
       refresh();
     } catch (e) {
@@ -241,9 +437,19 @@ export default function PlayScreen({ code, role }: Props) {
     }
   }
 
+  // ⚠ PREEMPTS EVERY OTHER BRANCH BELOW, DELIBERATELY. By the time this state
+  // is set, the join already succeeded — the next poll may already be moving
+  // this screen toward the pre-game-building or GameShell branches below, and
+  // this must still be read and dismissed before any of them show. Dismissing
+  // just clears the state; the normal branch for whatever has loaded by then
+  // renders right after.
+  if (showRecoveryCode) {
+    return <RecoveryCodeModal code={showRecoveryCode} onClose={() => setShowRecoveryCode(null)} />;
+  }
+
   if (loading && !room) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-slate-400">
+      <div className="flex min-h-screen items-center justify-center text-black">
         <Loader2 className="animate-spin" size={18} />
         <span className="ml-2 text-sm">Finding room {code}…</span>
       </div>
@@ -253,7 +459,7 @@ export default function PlayScreen({ code, role }: Props) {
   if (error?.code === 'ROOM_NOT_FOUND' || !room) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-black">
           No room with code <span className="font-mono font-semibold">{code}</span>.
         </p>
       </div>
@@ -265,6 +471,14 @@ export default function PlayScreen({ code, role }: Props) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 p-6">
         <div className="mx-auto w-full max-w-[480px] pt-10">
+          <button
+            type="button"
+            data-testid="back-to-lobby"
+            onClick={() => navigate('/')}
+            className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <ArrowLeft size={14} /> Back to Lobby
+          </button>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Room {code}</p>
           <h1 className="text-2xl font-semibold text-slate-800">{room.eventName}</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -284,6 +498,17 @@ export default function PlayScreen({ code, role }: Props) {
               anyone lands on. The damaging direction is also the one the server
               refuses once the event is under way. */}
           <RoleChoice code={code} role={role} status={eventStatusOf(room.currentYear, room.yearCount)} currentYear={room.currentYear} />
+
+          {/* ⚠ SHOWN INSTEAD OF A GENERIC ERROR, NEVER ALONGSIDE ONE — this and
+              actionError are set by disjoint paths (a background poll losing
+              authority vs. an explicit join/reclaim attempt failing), but
+              enter()/reclaim() clear this the moment a fresh attempt starts,
+              so the two never stack. */}
+          {movedAway && (
+            <div data-testid="team-moved" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              This team was moved to another device. Name it again, or reclaim it if it was yours.
+            </div>
+          )}
 
           {actionError && (
             <div data-testid="claim-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -314,12 +539,73 @@ export default function PlayScreen({ code, role }: Props) {
             </div>
           )}
 
+          {/* ⚠ PLAYER ONLY — a viewer never holds a recovery code (it is
+              minted only for the player that creates a team). The room code
+              is already implicit in this URL, so only team name + recovery
+              code are asked for here — contrast the Lobby's reclaim modal,
+              which needs all three because it has no room in hand yet. */}
+          {!isViewer && (
+            <div className="mt-3">
+              {!showReclaim ? (
+                <button
+                  type="button"
+                  data-testid="show-reclaim"
+                  onClick={() => { setShowReclaim(true); setReclaimError(null); }}
+                  className="text-xs font-medium text-slate-500 underline hover:text-slate-700"
+                >
+                  Lost access to your team?
+                </button>
+              ) : (
+                <div data-testid="reclaim-team" className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-medium text-slate-700">Reclaim a team with its recovery code</p>
+                  <div className="mt-2 space-y-2">
+                    <input
+                      data-testid="reclaim-team-name"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Team name"
+                      value={reclaimName}
+                      onChange={e => setReclaimName(e.target.value)}
+                    />
+                    <input
+                      data-testid="reclaim-code"
+                      inputMode="numeric"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest"
+                      placeholder="4-digit code"
+                      value={reclaimCode}
+                      onChange={e => setReclaimCode(e.target.value)}
+                    />
+                  </div>
+                  {reclaimError && <p className="mt-2 text-xs text-red-600">{reclaimError}</p>}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={reclaiming}
+                      onClick={() => setShowReclaim(false)}
+                      className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="submit-reclaim"
+                      disabled={reclaiming || !reclaimName.trim() || !reclaimCode.trim()}
+                      onClick={() => { void reclaim(); }}
+                      className="flex-1 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"
+                    >
+                      {reclaiming ? 'Reclaiming…' : 'Reclaim'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {isViewer ? (
             // A viewer picks from the teams that EXIST. Before anyone has
             // joined there is nothing to watch, and saying so beats an empty box.
             <div data-testid="viewer-picker" className="mt-4 space-y-2">
               {room.teams.length === 0 && (
-                <p data-testid="no-teams" className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-400">
+                <p data-testid="no-teams" className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-black">
                   No teams have joined yet.
                 </p>
               )}
@@ -333,8 +619,8 @@ export default function PlayScreen({ code, role }: Props) {
                   className="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-700 hover:border-blue-400 hover:bg-blue-50"
                 >
                   <span>
-                    <span className="font-medium">{t.name}</span>
-                    <span className="ml-2 text-xs text-slate-400">{t.lines.join(' + ')}</span>
+                    <span className="font-medium">{teamLabel(t)}</span>
+                    <span className="ml-2 text-xs text-black">{t.lines.join(' + ')}</span>
                   </span>
                   <span className="text-xs">{claiming === t.name ? 'Opening…' : 'watch'}</span>
                 </button>
@@ -360,7 +646,7 @@ export default function PlayScreen({ code, role }: Props) {
                   name, which is the part that was actually useful. */}
               <div>
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-black">
                   Set by the host for this game. Your pool's history and claims are built from these.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2" data-testid="room-lines">
@@ -381,14 +667,14 @@ export default function PlayScreen({ code, role }: Props) {
                 data-testid="join-team"
                 disabled={nameDraft.trim().length === 0 || claiming !== null}
                 onClick={() => { void enter(nameDraft.trim()); }}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+                className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
               >
                 {claiming !== null ? 'Joining…' : 'Join as this team'}
               </button>
 
               {room.teams.length > 0 && (
-                <p className="text-xs text-slate-400">
-                  Already in: {room.teams.map(t => `${t.name} (${t.lines.join('+')})`).join(', ')}
+                <p className="text-xs text-black">
+                  Already in: {room.teams.map(t => `${teamLabel(t)} (${t.lines.join('+')})`).join(', ')}
                 </p>
               )}
             </div>
@@ -406,7 +692,7 @@ export default function PlayScreen({ code, role }: Props) {
         <p className="mt-3 text-sm font-medium" data-testid="game-building">
           Building {you.teamName}'s opening position…
         </p>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-black">
           Three pre-game years are simulated in this browser, from the room's seed.
         </p>
         {game.error && (
@@ -418,10 +704,10 @@ export default function PlayScreen({ code, role }: Props) {
     );
   }
 
-  const myTeam = room.teams.find(t => t.name === you.teamName);
-  const locked = myTeam?.locked ?? false;
+  // myTeam/locked are hoisted above this component's early returns — see the
+  // auto-save effect's note near the top of this function.
   const complete = room.status === 'complete';
-  const outstanding = room.teams.filter(t => t.joined && !t.locked).map(t => t.name);
+  const outstanding = room.teams.filter(t => t.joined && !t.locked).map(teamLabel);
   const processing = game.phase === 'processing';
 
   return (
@@ -430,11 +716,17 @@ export default function PlayScreen({ code, role }: Props) {
       startingFinancials={game.startingFinancials}
       initialMembers={game.initialMembers}
       currentDecisions={decisions}
+      lineActivity={lineActivity}
+      onLineReviewed={handleLineReviewed}
       onDecisionsChange={isViewer ? () => {} : setDecisions}
       activeTab={activeTab}
       onSelectTab={setActiveTab}
       // The multiplayer version: hides the tabs in GameShell's MULTIPLAYER_HIDDEN_TABS.
       multiplayer
+      // The team's share of the ROOM, its own figure only (CallerView).
+      roomMarketShare={you.marketShare ?? null}
+      // Every team's standing — the host's Teams table, read only, own row highlighted.
+      marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.
@@ -449,84 +741,103 @@ export default function PlayScreen({ code, role }: Props) {
       // because that is what the room is discussing.
       decisionsDisabled={isViewer || locked}
       statusStrip={
-        <div data-testid="session-strip" className="border-b border-slate-200 bg-white px-4 py-2">
+        // ⚠ A PLAYER'S STRIP SHOWS THE VIEWER PIN AND NOTHING ELSE, apart from an
+        // error when something fails. The team, its lines, the room code, the
+        // year, the lock state, "Saved", who is still deciding and the posted
+        // year are gone from a player's screen (the lock button still reads
+        // "Waiting for host" once locked). A viewer's strip keeps them, since
+        // it is how a viewer follows the team. The same facts ride on the strip
+        // as data-* attributes, unseen, for the session drivers to read.
+        <div
+          data-testid="session-strip"
+          data-team={you.teamName}
+          data-team-number={myTeam?.teamNumber}
+          data-year={complete ? undefined : room.currentYear}
+          data-lock={complete ? 'complete' : processing ? 'processing' : locked ? 'locked' : 'open'}
+          data-draft={!isViewer && !locked && !complete && draftStatus !== 'idle' ? draftStatus : undefined}
+          data-posted-year={game.processedYear ?? undefined}
+          className="border-b border-slate-200 bg-white px-4 py-2"
+        >
           <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-5 gap-y-1 text-xs">
-            {isViewer && (
-              <span className="flex items-center gap-1.5 font-medium text-slate-500">
-                <Eye size={13} /> Watching
-              </span>
-            )}
-            <span
-              className="font-medium text-slate-700"
-              data-testid={isViewer ? 'watched-team' : 'my-team'}
-            >
-              {you.teamName}
-            </span>
-            {/* ⚠ SHOWN, WITH NO CONTROL BESIDE IT. After the join the lines are
-                a fact about this team rather than a setting, so the strip states
-                them and offers nothing to change. */}
-            <span className="text-slate-500" data-testid="my-lines">
-              {(you.lines ?? []).join(' + ')}
-              <span className="ml-1 text-slate-400">(fixed)</span>
-            </span>
-            <span className="text-slate-400">room <span className="font-mono">{code}</span></span>
-            {/* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
-                A viewer never holds a PIN of its own — see JoinResponse.pin — so
-                there is nothing here to show one. */}
-            {!isViewer && active.role === role && active.pin && (
-              <span className="flex items-center gap-1 text-slate-400" data-testid="team-pin">
-                viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
-                <button
-                  type="button"
-                  onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
-                  className="text-slate-400 hover:text-slate-600"
-                  aria-label="Copy viewer PIN"
-                >
-                  <Copy size={12} />
-                </button>
-              </span>
-            )}
-            <span className="text-slate-500">
-              Year <span data-testid="player-year" className="font-medium text-slate-700">{complete ? '—' : room.currentYear}</span>
-              {' '}of {room.yearCount}
-            </span>
+            {isViewer ? (
+              <>
+                <span className="flex items-center gap-1.5 font-medium text-slate-500">
+                  <Eye size={13} /> Watching
+                </span>
+                {/* The team's number beside its name, "Team 1 | Harbour Mutual" — the
+                    pairing every host screen shows (contract teamNumbers). */}
+                <span className="font-medium text-slate-700">
+                  {myTeam && (
+                    <span data-testid="watched-team-number" className="text-slate-500">
+                      Team {myTeam.teamNumber} |{' '}
+                    </span>
+                  )}
+                  <span data-testid="watched-team">{you.teamName}</span>
+                </span>
+                {/* ⚠ SHOWN, WITH NO CONTROL BESIDE IT. After the join the lines are
+                    a fact about this team rather than a setting. */}
+                <span className="text-slate-500" data-testid="my-lines">
+                  {(you.lines ?? []).join(' + ')}
+                  <span className="ml-1 text-black">(fixed)</span>
+                </span>
+                <span className="text-black">room <span className="font-mono">{code}</span></span>
+                <span className="text-slate-500">
+                  Year <span data-testid="player-year" className="font-medium text-slate-700">{complete ? '—' : room.currentYear}</span>
+                  {' '}of {room.yearCount}
+                </span>
 
-            {complete ? (
-              <span data-testid="player-complete" className="flex items-center gap-1.5 text-emerald-700">
-                <CheckCircle2 size={13} /> Session complete
-              </span>
-            ) : processing ? (
-              <span data-testid="game-processing" className="flex items-center gap-1.5 text-slate-500">
-                <Loader2 size={13} className="animate-spin" />
-                {game.progress ? `Restoring year ${game.progress.year} of ${game.progress.of}…` : `Running year ${game.gameState.currentYearNumber}…`}
-              </span>
-            ) : locked ? (
-              <span data-testid={isViewer ? 'viewer-locked' : 'waiting'} className="flex items-center gap-1.5 text-emerald-700">
-                <CheckCircle2 size={13} />
-                {isViewer ? `Locked in for Program Year ${room.startingYear + room.currentYear - 1}` : 'Locked in — waiting for the host'}
-              </span>
+                {complete ? (
+                  <span data-testid="player-complete" className="flex items-center gap-1.5 text-emerald-700">
+                    <CheckCircle2 size={13} /> Session complete
+                  </span>
+                ) : processing ? (
+                  <span data-testid="game-processing" className="flex items-center gap-1.5 text-slate-500">
+                    <Loader2 size={13} className="animate-spin" />
+                    {game.progress ? `Restoring year ${game.progress.year} of ${game.progress.of}…` : `Running year ${game.gameState.currentYearNumber}…`}
+                  </span>
+                ) : locked ? (
+                  <span data-testid="viewer-locked" className="flex items-center gap-1.5 text-emerald-700">
+                    <CheckCircle2 size={13} />
+                    {`Locked in for Program Year ${room.startingYear + room.currentYear - 1}`}
+                  </span>
+                ) : (
+                  <span data-testid="viewer-open" className="flex items-center gap-1.5 text-slate-500">
+                    <Clock size={13} /> {`Still deciding Program Year ${room.startingYear + room.currentYear - 1}`}
+                  </span>
+                )}
+
+                <span className="text-black" data-testid="viewer-basis">
+                  decisions as last locked
+                </span>
+
+                {!complete && outstanding.length > 0 && (
+                  <span className="text-black">
+                    still deciding: <span data-testid="outstanding">{outstanding.join(', ')}</span>
+                  </span>
+                )}
+
+                {game.processedYear !== null && (
+                  <span className="text-black" data-testid="posted-year">
+                    year {game.processedYear} result computed
+                  </span>
+                )}
+              </>
             ) : (
-              <span data-testid={isViewer ? 'viewer-open' : undefined} className="flex items-center gap-1.5 text-slate-500">
-                <Clock size={13} /> {isViewer ? `Still deciding Program Year ${room.startingYear + room.currentYear - 1}` : 'Open for decisions'}
-              </span>
-            )}
-
-            {isViewer && (
-              <span className="text-slate-400" data-testid="viewer-basis">
-                decisions as last locked
-              </span>
-            )}
-
-            {!complete && outstanding.length > 0 && (
-              <span className="text-slate-400">
-                still deciding: <span data-testid="outstanding">{outstanding.join(', ')}</span>
-              </span>
-            )}
-
-            {game.processedYear !== null && (
-              <span className="text-slate-400" data-testid="posted-year">
-                year {game.processedYear} result {isViewer ? 'computed' : 'posted'}
-              </span>
+              /* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
+                 A viewer never holds a PIN of its own — see JoinResponse.pin. */
+              active.role === role && active.pin && (
+                <span className="flex items-center gap-1 text-black" data-testid="team-pin">
+                  viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
+                    className="text-black hover:text-black"
+                    aria-label="Copy viewer PIN"
+                  >
+                    <Copy size={12} />
+                  </button>
+                </span>
+              )
             )}
 
             {actionError && (
@@ -540,6 +851,15 @@ export default function PlayScreen({ code, role }: Props) {
             {game.error && (
               <span data-testid="game-error" className="text-red-600">{game.error}</span>
             )}
+
+            <button
+              type="button"
+              data-testid="back-to-lobby"
+              onClick={() => navigate('/')}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <ArrowLeft size={13} /> Back to Lobby
+            </button>
           </div>
         </div>
       }

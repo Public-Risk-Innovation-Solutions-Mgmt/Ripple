@@ -20,6 +20,10 @@
 // separately), so nothing enforces this ordering for you. Deploy the handler
 // FIRST, then the front end — that order is safe in both directions.
 //
+// TEAM NUMBERS (TeamView.teamNumber) ARE THE SAME: a new front end against an
+// old handler reads no number and shows "Team undefined" on every host screen.
+// Handler first, as above.
+//
 // NOTHING ON `multiplayer` IS DEPLOYED TODAY, so there is no live break to fix;
 // this is recorded for whoever first takes this branch to an environment.
 // See docs/handoff/AWS_HANDLER_HANDOFF.md, which carries the same warning.
@@ -64,6 +68,11 @@
 // ============================================================================
 
 import type { CoverageLine } from '../types/simulation';
+import type { GameEdit, YearSettings } from '../utils/gameEdits';
+import type { MarketLevel } from '../data/pricingParameters';
+import type { MarketTeamLineResult } from '../utils/market/marketStep';
+export type { MarketLevel, MarketTeamLineResult };
+export type { GameEdit, YearSettings } from '../utils/gameEdits';
 
 // ---------------------------------------------------------------- json
 
@@ -122,6 +131,30 @@ export type SessionErrorCode =
   // guarded against is unreachable. Removing it rather than leaving it reserved
   // is the honest record: a code no server can emit is one a client will be
   // written to handle for no reason.
+  //
+  // ⚠ RECLAIM'S OWN WRONG-CREDENTIAL ANSWER, DISTINCT FROM BAD_TOKEN. A reclaim
+  // presents a recovery code, not a bearer token — a different secret with a
+  // different lifecycle (one lives in a player's notes, the other in a
+  // browser), and a client that cannot tell which one failed cannot show the
+  // right fix ("re-type the code" vs "this isn't your device"). Also returned
+  // when the token-rotation transaction's old-hash condition loses a genuine
+  // race against a simultaneous reclaim from another device — see
+  // server/rooms.ts's reclaimTeam — so the existing "wrong code, try again" UI
+  // is the right retry surface for that case too, with no third branch.
+  | 'BAD_RECOVERY_CODE'
+  // ⚠ retryable IS false, DELIBERATELY — the one place that matters. Five
+  // wrong codes against one team inside its 15-minute window trips this
+  // instead of a sixth BAD_RECOVERY_CODE. Unlike TRANSPORT_FAILURE's
+  // retryable: true (the pipe was at fault, try again), an immediate retry
+  // here fails identically until the window closes — the fix is to wait, not
+  // to resend.
+  | 'TOO_MANY_ATTEMPTS'
+  // ⚠ REAL LOCKING (pr/market-competition). A team that has locked the current
+  // year cannot send a different decision set for it; the host must unlock it
+  // first (undoLock). A retry of the SAME set is not this — it succeeds, so a
+  // client that lost the first response can resend safely. 409, like
+  // WRONG_YEAR: the request is well formed but the room's state refuses it.
+  | 'ALREADY_LOCKED'
   | 'TRANSPORT_FAILURE';
 
 // ⚠ ONE ERROR TYPE FOR EVERY IMPLEMENTATION, and `code` is what callers branch
@@ -176,6 +209,20 @@ export function newSessionToken(): string {
 
 /** What a token must look like for the transport to accept it from a caller. */
 export const SESSION_TOKEN_PATTERN = /^[a-z0-9]{32}$/;
+
+/**
+ * Canonical form of a team recovery code: digits only, trimmed. Both server
+ * implementations (server/dynamo.ts's hashed compare, localTransport.ts's
+ * plain one) and any client that reads one back from a user must run a
+ * candidate through this before comparing or storing it, so a code typed with
+ * incidental whitespace still matches what was shown once at creation. Lives
+ * here, not beside the mints in dynamo.ts/localTransport.ts, because it has no
+ * platform-specific crypto dependency and both transports need the identical
+ * function.
+ */
+export function normalizeRecoveryCode(input: string): string {
+  return input.trim();
+}
 
 /**
  * THE SEEDS A ROOM MAY BE CREATED WITH — the scenario numbers "1" to "20", as
@@ -261,6 +308,37 @@ export interface TeamYearFigures {
    */
   selectedFundingConfidenceLevel?: number;
   netUltimateLoss: number;
+  /**
+   * ⚠ THE HOST'S TEAMS TABLE, AND EACH IS THE TEAM'S OWN FIGURE — read off its
+   * Annual Statement as it stood at this year, so the host prints exactly what
+   * the team sees. OPTIONAL: a row posted before these existed has none, and the
+   * host renders a dash. The handler stores the summary whole, so no handler
+   * change; across a deploy gap either side reads what it knows.
+   *
+   *   combinedRatio      cumulative since the game began — the statement's
+   *                      first row's Total, the team's top-bar figure (over the
+   *                      pre-game years before year 1 is played)
+   *   premiumToSurplus   the balance sheet's Premium to Surplus for this year
+   *   ratePer100         a LINE's rate charged this year, per $100 of exposure;
+   *                      absent on the pool, whose lines have different units
+   *   rateChange         that rate against the year before's, as a fraction
+   *   adminExpenseRatio  this year's booked admin expense (general and risk
+   *                      control) over its premium, the member charge — the
+   *                      statement's "% of Premium" row under the admin rows
+   */
+  combinedRatio?: number;
+  /**
+   * THE YEAR'S OWN COMBINED RATIO — the statement's Combined Ratio for this year
+   * (its newest column; before year 1, the last history year's), the team's
+   * top-bar figure and the host's Teams table's. A row posted before it existed
+   * has none and the host renders a dash; `combinedRatio` above stays the
+   * cumulative and is no longer shown.
+   */
+  yearCombinedRatio?: number;
+  premiumToSurplus?: number;
+  ratePer100?: number;
+  rateChange?: number;
+  adminExpenseRatio?: number;
 }
 
 /**
@@ -317,7 +395,7 @@ export type DevelopedUltimates = Record<string, number>;
 // renders has to have an agreed shape, or the agreement lives in two places and
 // drifts. LineDecisionSet in types/simulation.ts stays exactly as it is — it is
 // the engine's input type, it carries fields no host screen shows
-// (loanRepaymentAggressiveness, riskControlProgramIds, riskControlIncentivePct)
+// (loanRepaymentAggressiveness, riskControlProgramIds)
 // and it will go on changing for engine reasons. This is a projection OF it,
 // chosen field by field, so an engine-side change cannot silently alter what
 // crosses the wire or what a stored row means.
@@ -350,21 +428,36 @@ export interface TeamLineDecisions {
    */
   reinsuranceOption: string;
   /**
-   * "Renewals declined": the share of renewing exposure declined, a FRACTION
-   * 0–0.10. Absent on the engine side reads as 0.
-   *
-   * ⚠ uw-hybrid: this and newBusinessRejection REPLACE `renewalCut` and
-   * `intakeLevel`, which are gone from the wire. The shape is still scalars the
-   * server stores without reading, so the handler, both transports and keys.ts
-   * change only in their notes; a row written before carries the old names and
-   * the host reads 0% for both.
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES the team bought beside the layer
+   * (wip/aggregate-cover), one id from AGGREGATE_COVER_OPTIONS. Written only
+   * when bought; absent is None. One more string the server stores without
+   * reading, so the handler, both transports and keys.ts need no change.
    */
-  renewalsDeclined: number;
-  /** "New Business, rejection rate": the share of applicants turned away, a FRACTION 0–0.15. */
-  newBusinessRejection: number;
+  aggregateCover?: string;
+  /**
+   * "Non-renewal": the share of the book at the start of the year not renewed,
+   * a FRACTION 0–0.05. Absent on the engine side reads as 0.
+   *
+   * ⚠ simple underwriting: this and newMembers REPLACE uw-hybrid's
+   * `renewalsDeclined` and `newBusinessRejection` (which replaced `renewalCut`
+   * and `intakeLevel`). Still two scalars the server stores without reading, so
+   * the handler, both transports and keys.ts change only in their notes; a row
+   * written before carries the old names and the host reads 0% for both.
+   */
+  nonRenewal: number;
+  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.10. */
+  newMembers: number;
+  /**
+   * The line's Risk Control slider, a FRACTION 0–0.05 (LineDecisionSet
+   * .riskControlIncentivePct; wip/risk-control). It carried the retired
+   * pool-wide spend before, always 0; the shape is unchanged, so the handler,
+   * both transports and keys.ts need no change — only the value a client writes.
+   */
   riskControlPct: number;
-  dividendPct: number;
-  assessmentPct: number;
+  /** Dollars (LineDecisionSet.dividendAmount). A record posted before the change carries dividendPct instead and reads as none. */
+  dividendAmount: number;
+  /** Dollars (LineDecisionSet.assessmentAmount). */
+  assessmentAmount: number;
   /**
    * ⚠ PERCENTAGE POINTS, 0-100 — NOT a fraction, unlike every other field on
    * this interface. That is AssetAllocation's own convention and it is carried
@@ -449,6 +542,92 @@ export interface TeamYearSummary {
   surplusRange?: { min: number; median: number; max: number };
 }
 
+// ---------------------------------------------------------------- market share
+
+/**
+ * A TEAM'S SHARE OF THE ROOM — multiplayer only, and a different measure from
+ * single player's share of the full market.
+ *
+ *   per line  the team's exposure on the line / the total exposure on that line
+ *             of every team in the room that writes it
+ *   pool      the team's total premium / the room's total premium — the lines'
+ *             exposures are in different units (payroll, TIV), premium is not
+ *
+ * Fractions, not percentages. At the opening every team holds the same book, so
+ * N teams each read 1/N on every line and the pool.
+ */
+export interface TeamMarketShare {
+  pool: number;
+  byLine: Partial<Record<CoverageLine, number>>;
+}
+
+/** One team's room share with the result year it is from — CallerView.marketShare. */
+export type TeamMarketShareOfYear = TeamMarketShare & { year: number };
+
+/**
+ * ⚠ WORKED OUT ONCE PER YEAR AND STORED WITH THE ROOM, so the host and every
+ * player read the same figures. The set for year Y is computed in the SUBMIT
+ * that brings in the last year-Y result from the teams that locked in year Y
+ * (results are computed by the clients after the host advances, so no advance
+ * call ever holds them). A team that did not lock in year Y counts as stopped:
+ * nobody waits for it, and its last reported figures (its newest result at or
+ * before Y) stay in the totals. A team that locked in and has not yet posted
+ * is waited for.
+ *
+ * ⚠ SHOWN FOR THE LATEST KNOWN YEAR, LIKE EVERY OTHER RESULT: with the room
+ * deciding year N the set shown is year N - 1's (the year just completed), the
+ * last year's once the game is over — see marketShares.ts's shownShares.
+ * Before the first advance that year is 0, the opening posts, at 1/N each
+ * (every team plays the same pre-game). It was one year behind (N - 2) until
+ * results stopped running a year behind.
+ *
+ * ⚠ HOST ONLY ON RoomView. A player or viewer gets its own team's figure on
+ * CallerView.marketShare and never another team's.
+ *
+ * ⚠ OPTIONAL ON THE WIRE BOTH WAYS. A handler older than this sends neither
+ * field, and a front end older than it ignores them: the newer front end then
+ * shows no chip (never the old share of the whole market), and the older one
+ * keeps what it showed. Deploy the handler first.
+ */
+export interface RoomMarketShares {
+  /** The result year the figures are from: 0 is the opening books. */
+  year: number;
+  /** Keyed by team name. A team with no result yet is absent. */
+  byTeam: Record<string, TeamMarketShare>;
+}
+
+// ---------------------------------------------------------------- standings
+
+/**
+ * ⚠ THE HOST'S TEAMS TABLE, FOR A TEAM — the Market Survey tab. A player or a
+ * viewer gets every team's standing: exactly the figures the host's table
+ * shows (session/standings.STANDING_FIELDS), per year, the pool and each line,
+ * and the room's market shares. READ ONLY, and NOTHING ELSE: no decisions, no
+ * other result field — built by session/standings.buildStandings, which copies
+ * the table's fields one by one. The host's own view keeps TeamView and
+ * RoomView.marketShares and gets no standings.
+ */
+export type StandingFigures = Pick<TeamYearFigures, 'endingSurplus'>
+  & Partial<Pick<TeamYearFigures, 'premiumToSurplus' | 'ratePer100' | 'rateChange' | 'adminExpenseRatio' | 'yearCombinedRatio'>>;
+export interface StandingSummary {
+  yearNumber: number;
+  calendarYear: number;
+  pool: StandingFigures;
+  byLine: Partial<Record<CoverageLine, StandingFigures>>;
+}
+export interface StandingTeam {
+  name: string;
+  teamNumber: number;
+  lines: CoverageLine[];
+  /** Keyed by year as a string, as TeamView.resultsByYear; absent with nothing posted. */
+  resultsByYear?: Record<string, StandingSummary>;
+}
+export interface RoomStandings {
+  teams: StandingTeam[];
+  /** The room's shares for the latest known year — the host's own (RoomView.marketShares). */
+  marketShares?: RoomMarketShares;
+}
+
 // ---------------------------------------------------------------- views
 
 export type RoomStatus = 'lobby' | 'running' | 'complete';
@@ -495,6 +674,31 @@ export function eventStatusOf(currentYear: number, yearCount: number): EventStat
  * own token at any status, or a refreshed browser would lose its seat the moment
  * the host advanced. Nor does it govern a viewer, who may always watch.
  */
+/**
+ * THE ROOM'S TEAM NUMBERS, for both transports — one rule, so the localStorage
+ * room and the DynamoDB room number the same teams the same way.
+ *
+ * `inJoinOrder` is the room's teams oldest first, each with the number it was
+ * given (absent on a team that joined before numbers existed); `next` is the
+ * number the room will give its next team (absent on such a room). A team that
+ * has a number keeps it. A team without one is given the next free number in
+ * join order — so an OLDER ROOM is numbered 1, 2, 3… by join order the first
+ * time it is read, and the same way on every read until that is saved. Returns
+ * each team's number and the room's next number.
+ *
+ * ⚠ `next` IS NEVER BELOW ONE PAST THE HIGHEST NUMBER GIVEN, and it is the room's
+ * own counter rather than the team count — so no number is ever given twice,
+ * even if a team were ever taken out of the room.
+ */
+export function teamNumbers(inJoinOrder: Array<{ teamNumber?: number }>, next?: number): { numbers: number[]; next: number } {
+  let n = Math.max(1, next ?? 1, ...inJoinOrder.map(t => (t.teamNumber ?? 0) + 1));
+  const numbers = inJoinOrder.map(t => t.teamNumber ?? n++);
+  return { numbers, next: n };
+}
+
+/** "Team 1 | Bob's Pool" — how every host screen pairs a team's number with its name. */
+export const teamLabel = (t: { teamNumber: number; name: string }): string => `Team ${t.teamNumber} | ${t.name}`;
+
 export function mayCreateTeam(status: EventStatus): boolean {
   return status === 'OPEN';
 }
@@ -556,6 +760,40 @@ export interface SetEventHiddenResponse {
   room: RoomView;
 }
 
+/**
+ * ⚠ THE HOST CHANGES THE GAME MID-WAY (wip/mid-game-edits): the shock schedule
+ * and each line's adverse development level, for the CURRENT year and any
+ * later year. A played year is refused (INVALID_REQUEST) — and it has to be,
+ * because every replay (a reload, a rejoin on another device, a viewer) builds
+ * each year from the room's settings for THAT year, so changing a played one
+ * would change numbers a team already saw. The rules are utils/gameEdits.ts's
+ * applyGameEdit, the one implementation every transport calls.
+ *
+ * `years` carries the WANTED settings for some editable years, each in full
+ * (the year's events and every played line's level); a year absent is left as
+ * it is. An edit that changes nothing writes nothing to the history.
+ *
+ * ⚠ A TEAM THAT HAS ALREADY LOCKED THE CURRENT YEAR IS NOT A REFUSAL. The host
+ * is warned (EditGameResponse.lockedTeams, and the panel names them before the
+ * host confirms), and the change is made: the team's decisions stand and its
+ * year is processed on the new settings when the host advances, like every
+ * other team's. Teams are not told (wip/mid-game-edits rule 4).
+ */
+export interface EditGameRequest {
+  code: string;
+  /** Host token only. */
+  token: string;
+  years: Record<string, YearSettings>;
+}
+
+export interface EditGameResponse {
+  room: RoomView;
+  /** What this call changed, as the history records it — empty when nothing did. */
+  edits: GameEdit[];
+  /** Teams that had already locked the current year when the change was made. */
+  lockedTeams: string[];
+}
+
 // What a team looks like to anyone allowed to see the table.
 //
 // ⚠ PRESENCE AND PROGRESS ONLY — NEVER ANOTHER TEAM'S DECISIONS. The host runs
@@ -565,6 +803,14 @@ export interface SetEventHiddenResponse {
 // trusting the caller to look away.
 export interface TeamView {
   name: string;
+  /**
+   * THE TEAM'S NUMBER IN THE ROOM — the first team to join is 1, the next 2, and
+   * so on (teamNumbers below). Stored with the room, given once at join and
+   * never changed; never reused, because the room keeps the next number rather
+   * than counting its teams. Every host screen shows it beside the name
+   * ("Team 1 | Bob's Pool") and the team's own screens beside its own.
+   */
+  teamNumber: number;
   // ⚠ THE LINES THIS TEAM PLAYS, WHICH ARE NOW THE ROOM'S. It used to be the
   // team's own choice at join, and the note here used to say teams in one room
   // play different books. They do not any more: the host sets the room's lines
@@ -614,28 +860,41 @@ export interface TeamView {
 }
 
 /**
- * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE DOES NOT READ IT YET.
+ * ⚠ PRIOR DEVELOPMENT, PER LINE — READ WITH ADVERSE_DEVELOPMENT OFF, AND NOT
+ * READ WITH IT ON (wip/adverse-development, where the levels below replace it).
  *
- * A signed fraction of the opening reserve: POSITIVE IS ADVERSE (prior years
- * develop upward, the pool owes more than it booked) and NEGATIVE IS FAVOURABLE.
- * So 0.03 is "3% adverse" and -0.02 is "2% favourable", which is how the host
- * screen phrases it.
+ * A signed fraction: POSITIVE IS ADVERSE (prior years develop upward, the pool
+ * owes more than it booked) and NEGATIVE IS FAVOURABLE. So 0.03 is "3% adverse"
+ * and -0.02 is "2% favourable".
  *
- * ⚠ STORED, NOT USED. Nothing in the engine reads this field today. It is
- * carried on the room so that a future update can apply it to the opening
- * reserves without a second contract change and without re-creating rooms made
- * before it lands. The host screen says so on screen, in those words, because a
- * number beside a line that quietly does nothing is worse than no number.
- *
- * A line absent from the record takes no development, which is also what an old
- * room record — written before this field existed — reads as.
+ * Off, it is the share of each open older accident year's reserve that develops
+ * over its remaining life, in total, emerging as it pays (utils/hostDevelopment;
+ * setup.priorDevelopment, read by the engine and the pre-game). A line absent
+ * from the record reads the engine's default (PRIOR_DEVELOPMENT_DEFAULTS),
+ * which is also what an old room record reads as. On, the room still carries
+ * it, so a record written either way reads the same.
  */
 export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
 
 /**
- * The defaults the host screen offers. They are the SCREEN's defaults, not the
- * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
- * are starting points a host is expected to edit, not calibrated constants.
+ * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
+ * ADVERSE_DEVELOPMENT) — what the host sets in place of PriorDevelopment, which
+ * the engine no longer reads with the switch on. A line absent reads
+ * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL; an old room record, absent throughout.
+ *
+ * 'Off' is the host's NONE: no adverse development on that line — the setting
+ * plain Single player stores on every line (SOLO_ADVERSE_DEVELOPMENT), so a
+ * None line plays exactly what Single player plays. The screens label it None;
+ * the record carries 'Off', the engine's own word for it.
+ */
+export type DevelopmentLevels = Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
+/** Is `v` a level (or None, 'Off')? The transports keep only these. */
+export const isDevelopmentLevel = (v: unknown): v is 'Low' | 'Mid' | 'High' | 'Off' =>
+  v === 'Low' || v === 'Mid' || v === 'High' || v === 'Off';
+
+/**
+ * The prior-development defaults — the engine's own, the same values, so a line
+ * left unset plays what the default plays (with ADVERSE_DEVELOPMENT off).
  */
 // ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
 export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
@@ -677,8 +936,39 @@ export interface RoomView {
    * host clicked them.
    */
   lines: CoverageLine[];
-  /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
+  /** Per-line prior development, stored and not read with ADVERSE_DEVELOPMENT on. See PriorDevelopment. */
   priorDevelopment: PriorDevelopment;
+  /** Per-line adverse development level, set by the host. See DevelopmentLevels. */
+  developmentLevels?: DevelopmentLevels;
+  /**
+   * THE LEVELS IN FORCE BY YEAR, where the host changed them mid-game
+   * (EditGameRequest): year -> each line's level. A year absent reads
+   * `developmentLevels` — every year, on a room never edited or written before
+   * this existed. Every caller gets it: every team builds its game from it.
+   */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
+  /**
+   * THE SHOCK SWITCH PINNED AT SETUP — written the first time the room is
+   * edited, from the schedule as it stood (see utils/gameEdits.ts). Absent on a
+   * room never edited, which reads its schedule as before.
+   */
+  shocksOn?: boolean;
+  /** THE CHANGE HISTORY (who, what, which year, when) — HOST ONLY; absent for every other caller. */
+  editHistory?: GameEdit[];
+  /**
+   * MARKET COMPETITION (pr/market-competition): Off / Low / Medium / High, set
+   * at creation. ABSENT ON A ROOM STORED BEFORE THE SETTING EXISTED, WHICH READS
+   * 'off' — those rooms play exactly as they did. Every caller sees it (the
+   * Decisions page shows the market's controls only when it is on).
+   */
+  market?: MarketLevel;
+  /**
+   * EVERY YEAR'S STORED MARKET STEP — HOST ONLY (the Teams columns, the Charts
+   * line, the stale-rate flags): year (a string) -> the inputs used and every
+   * team's result. A player or viewer reads only its own team's, on
+   * CallerView.marketByYear. Absent with the market off.
+   */
+  marketByYear?: Record<string, StoredMarketYear>;
   /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
    * existed, which reads as false — not hidden, which is what those rooms were.
@@ -689,6 +979,15 @@ export interface RoomView {
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamView[];
+  /** Every team's room market share — HOST ONLY; absent for every other caller. */
+  marketShares?: RoomMarketShares;
+  /**
+   * EVERY TEAM'S STANDING — PLAYERS AND VIEWERS ONLY (the Market Survey tab):
+   * the host's Teams table's figures for every team and the room's shares, read
+   * only (RoomStandings). Absent for the host, who reads `teams` and
+   * `marketShares`, and for an anonymous caller.
+   */
+  standings?: RoomStandings;
   createdAt: number;
   updatedAt: number;
   // Monotonic per write. A poller compares this to know something moved without
@@ -739,6 +1038,89 @@ export interface CallerView {
    * landed, the opening position included. Sorted ascending, year 0 included.
    */
   postedYears?: number[];
+  /**
+   * THIS CALLER'S TEAM'S ROOM MARKET SHARE, from the room's stored set — the
+   * one figure of RoomView.marketShares a player (or a viewer of that player)
+   * may see. Absent until the team has a share in the stored set.
+   */
+  marketShare?: TeamMarketShareOfYear;
+  /**
+   * ⚠ THE TEAM'S OWN PLAYER ONLY — NOT A VIEWER, UNLIKE decisionsByYear ABOVE.
+   * Device switching's third feature (saveDraft): the current year's
+   * unsubmitted choices, auto-saved every few seconds so a crash or a device
+   * switch mid-year loses nothing. A viewer has no form to restore this into —
+   * it renders the team's LAST LOCKED set, never a live draft — so this is
+   * never set for one, the same restriction Mike's guide states.
+   *
+   * ⚠ ALWAYS THE CURRENT YEAR, NEVER A HISTORY. Only one draft exists at a
+   * time, for whichever year the room is currently deciding; `yearNumber` is
+   * carried here (rather than assumed to equal RoomView.currentYear) only so a
+   * client reading a slightly stale poll can tell whether this draft is even
+   * for the year it thinks it's showing.
+   *
+   * ⚠ A LOCKED YEAR ALWAYS WINS OVER ITS DRAFT. Submitting decisions for a year
+   * deletes that year's draft in the same write that locks it (server/rooms.ts's
+   * submit, localTransport.ts's submit) — so this is never present for a year
+   * the team has already locked, and a client restoring it on load never
+   * clobbers what was actually submitted.
+   */
+  draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
+  /**
+   * THIS CALLER'S TEAM'S MARKET RESULT BY YEAR (market competition): year (a
+   * string) -> each line's stored result. The team's game reads it when it plays
+   * and replays every year (client/buildGame.ts), so a player and a viewer of it
+   * get the same one. Absent with the market off and before the first advance.
+   */
+  marketByYear?: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>>;
+}
+
+// ---------------------------------------------------------------- market
+
+/**
+ * WHAT A TEAM SENDS WITH ITS LOCK WHEN THE MARKET IS ON — the one part of a
+ * lock the server reads (the decisions stay opaque). Per line: the year's whole
+ * rate as the team's game struck it (worlds.ts strikeRates), the book at the
+ * start of the year, and the three market decisions. The server's market step
+ * uses it when the host advances past the year.
+ */
+export interface MarketLockLine {
+  /** The whole rate per $100 (risk control and reinsurance in). */
+  rate: number;
+  /** The book at the start of the year (base-year exposure, $M). */
+  book: number;
+  /** New Members: the most to take in this year, share of the book (0–0.10). */
+  newMembers: number;
+  /** Non-Renewal: the share of the book dropped this year (0–0.10). Dropped members leave the market. */
+  nonRenewal: number;
+}
+export interface MarketLockInput {
+  byLine: Partial<Record<CoverageLine, MarketLockLine>>;
+}
+
+/** One team's input to one year's market step, as the server used it. */
+export interface StoredMarketTeamInput {
+  teamNumber: number;
+  /** The year whose lock supplied the figures. */
+  fromYear: number;
+  /**
+   * ⚠ STALE: the team had not locked this year, so it counts at its last locked
+   * rate and decisions, on its book carried forward — flagged to the host.
+   */
+  stale: boolean;
+  byLine: Partial<Record<CoverageLine, MarketLockLine>>;
+}
+
+/** One year's market step, stored once when the host advanced past the year. */
+export interface StoredMarketYear {
+  year: number;
+  level: Exclude<MarketLevel, 'off'>;
+  /** Per team name. A team that never locked any year is absent here and in `result`, and named in `missing`. */
+  inputs: Record<string, StoredMarketTeamInput>;
+  missing: string[];
+  /** Per team name, per line. */
+  result: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>>;
+  /** Non-renewed members nobody took, per line — refilled as outside supply next year. */
+  untakenDropped: Partial<Record<CoverageLine, number>>;
 }
 
 // ---------------------------------------------------------------- requests
@@ -777,7 +1159,22 @@ export interface CreateRoomRequest {
    * entries for lines the room does not play are dropped rather than refused.
    */
   priorDevelopment?: PriorDevelopment;
+  /** Per-line adverse development level (DevelopmentLevels); entries for lines not played are dropped. */
+  developmentLevels?: DevelopmentLevels;
+  /**
+   * THE ADVANCED SETUP (pr/advanced-development): year -> each line's level,
+   * stored as the room's developmentLevelsByYear — the field mid-game edits
+   * write — so replays, rejoins and Edit game read it unchanged. Years 1 to
+   * yearCount and real levels only (anything else is refused); entries for lines
+   * not played are dropped. ABSENT ON A SIMPLE SETUP, which stores nothing by
+   * year and reads `developmentLevels` for every year, exactly as before. When
+   * present the room's change history opens with one "starting settings" entry
+   * per year (GameEdit kind 'start').
+   */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
   shocks: ScheduledShockSpec[];
+  /** Market competition (RoomView.market). Omitted reads 'off'; the setup form sends the host's choice, Medium by default. */
+  market?: MarketLevel;
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE
    * IDEMPOTENCY KEY. A retried createRoom used to make a SECOND room and the
@@ -890,7 +1287,129 @@ export interface JoinResponse {
    * team's bearer token. A viewer's `JoinResponse` never carries one.
    */
   pin?: string;
+  /**
+   * ⚠ PRESENT EXACTLY ONCE — the response to the join() call that CREATED this
+   * team — and NEVER again: not on a rejoin (contrast `pin` above, which
+   * repeats on every rejoin), never in `RoomView`, never in any caller's
+   * `CallerView`, never logged. The 4-digit code this team's player uses with
+   * reclaimTeam from a new device if it loses this one. The server stores
+   * only a hash of it (RosterEntry.recoveryHash), in the SAME write that
+   * creates the roster entry, so if this response is lost the code is lost
+   * with it — there is deliberately no second way to read it back. A
+   * recovery code re-fetchable over the wire would be a second, weaker
+   * bearer token sitting next to the first.
+   */
+  recoveryCode?: string;
   rejoined: boolean;
+  room: RoomView;
+}
+
+/**
+ * ⚠ A DIFFERENT SECRET FROM `token` ABOVE, NOT A VARIANT OF IT. `token` is
+ * what the CURRENT device already holds and presents to prove it; a
+ * `recoveryCode` or `handoffToken` is what a NEW device presents instead,
+ * because it holds no token at all. Presenting a valid one ROTATES the
+ * team's bearer token onto this device — the old device's token stops
+ * working the instant this commits (server/rooms.ts's reclaimTeam).
+ *
+ * ⚠ EXACTLY ONE OF recoveryCode / handoffToken, NEVER BOTH, NEVER NEITHER —
+ * INVALID_REQUEST otherwise. They are two different proofs of the same
+ * claim ("let this device drive the team"), not two fields a caller mixes.
+ *
+ * ⚠ teamName IS REQUIRED WITH recoveryCode, OPTIONAL WITH handoffToken. A
+ * recovery code has no other way to find the team it belongs to. A hand-off
+ * token does: the HANDOFF# item it resolves to already names the team (see
+ * server/keys.ts's handoffSk) — which is what makes a bare
+ * `/claim/<code>/<handoffToken>` link work, since that link carries no team
+ * name at all. If teamName IS given alongside a handoffToken anyway, it must
+ * match the team the token names, or BAD_RECOVERY_CODE — a defensive cross-
+ * check, not the normal path.
+ */
+export interface ReclaimTeamRequest {
+  code: string;
+  teamName?: string;
+  recoveryCode?: string;
+  /**
+   * ⚠ A LINK, NOT SOMETHING TYPED — see CreateHandoffResponse. 32 random
+   * characters is too many to read off a screen and retype by hand; a
+   * handoffToken only ever arrives in a URL (QR code or copied link), which
+   * is exactly why `/claim/<code>/<handoffToken>` exists as its own route
+   * rather than asking a device to type it into the same form a recovery
+   * code uses.
+   */
+  handoffToken?: string;
+  /**
+   * ⚠ THE NEW DEVICE'S FRESHLY MINTED BEARER TOKEN, same mint as
+   * JoinRequest.token (newSessionToken()) and the same reason: the client
+   * holds the only copy of this secret, so presenting it is what makes a
+   * lost response's retry idempotent instead of a second rotation attempt —
+   * see reclaimTeam's "rejoin by already-rotated token" check.
+   */
+  token: string;
+}
+
+/**
+ * ⚠ SHAPED EXACTLY LIKE JoinResponse, DELIBERATELY. A successful reclaim IS a
+ * rejoin — the same device-to-team binding, just re-established by a
+ * different device presenting a different secret. `rejoined` is always true
+ * (there is no "created" branch for a reclaim).
+ *
+ * ⚠ recoveryCode IS PRESENT ONLY WHEN THE CLAIM WAS BY handoffToken, NEVER
+ * WHEN IT WAS BY recoveryCode. A team that reclaims with its own recovery
+ * code still holds that code (nothing reissues it); a team that reclaims via
+ * a hand-off link evidently lost its old code along with its old device —
+ * see server/rooms.ts's reclaimTeam — so a fresh one is minted and shown the
+ * same one-time way JoinResponse.recoveryCode already is.
+ */
+export type ReclaimTeamResponse = JoinResponse;
+
+/**
+ * ⚠ HOST TOKEN, NOT A TEAM'S — this is the host handing a team a way back in,
+ * not the team asking for one. `NOT_HOST` otherwise, same authority check
+ * setEventHidden already makes.
+ */
+export interface CreateHandoffRequest {
+  code: string;
+  token: string;
+  teamName: string;
+}
+
+/**
+ * ⚠ THE PLAIN TOKEN, ONCE — same treatment as JoinResponse.recoveryCode and
+ * every other secret this layer hands back. `expiresAtSec` is returned so
+ * the client can show a real countdown rather than guessing the 10-minute
+ * window server/keys.ts's handoffSk fixes.
+ */
+export interface CreateHandoffResponse {
+  handoffToken: string;
+  expiresAtSec: number;
+}
+
+/**
+ * ⚠ A HOST ACTION, NOT A PLAYER ONE — host token, like CreateHandoffRequest,
+ * not the team's own. A team locks its own year by submitting decisions; only
+ * the host can undo that lock, from the Game Setup tab's team table. `token`
+ * is the host token, `teamName` names which team to reopen (the host has no
+ * team of its own to imply one).
+ *
+ * ⚠ `yearNumber` IS THE SAME COMPARE-AND-SWAP DISCIPLINE AdvanceRequest's
+ * expectedYear ALREADY USES — the year the host's own screen believes is
+ * locked, read from its own polled RoomView.currentYear. Refused with
+ * WRONG_YEAR if the room has since moved on: an undo must only ever reach a
+ * year that has not yet been advanced past, never a played one.
+ */
+export interface UndoLockRequest {
+  code: string;
+  token: string;
+  teamName: string;
+  yearNumber: number;
+}
+
+/**
+ * ⚠ THE ROOM, NOT A CallerView — same shape as SetEventHiddenResponse. The
+ * host has no team-shaped slice of its own to return.
+ */
+export interface UndoLockResponse {
   room: RoomView;
 }
 
@@ -908,11 +1427,42 @@ export interface SubmitRequest {
   /** Opaque by design — see TeamYearSummary's note on why results are not. */
   decisions?: JsonValue;
   result?: TeamYearSummary;
+  /**
+   * WITH A LOCK (`decisions`) IN A ROOM WITH THE MARKET ON: the year's rate,
+   * book and market decisions per line (MarketLockInput). Ignored without
+   * `decisions`, and in a room with the market off.
+   */
+  market?: MarketLockInput;
 }
 
 export interface SubmitResponse {
   room: RoomView;
   you: CallerView;
+}
+
+/**
+ * ⚠ A SEPARATE ENDPOINT FROM submit, NOT A THIRD SLOT ON IT. submit LOCKS a
+ * year; saveDraft never does — it is the player's own form, auto-saved while
+ * still open, and giving it submit's authority-and-locking machinery would
+ * make "merely saved" and "locked in" the same write with two names for it.
+ *
+ * ⚠ ALWAYS THE CURRENT YEAR. `yearNumber` must equal the room's `currentYear`
+ * or the call is refused with WRONG_YEAR (submit's own rule, reused rather
+ * than reinvented) — a tab that sat open while the host advanced must not
+ * save a draft for a year that is no longer open. Refused with
+ * INVALID_REQUEST if the team already locked this year: a locked year is not
+ * a draft any more, and saveDraft is not a second way to edit it.
+ */
+export interface SaveDraftRequest {
+  code: string;
+  token: string;
+  yearNumber: number;
+  /** Opaque, same as SubmitRequest.decisions — this layer never inspects it. */
+  decisions: JsonValue;
+}
+
+export interface SaveDraftResponse {
+  savedAt: number;
 }
 
 // ⚠ GAP CLOSED, AND IT IS THE ONE THAT CHANGES THE WIRE. This said the request
@@ -974,14 +1524,29 @@ export interface ReadResponse {
 
 // ---------------------------------------------------------------- interface
 
-// ⚠ THE WHOLE SURFACE. Five methods. Anything a client needs that is not here is
-// a gap in this interface to be closed here, not a reach around it into an
+// ⚠ THE WHOLE SURFACE. Anything a client needs that is not here is a gap in
+// this interface to be closed here, not a reach around it into an
 // implementation — the moment a screen imports from a concrete transport, the
 // swap stops being a swap.
 export interface SessionTransport {
   createRoom(req: CreateRoomRequest): Promise<CreateRoomResponse>;
   join(req: JoinRequest): Promise<JoinResponse>;
+  // ⚠ A JOIN VARIANT, NEXT TO join FOR THAT REASON. A successful reclaim is a
+  // rejoin reached by a different secret — see ReclaimTeamRequest/Response —
+  // not a new kind of authority over a team.
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse>;
+  // ⚠ THE HOST'S HALF OF A HAND-OFF — mints the secret reclaimTeam's
+  // handoffToken path then resolves. Next to reclaimTeam for the same reason
+  // that is next to join: one feature, two ends of it.
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse>;
+  // ⚠ HOST-AUTHENTICATED, ACTING ON A NAMED TEAM — see UndoLockRequest. Next
+  // to createHandoff for that reason, not next to submit (team-authenticated).
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse>;
   submit(req: SubmitRequest): Promise<SubmitResponse>;
+  // ⚠ THE THIRD DEVICE-SWITCHING FEATURE — see SaveDraftRequest. Next to
+  // submit for the same reason reclaimTeam sits next to join: one feature,
+  // the form it protects.
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse>;
   advance(req: AdvanceRequest): Promise<AdvanceResponse>;
   read(req: ReadRequest): Promise<ReadResponse>;
   // ---- the lobby ----------------------------------------------------------
@@ -994,6 +1559,9 @@ export interface SessionTransport {
   // host-only endpoint rather than a flag smuggled onto a call that exists.
   listEvents(req: ListEventsRequest): Promise<ListEventsResponse>;
   setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse>;
+  // ⚠ HOST-ONLY, AND ITS OWN ENDPOINT for the reason setEventHidden is: a write
+  // that is neither a year's advance nor a team's submit. See EditGameRequest.
+  editGame(req: EditGameRequest): Promise<EditGameResponse>;
 }
 
 // ---------------------------------------------------------------- faults

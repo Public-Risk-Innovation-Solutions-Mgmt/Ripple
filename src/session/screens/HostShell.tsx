@@ -20,6 +20,7 @@ import React from 'react';
 import { Home, Shield } from 'lucide-react';
 import { HOST_TABS, type HostTabId } from './hostTabs';
 import { navigate } from '../client/navigation';
+import type { WalkthroughHeader } from '../../utils/yearWalkthrough';
 
 interface Props {
   activeTab: HostTabId;
@@ -29,21 +30,38 @@ interface Props {
   /** The room code, shown in the bar once there is one. */
   code?: string;
   eventName?: string;
+  /**
+   * The game's version and the room's fixed seed, once there is a room — the
+   * host sees the seed, as Test player does (utils/yearWalkthrough); a team
+   * never does.
+   */
+  version?: WalkthroughHeader;
   children: React.ReactNode;
 }
 
-export default function HostShell({ activeTab, onSelectTab, hasRoom, code, eventName, children }: Props) {
+export default function HostShell({ activeTab, onSelectTab, hasRoom, code, eventName, version, children }: Props) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[960px] items-baseline justify-between gap-x-3 gap-y-1 px-6 pt-5">
+        <div className="mx-auto flex max-w-screen-2xl items-baseline justify-between gap-x-3 gap-y-1 px-6 pt-5">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-lg font-semibold text-slate-800">
               {eventName || 'Host a session'}
             </h1>
             {code && (
-              <span className="text-sm text-slate-400">
-                room <span className="font-mono font-medium text-slate-600">{code}</span>
+              <span className="text-sm text-black">
+                room <span className="font-mono font-medium text-black">{code}</span>
+              </span>
+            )}
+            {version && (
+              <span data-testid="host-version-header" className="text-sm text-slate-400">
+                version <span data-testid="host-version" className="font-mono text-black">{version.version}</span>
+                {version.scenario !== undefined && (
+                  <> · scenario <span data-testid="host-scenario" className="font-mono text-black">{version.scenario}</span></>
+                )}
+                {version.seed !== undefined && (
+                  <> · seed <span data-testid="host-seed" className="font-mono text-black">{version.seed}</span></>
+                )}
               </span>
             )}
           </div>
@@ -55,7 +73,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               type="button"
               data-testid="host-main-page-link"
               onClick={() => navigate('/')}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
             >
               <Home size={14} /> Main page
             </button>
@@ -63,13 +81,13 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               type="button"
               data-testid="host-admin-link"
               onClick={() => navigate('/admin')}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
             >
               <Shield size={14} /> Admin
             </button>
           </div>
         </div>
-        <nav className="mx-auto flex max-w-[960px] gap-1 px-6 pt-3">
+        <nav className="mx-auto flex max-w-screen-2xl gap-1 px-6 pt-3">
           {HOST_TABS.map(t => {
             const disabled = !!t.needsRoom && !hasRoom;
             const active = t.id === activeTab;
@@ -88,7 +106,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
                       : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <span className={active ? 'text-blue-600' : 'text-slate-400'}>{t.icon}</span>
+                <span className={active ? 'text-blue-600' : 'text-black'}>{t.icon}</span>
                 {t.label}
               </button>
             );
@@ -96,7 +114,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-[960px] px-6 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-screen-2xl px-6 py-6">{children}</main>
     </div>
   );
 }

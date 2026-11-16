@@ -234,15 +234,21 @@ export function catEventRetained(
   const hit = byLayer.get(layerKey);
   if (hit) return hit;
   const cIdx = layer ? layer.ceiling / bin : 0;
+  // ⚠ AN ATTACHMENT IS CAPPED AT THE CEILING. A peril deductible above the
+  // layer's top (the earthquake's $10M against the $1M xs $1M layer the shocks
+  // landing cut) means the layer answers none of that event: the pool keeps it
+  // all. Uncapped, min(k, a) + max(0, k - c) retained MORE than the gross and
+  // the layer ceded a negative amount (property-cat-check).
+  const capIdx = (attachment: number) => Math.min(attachment / bin, cIdx);
   // The highest attachment retains the most, so it sets the array's length.
   const topIdx = (k: number) => layer
-    ? Math.min(k, Math.max(...classes.map(c => c.attachment)) / bin) + Math.max(0, k - cIdx) : k;
+    ? Math.min(k, Math.max(...classes.map(c => capIdx(c.attachment)))) + Math.max(0, k - cIdx) : k;
   const pmf = new Float64Array(topIdx(gross.length - 1) + 1);
   let m1r = 0, m2r = 0, m1c = 0, m2c = 0;
   // Class by class in a fixed order, so the arrays are bit-reproducible. With
   // one class its share is 1 and every product is the old one exactly.
   for (const cls of classes) {
-    const aIdx = cls.attachment / bin;
+    const aIdx = layer ? capIdx(cls.attachment) : cls.attachment / bin;
     const retainedIdx = (k: number) => layer ? Math.min(k, aIdx) + Math.max(0, k - cIdx) : k;
     for (let k = 0; k < gross.length; k++) {
       const p = cls.share === 1 ? gross[k] : gross[k] * cls.share;

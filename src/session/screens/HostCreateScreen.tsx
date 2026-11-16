@@ -22,20 +22,16 @@
 import { SCENARIO_OPTIONS, randomScenarioId } from '../../utils/scenarios';
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
-import { Shuffle, Trash2, Zap } from 'lucide-react';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
-import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
-import type { CoverageLine } from '../../types/simulation';
+import type { DevelopmentLevels } from '../contract';
+import { DevelopmentByYearTable, DevelopmentLevelSelect, ShockScheduleFields, type LevelsRow } from '../../components/GameRulesFields';
+import { startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
+import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, type DevelopmentSetting, type MarketLevel } from '../../data/pricingParameters';
+import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
+import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { rememberHostToken, saveActive } from '../client/identity';
-import { drawShockSchedule, drawableShocks } from '../shockDraw';
 import { navigate } from '../client/navigation';
-
-// ⚠ EVERY ONE OF THE R MODEL'S TWELVE EVENTS IS OFFERED, AND EVERY ONE RUNS.
-// Loss engine commit 3b retired the old catalogue, which only built six of
-// them; the new engine runs all twelve. The list is the same one Randomise
-// draws from (session/shockDraw.ts), so the two cannot offer different events.
-const SCHEDULABLE = drawableShocks();
 
 // ⚠ THE SEED IS THE SCENARIO, 1 TO 20, AND IT IS STILL A STRING. The contract's
 // `seed: string` is untouched — these are the strings '1' to '20', the same
@@ -45,70 +41,94 @@ const SEED_OPTIONS = SCENARIO_OPTIONS;
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
-// ⚠ THE FACTOR IS SIGNED AND THE SCREEN IS NOT. Stored as a fraction where
-// POSITIVE IS ADVERSE (see PriorDevelopment), but a host reads "3% adverse",
-// never "0.03". These two convert between the two readings and nothing else
-// does, so the sign convention lives in one place.
-const pctOf = (v: number) => Math.round(Math.abs(v) * 1000) / 10;
-const signedFrom = (pct: number, adverse: boolean) => (adverse ? 1 : -1) * (Math.abs(pct) / 100);
-
 // ⚠ THE DEFAULT IS STILL RANDOM, DELIBERATELY. The free-text field it replaces
 // defaulted to a fresh eight-character draw, so two hosts who changed nothing got
 // different games. Defaulting the menu to '1' would quietly undo that and make
 // every unconsidered room identical. A random option keeps the old behaviour
 // inside the new, smaller set.
-// ⚠ THE SCHEDULED LIST READS AS A SENTENCE, NOT AN ID: '#2 Winterstorm/Rainstorm'.
-// An id that is not one of the twelve shows as itself.
-function shockLabel(id: string): string {
-  const name = SCHEDULABLE.find(s => s.id === id)?.name;
-  if (!name) return id;
-  return id.startsWith('#') ? `${id} ${name}` : name;
-}
-
 function randomSeed(): string {
   return randomScenarioId();
 }
 
-export default function HostCreateScreen() {
+/**
+ * TEST PLAYER (start screen): THIS SCREEN, played solo. Not a copy — the same
+ * fields the host sets (seed, years, first program year, lines, each line's
+ * prior development, the shock schedule, fixed or randomised), minus what only
+ * a room has (event name, team count), and a start button in place of Create
+ * room. Nothing is sent to a transport and no admin sign-in is asked for: the
+ * game is the player's own, built by utils/soloGame on exactly these settings.
+ */
+export interface SoloTestMode {
+  /** The start screen's values, so the player does not set them twice. */
+  initial: Pick<GameSetupSettings, 'poolName' | 'gameLength' | 'startingYear' | 'instanceId' | 'activeLines'>;
+  onStart: (settings: GameSetupSettings, schedule: ScheduledShockSpec[]) => void;
+  onBack: () => void;
+}
+
+export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode } = {}) {
   // ⚠ OPENS EMPTY, NOT 'Ripple Game'. The field is REQUIRED now and the lobby
   // lists it, so a default would be the name most events end up called — a
   // lobby of identical rows, each needing its code read to tell apart. An empty
   // required field asks the one question the lobby cannot answer for itself.
   const [eventName, setEventName] = useState('');
-  const [poolName, setPoolName] = useState('');
-  const [seed, setSeed] = useState(() => randomSeed());
-  const [yearCount, setYearCount] = useState(5);
-  const [startingYear, setStartingYear] = useState(2027);
+  const [poolName, setPoolName] = useState(soloTest?.initial.poolName ?? '');
+  const [seed, setSeed] = useState(() => soloTest?.initial.instanceId ?? randomSeed());
+  const [yearCount, setYearCount] = useState(soloTest?.initial.gameLength ?? 5);
+  const [startingYear, setStartingYear] = useState(soloTest?.initial.startingYear ?? 2027);
   const [expectedTeams, setExpectedTeams] = useState(3);
+  // MARKET COMPETITION: hosted rooms only (Test player plays alone, with no market).
+  const [market, setMarket] = useState<MarketLevel>(MARKET_DEFAULT_LEVEL);
   // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
   // chose for themselves — so a host who changes nothing gets the old game.
-  const [lines, setLines] = useState<CoverageLine[]>([...LINE_ORDER]);
+  const [lines, setLines] = useState<CoverageLine[]>(() => soloTest ? [...soloTest.initial.activeLines] : [...LINE_ORDER]);
   // Kept for ALL THREE lines even while one is unticked, so toggling a line off
   // and back on does not silently reset a factor the host had edited. The
   // transport drops entries for lines the room does not play.
-  const [priorDev, setPriorDev] = useState<PriorDevelopment>({ ...DEFAULT_PRIOR_DEVELOPMENT });
-  const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
-  const [shockId, setShockId] = useState(SCHEDULABLE[0]?.id ?? '');
-  const [shockYear, setShockYear] = useState(2);
-  // What the last Randomise drew FOR. The draw is a pure function of the seed
-  // and the year count, so the list is reproducible from the room record only
-  // while both still match — and only if the host has not edited the list since.
-  const [drawnFor, setDrawnFor] = useState<{ seed: string; yearCount: number } | null>(null);
+  // ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development), replacing
+  // the prior-development percentages.
+  const [devLevels, setDevLevels] = useState<Required<DevelopmentLevels>>({
+    WC: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, GL: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, Property: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL,
+  });
+  // ⚠ SIMPLE OR ADVANCED (pr/advanced-development). Simple: one level per line
+  // for every year, as before — the room stores nothing by year. Advanced: a
+  // level per line per year, started from the simple choices, sent as
+  // developmentLevelsByYear (the field Edit game writes). Back to Simple drops
+  // the table, after a warning.
+  const [devMode, setDevMode] = useState<'simple' | 'advanced'>('simple');
+  const [devTable, setDevTable] = useState<LevelsRow[]>([]);
+  const [confirmSimple, setConfirmSimple] = useState(false);
+  // Years 1 to yearCount: a year past the table's last carries its last row
+  // (the year count grew), and the table stops at the year count (it shrank).
+  const devRows: LevelsRow[] = [];
+  const shownYears = Number.isInteger(yearCount) ? Math.min(Math.max(yearCount, 0), 50) : 0;
+  for (let i = 0; i < shownYears; i++) devRows.push(devTable[i] ?? devRows[i - 1] ?? devLevels);
+  function toAdvanced() {
+    setDevTable(Array.from({ length: shownYears }, () => ({ ...devLevels })));
+    setDevMode('advanced');
+  }
+  function toSimple() {
+    setDevMode('simple');
+    setDevTable([]);
+    setConfirmSimple(false);
+  }
+  // Edit game's rule: a level applies from the year it is set onward.
+  const setYearLevel = (y: number, l: CoverageLine, v: DevelopmentSetting) =>
+    setDevTable(devRows.map((r, i) => (i + 1 >= y ? { ...r, [l]: v } : r)));
+  /** The advanced table as the room stores it: year -> each PLAYED line's level. Undefined in Simple. */
+  const advancedByYear = (): Record<string, DevelopmentLevels> | undefined => (devMode === 'advanced'
+    ? Object.fromEntries(devRows.map((r, i) => [String(i + 1), Object.fromEntries(lines.map(l => [l, r[l]]))]))
+    : undefined);
+  // The setup's own levels: the simple choices, or the table's first year.
+  const baseLevels: Required<DevelopmentLevels> = devMode === 'advanced' && devRows[0] ? devRows[0] : devLevels;
 
-  // ⚠ THE DRAW HAPPENS HERE, ONCE, ON THE HOST'S CLICK, AND NOWHERE ELSE. The
-  // result is written into the room as concrete entries by handleCreate below,
-  // and every team builds from those entries — see session/shockDraw.ts. The
-  // host SEES what was drawn (ruled): it lands in the same list a hand-picked
-  // shock does, and can be edited like one.
-  function handleRandomise() {
-    // A blank seed would be replaced at creation, and the schedule would then
-    // have been drawn from a seed the room does not carry. So fill it first.
+  const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
+  // A blank seed would be replaced at creation, and a schedule drawn from it
+  // would not be the room's — so Randomise fills it first.
+  function ensureSeed() {
     const s = seed.trim() || randomSeed();
     if (s !== seed) setSeed(s);
-    setShocks(drawShockSchedule(s, yearCount));
-    setDrawnFor({ seed: s, yearCount });
+    return s;
   }
-  const drawStale = drawnFor !== null && (drawnFor.seed !== seed.trim() || drawnFor.yearCount !== yearCount);
 
   const hostTokenRef = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,6 +138,28 @@ export default function HostCreateScreen() {
   // lists rooms by it, so a nameless event is a row nobody can choose.
   const canCreate = eventName.trim().length > 0
     && yearCount >= 1 && expectedTeams >= 1 && lines.length >= 1 && !busy;
+  // Test player: a solo game's length is the start screen's range, and its pool
+  // name is required there too.
+  const soloYearsOk = yearCount >= GAME_LENGTH_YEARS.min && yearCount <= GAME_LENGTH_YEARS.max;
+  const canStartSolo = poolName.trim().length > 0 && soloYearsOk && lines.length >= 1;
+
+  function handleStartSolo() {
+    if (!soloTest || !canStartSolo) return;
+    // Only the lines played, as the transport keeps them for a room. The levels
+    // ride on the setup (setup.developmentLevels), as Single player's draw does.
+    const developmentLevels: DevelopmentLevels = {};
+    for (const l of lines) developmentLevels[l] = baseLevels[l];
+    // Advanced: the table rides on the setup (developmentLevelsByYear, which
+    // Test player's Edit game already reads), and the history opens with it.
+    const byYear = startingLevelsByYear(advancedByYear(), yearCount, lines);
+    soloTest.onStart(
+      {
+        poolName: poolName.trim(), gameLength: yearCount, startingYear, instanceId: seed, activeLines: [...lines], developmentLevels,
+        ...(byYear ? { developmentLevelsByYear: byYear, gameEdits: startingEdits(byYear, 'Test player', Date.now()) } : {}),
+      },
+      shocks.filter(s => s.yearNumber >= 1 && s.yearNumber <= yearCount).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
+    );
+  }
 
   async function handleCreate() {
     setBusy(true);
@@ -138,8 +180,10 @@ export default function HostCreateScreen() {
         ...(poolName.trim() ? { poolName: poolName.trim() } : {}),
         expectedTeams,
         lines,
-        priorDevelopment: priorDev,
+        developmentLevels: baseLevels,
+        ...(devMode === 'advanced' ? { developmentLevelsByYear: advancedByYear() } : {}),
         shocks,
+        market,
       });
       // ⚠ PERSIST THE HOST TOKEN BEFORE NAVIGATING. The room exists the moment
       // createRoom resolves; a navigation that happened first and then failed to
@@ -157,9 +201,21 @@ export default function HostCreateScreen() {
   return (
     <>
       <div className="w-full">
-        <p className="text-sm text-slate-500">
-          Every team plays the same instance. Teams name themselves when they join; you choose the coverage lines below.
-        </p>
+        {soloTest ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">
+              The host&rsquo;s game setup, played solo: set each line&rsquo;s prior development and the shock schedule, then start.
+            </p>
+            <button type="button" data-testid="test-player-back" onClick={soloTest.onBack}
+              className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-black hover:bg-slate-50">
+              Back
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            Every team plays the same instance. Teams name themselves when they join; you choose the coverage lines below.
+          </p>
+        )}
 
         {error && (
           <div data-testid="create-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -167,7 +223,7 @@ export default function HostCreateScreen() {
           </div>
         )}
 
-        <div className="mt-5 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div data-testid={soloTest ? 'test-player-setup' : undefined} className="mt-5 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           {/* ⚠ MOVED TO THE TOP AND MADE REQUIRED — THE SAME FIELD, NOT A NEW
               ONE. It sat in the two-column grid below sharing a row with the
               seed, optional, defaulting to 'Ripple Game'. The lobby lists
@@ -175,7 +231,7 @@ export default function HostCreateScreen() {
               asked and the room cannot be created without it. The mockup drew a
               SECOND field above the existing one; that was wrong, and there is
               one field here. */}
-          <label className="block">
+          {!soloTest && <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Event name <span className="text-red-500">*</span>
             </span>
@@ -186,10 +242,10 @@ export default function HostCreateScreen() {
               onChange={e => setEventName(e.target.value)}
               placeholder="e.g. PRISM Spring Workshop"
             />
-            <span className="mt-1 block text-xs text-slate-400">
+            <span className="mt-1 block text-xs text-black">
               Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
             </span>
-          </label>
+          </label>}
 
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Pool name</span>
@@ -200,8 +256,10 @@ export default function HostCreateScreen() {
               onChange={e => setPoolName(e.target.value)}
               placeholder="e.g. Harbour Public Entity Risk Pool"
             />
-            <span className="mt-1 block text-xs text-slate-400">
-              The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.
+            <span className="mt-1 block text-xs text-black">
+              {soloTest
+                ? 'Required. The pool you run, as the welcome memo and your screens name it.'
+                : <>The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.</>}
             </span>
           </label>
 
@@ -221,12 +279,14 @@ export default function HostCreateScreen() {
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Years</span>
               <input
                 data-testid="year-count"
-                type="number" min={1} max={20}
+                type="number" min={soloTest ? GAME_LENGTH_YEARS.min : 1} max={soloTest ? GAME_LENGTH_YEARS.max : 20}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 value={yearCount}
                 onChange={e => setYearCount(Number(e.target.value))}
               />
-              <span className="mt-1 block text-xs text-slate-400">How many rounds the game will run.</span>
+              <span className={`mt-1 block text-xs ${soloTest && !soloYearsOk ? 'text-amber-700' : 'text-black'}`}>
+                {soloTest ? `How many rounds the game will run: ${GAME_LENGTH_YEARS.min} to ${GAME_LENGTH_YEARS.max}.` : 'How many rounds the game will run.'}
+              </span>
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">First program year</span>
@@ -236,11 +296,11 @@ export default function HostCreateScreen() {
                 value={startingYear}
                 onChange={e => setStartingYear(Number(e.target.value))}
               />
-              <span className="mt-1 block text-xs text-slate-400">The year the teams price first; the game opens in the year before it.</span>
+              <span className="mt-1 block text-xs text-black">The year the teams price first; the game opens in the year before it.</span>
             </label>
           </div>
 
-          <div>
+          {!soloTest && <div>
             <label className="block max-w-[220px]">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Number of Teams</span>
               <input
@@ -254,11 +314,34 @@ export default function HostCreateScreen() {
             {/* ⚠ SAID ON SCREEN BECAUSE A NUMBER FIELD LOOKS LIKE A LIMIT. It is
                 not one: the room does not turn anyone away, and the count exists
                 so the host knows when everybody has arrived. */}
-            <p className="mt-1.5 text-xs text-slate-400">
+            <p className="mt-1.5 text-xs text-black">
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
               teams name themselves at join and play the coverage lines you pick below.
             </p>
-          </div>
+          </div>}
+
+          {!soloTest && <div>
+            <label className="block max-w-[220px]">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Market competition</span>
+              <select
+                data-testid="market-level"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={market}
+                onChange={e => setMarket(e.target.value as MarketLevel)}
+              >
+                {MARKET_LEVELS.map(l => <option key={l} value={l}>{l[0].toUpperCase() + l.slice(1)}</option>)}
+              </select>
+            </label>
+            <p className="mt-1.5 text-xs text-black">
+              {market === 'off'
+                ? 'Off: each team\'s book moves only on its own New Members and Non-Renewal, as in Single player.'
+                : <>Members move between teams on price. Each year, when you advance, members of a dearer team may leave for a
+                  cheaper one; teams take members in only up to their New Members appetite. {market === 'low' ? 'Low' : market === 'medium' ? 'Medium' : 'High'}: {
+                  market === 'low' ? 'members are slow to move and the best of them go first only gently.'
+                    : market === 'medium' ? 'a few percent of a much dearer team\'s book moves each year, mostly its better risks.'
+                      : 'members are quick to move, and the best risks go first.'}</>}
+            </p>
+          </div>}
 
           {/* ---- coverage lines, and their prior development ---- */}
           <div>
@@ -267,14 +350,12 @@ export default function HostCreateScreen() {
                 be each team's own choice at join, which made a session a table of
                 different games; the lines are a property of the EVENT, like the
                 seed and the year count. */}
-            <p className="mt-1 text-xs text-slate-400">
-              Every team plays these lines. At least one.
+            <p className="mt-1 text-xs text-black">
+              {soloTest ? 'The lines you play. At least one.' : 'Every team plays these lines. At least one.'}
             </p>
             <div className="mt-2 space-y-2">
               {LINE_ORDER.map(l => {
                 const on = lines.includes(l);
-                const v = priorDev[l] ?? 0;
-                const adverse = v >= 0;
                 return (
                   <div key={l} className="flex items-center gap-3">
                     <label className="flex w-56 items-center gap-2 text-sm text-slate-700">
@@ -290,41 +371,55 @@ export default function HostCreateScreen() {
                       />
                       {LINE_FULL_NAME[l]}
                     </label>
-                    <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
-                      <input
-                        type="number" min={0} max={100} step={1}
-                        disabled={!on}
-                        data-testid={`prior-dev-pct-${l}`}
-                        className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
-                        value={pctOf(v)}
-                        onChange={e => setPriorDev(prev => ({
-                          ...prev, [l]: signedFrom(Number(e.target.value), adverse),
-                        }))}
-                      />
-                      <span className="text-sm text-slate-500">%</span>
-                      <select
-                        disabled={!on}
-                        data-testid={`prior-dev-dir-${l}`}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
-                        value={adverse ? 'adverse' : 'favourable'}
-                        onChange={e => setPriorDev(prev => ({
-                          ...prev, [l]: signedFrom(pctOf(prev[l] ?? 0), e.target.value === 'adverse'),
-                        }))}
-                      >
-                        <option value="adverse">adverse</option>
-                        <option value="favourable">favourable</option>
-                      </select>
-                    </div>
+                    {devMode === 'simple' && (
+                      <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
+                        <span className="text-sm text-slate-500">Adverse development</span>
+                        <DevelopmentLevelSelect line={l} value={devLevels[l]} disabled={!on}
+                          onChange={v => setDevLevels(prev => ({ ...prev, [l]: v }))} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-            {/* ⚠ SAID PLAINLY, BECAUSE A NUMBER THAT DOES NOTHING IS WORSE THAN NO
-                NUMBER. The engine does not read these yet; they are carried on the
-                room so a later update can apply them without re-creating rooms. */}
-            <p className="mt-2 text-xs text-slate-400">
-              Prior development is <span className="font-medium">stored for a future update, not yet used</span> —
-              it does not change the game today.
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-slate-500">Adverse development by year</span>
+              <div role="group" aria-label="Adverse development: simple or advanced" className="inline-flex rounded-lg border border-slate-300 p-0.5">
+                <button type="button" data-testid="dev-mode-simple" aria-pressed={devMode === 'simple'}
+                  onClick={() => { if (devMode === 'advanced') setConfirmSimple(true); }}
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${devMode === 'simple' ? 'bg-brand-600 text-white' : 'text-slate-700'}`}>
+                  Simple
+                </button>
+                <button type="button" data-testid="dev-mode-advanced" aria-pressed={devMode === 'advanced'}
+                  onClick={() => { if (devMode === 'simple') toAdvanced(); setConfirmSimple(false); }}
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${devMode === 'advanced' ? 'bg-brand-600 text-white' : 'text-slate-700'}`}>
+                  Advanced
+                </button>
+              </div>
+              <span className="text-xs text-black">
+                {devMode === 'simple' ? 'One level per line, every year.' : 'A level per line for each year; a change applies from that year onward.'}
+              </span>
+            </div>
+            {confirmSimple && (
+              <div data-testid="dev-mode-warning" role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p>Switching to Simple sets one level per line for every year. Your per-year choices will be lost.</p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" data-testid="dev-mode-confirm-simple" onClick={toSimple}
+                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white">Switch to Simple</button>
+                  <button type="button" data-testid="dev-mode-keep-advanced" onClick={() => setConfirmSimple(false)}
+                    className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs text-amber-900">Keep Advanced</button>
+                </div>
+              </div>
+            )}
+            {devMode === 'advanced' && lines.length > 0 && (
+              <DevelopmentByYearTable lines={lines} rows={devRows} startingYear={startingYear} onChange={setYearLevel} />
+            )}
+            <p data-testid="dev-level-note" className="mt-2 text-xs text-black">
+              Each played year every open prior year's reserve grows by a rate drawn in its line's range —
+              None 0%,
+              Low {Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[1] * 100)}%,
+              Mid {Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[1] * 100)}%,
+              High {Math.round(ADVERSE_DEVELOPMENT_RANGE.High[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.High[1] * 100)}%.
             </p>
             {lines.length === 0 && (
               <p data-testid="no-lines" className="mt-1.5 text-xs text-amber-700">
@@ -334,106 +429,32 @@ export default function HostCreateScreen() {
           </div>
 
           {/* ---- shocks ---- */}
-          <div>
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Shock schedule</span>
-            <p className="mt-1 text-xs text-slate-400">
-              The same schedule reaches every team. Randomise draws it once, here, from the seed.
-            </p>
-            <div className="mt-2 flex items-end gap-2">
-              <label className="flex-1 block">
-                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
-              <select
-                data-testid="shock-id"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={shockId}
-                onChange={e => setShockId(e.target.value)}
-              >
-                {SCHEDULABLE.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.id} — {s.name}
-                  </option>
-                ))}
-              </select>
-              </label>
-              <label className="block">
-                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Year of Event</span>
-                <input
-                  data-testid="shock-year"
-                  type="number" min={1} max={yearCount}
-                  className="mt-1 w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  value={shockYear}
-                  onChange={e => setShockYear(Number(e.target.value))}
-                />
-              </label>
-              <button
-                type="button"
-                data-testid="add-shock"
-                onClick={() => { setShocks(prev => [...prev, { shockId, yearNumber: shockYear }]); setDrawnFor(null); }}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600"
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                data-testid="randomise-shocks"
-                onClick={handleRandomise}
-                disabled={yearCount < 1}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 disabled:text-slate-300"
-                title="Replace the list with a draw from the catalog: about three events per ten years, never year 1, milder events more likely"
-              >
-                <Shuffle size={13} />
-                Randomise
-              </button>
-            </div>
-            {drawnFor && !drawStale && (
-              <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-slate-400">
-                Drawn from seed <span className="font-mono">{drawnFor.seed}</span> over {drawnFor.yearCount} years.
-              </p>
-            )}
-            {drawStale && (
-              <p data-testid="shock-drawn-stale" className="mt-1.5 text-xs text-amber-700">
-                The seed or year count changed after this was drawn. Randomise again to draw for the current settings.
-              </p>
-            )}
-            {shocks.length > 0 && (
-              <ul data-testid="shock-list" className="mt-2 space-y-1">
-                {shocks.map((s, i) => (
-                  // ⚠ THE ID AND YEAR STAY IN THE DOM AS ATTRIBUTES, not because the
-                  // screen needs them but because the LABEL is now prose and the
-                  // catalog is about to be renumbered 1-12. A driver matching the
-                  // room record against rendered text would be re-broken by that
-                  // rename; matching these is stable and reads the same fact.
-                  <li
-                    key={i}
-                    data-shock-id={s.shockId}
-                    data-shock-year={s.yearNumber}
-                    className="flex items-center gap-2 text-sm text-slate-600"
-                  >
-                    <Zap size={13} className="text-amber-500" />
-                    <span>{shockLabel(s.shockId)} — Year {s.yearNumber}</span>
-                    <button
-                      type="button"
-                      onClick={() => { setShocks(prev => prev.filter((_, j) => j !== i)); setDrawnFor(null); }}
-                      className="text-slate-400 hover:text-red-600"
-                      aria-label={`Remove shock ${i + 1}`}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <ShockScheduleFields
+            seed={seed} ensureSeed={ensureSeed} yearCount={yearCount} shocks={shocks} setShocks={setShocks}
+            note={soloTest
+              ? 'Your game fires exactly this schedule. Randomise draws it once, here, from the seed.'
+              : 'The same schedule reaches every team. Randomise draws it once, here, from the seed.'}
+          />
 
-          <button
+          {soloTest ? (
+            <button
+              type="button"
+              data-testid="start-test-player"
+              disabled={!canStartSolo}
+              onClick={handleStartSolo}
+              className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+            >
+              Start test game
+            </button>
+          ) : <button
             type="button"
             data-testid="create-room"
             disabled={!canCreate}
             onClick={() => { void handleCreate(); }}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+            className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
           >
             {busy ? 'Creating…' : 'Create room'}
-          </button>
+          </button>}
         </div>
       </div>
     </>

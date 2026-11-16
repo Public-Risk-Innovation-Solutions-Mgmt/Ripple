@@ -1,33 +1,36 @@
 // ============================================================================
-// RESULTS RUN ONE YEAR BEHIND THE YEAR IN PROGRESS.
+// RESULTS SHOW THROUGH THE YEAR JUST COMPLETED.
 //
 // The pool sits in a year while the board prices the next (the top bar's
 // current year is the program year less one). What anyone can SEE of results
-// stops at the LATEST KNOWN YEAR — the current year less one: in 2026, pricing
-// 2027, the newest result is 2025; after one advance, in 2027, it is 2026. A
-// year's results first appear at the advance after it completes. When the game
-// ends the final year is shown, since it is complete.
+// stops at the LATEST KNOWN YEAR — the year just completed, which is the top
+// bar's year: at the start, in 2026 and pricing 2027, results show through
+// 2026 (the prior board's last year); after one lock, through 2027, the year
+// just played; and so on. When the game ends the final year is shown.
 //
 // In game-year numbers: with the board pricing year N (currentYearNumber), the
-// latest known year is N - 2 — year -1 (2025) before year 1, year 0 (2026,
-// the opening) after the first advance. Pricing is unchanged: it already reads
-// data through the year before the current one (PRICING_DATA_LAG_YEARS).
+// latest known year is N - 1 — year 0 (2026, the opening) before year 1, year
+// 1 after the first lock.
 //
-// ⚠ DISPLAY ONLY. Nothing here reaches the engine: the game state keeps every
-// year; screens and exports that show results read the KNOWN view of it.
-// Decisions, Decision History, the Rate Indication and the Model tab's rate are
-// about pricing and read the whole state, as before.
+// ⚠ IT WAS ONE YEAR BEHIND (N - 2), AND ONLY THE DISPLAY CHANGED. The delay is
+// gone from what players see; PRICING KEEPS ITS ONE-YEAR DATA LAG
+// (PRICING_DATA_LAG_YEARS) and its trend exactly as before — pricing year P
+// still reads accident years P-6 to P-2, each trended from its own year to P.
+// Nothing here reaches the engine: the game state keeps every year; screens and
+// exports that show results read the KNOWN view of it. Decisions, Decision
+// History, the Rate Indication and the Model tab's rate are about pricing and
+// read the whole state, as before.
 // ============================================================================
 import type { CoverageLine, GameState, PoolState, ResultSet } from '../types/simulation';
 
-/** The newest game year whose results are known: N - 2 while the game runs, every year once it is over. */
+/** The newest game year whose results are known: N - 1 (the year just completed) while the game runs, every year once it is over. */
 export function latestKnownYearNumber(gs: Pick<GameState, 'currentYearNumber' | 'isComplete'>): number {
-  return gs.isComplete ? Number.POSITIVE_INFINITY : gs.currentYearNumber - 2;
+  return gs.isComplete ? Number.POSITIVE_INFINITY : gs.currentYearNumber - 1;
 }
 
-/** The same rule for a hosted room: its current year is the year being decided. */
+/** The same rule for a hosted room: its current year is the year being decided, so the year just completed is the one before it. */
 export function latestKnownRoomYear(room: { currentYear: number; yearCount: number }): number {
-  return room.currentYear > room.yearCount ? Number.POSITIVE_INFINITY : room.currentYear - 2;
+  return room.currentYear > room.yearCount ? Number.POSITIVE_INFINITY : room.currentYear - 1;
 }
 
 // Each known view's full game, for the few readers that must know where the

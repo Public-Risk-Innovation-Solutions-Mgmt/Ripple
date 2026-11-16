@@ -106,21 +106,11 @@ export function regenerateLineYearClaims(
       'rcEffectivenessApplied is absent — this result predates the field, and redrawing at the current rc would fabricate a register');
   }
 
-  // ⚠ THE PRE-GAME DID NOT RUN ON instance.seed, AND THIS IS THE FIRST THING THE
-  // REPRODUCTION GATE CAUGHT. runLinePreGame is a reject-and-redraw search: each
-  // candidate past is simulated on `(instance.seed + attempt x 997) >>> 0`, per
-  // line, until one lands in the opening band. Every per-member stream AND the
-  // year's gPool were drawn from that offset seed. Redrawing a pre-game year on
-  // the base seed reproduced every GAME year exactly and every pre-game year
-  // wrong — 24 of 24 mismatches on the first run, all at years -2..0, and by
-  // hundreds of claims, not one or two.
-  //
-  // priorHistoryEngine stamps the accepted attempt on each pre-game line-result
-  // for exactly this reason (its own comment says so), and attempt 0 is the base
-  // seed unchanged — the same rule simulateLineCandidate applies. Game years
-  // carry no stamp and take the base seed.
-  const attempt = lr.pregameAttempt ?? 0;
-  const effectiveSeed = attempt === 0 ? instance.seed : (instance.seed + attempt * 997) >>> 0;
+  // ⚠ EVERY YEAR, THE PRE-GAME'S INCLUDED, RAN ON instance.seed. The pre-game
+  // was once a reject-and-redraw search on (instance.seed + attempt x 997) and
+  // stamped the accepted attempt here; the fixed-seed scenarios retired the
+  // search and the stamp, so there is no other seed to recover.
+  const effectiveSeed = instance.seed;
 
   return generateLineYearClaims(line, {
     members: lr.memberList,

@@ -21,7 +21,7 @@
 //   node scripts/tools/session-drivers/introduction.cjs
 const fs = require('node:fs');
 const path = require('node:path');
-const { BASE, REPO, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const DOCS = ['Welcome Memorandum', 'How to Play', 'Investment Memorandum', 'Underwriting Memorandum'];
 const norm = s => s.replace(/\s+/g, ' ').trim();
@@ -124,7 +124,7 @@ async function checkUnderwriting(page, s, mode) {
     const btn = page.locator('button', { hasText: label }).first();
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = intro(page, 'solo');
 
@@ -139,10 +139,13 @@ async function checkUnderwriting(page, s, mode) {
   await checkMemoHeaders(page, s, 'solo');
   await checkUnderwriting(page, s, 'solo');
 
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+  // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
+  const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+  if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   await page.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
 
   await s.tab('Decision History');

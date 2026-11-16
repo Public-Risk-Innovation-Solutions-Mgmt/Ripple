@@ -5,7 +5,10 @@
 //
 // ============================================================================
 // ⚠ THE TABLES IN FORCE ARE BASELINE_CV_TABLES, BY THE DATA SCIENTIST'S METHOD
-// (funding tables wiring). Each line reads the table built at its own
+// (funding tables wiring), EACH STRETCHED ABOUT 1.0 TO ITS LINE'S 95% STOP
+// (CLF_STRETCH_95: WC 1.30, GL and Property 1.25 — wip/clf-stretch; see
+// stretchClfTable and STATIC_CLF_TABLE, below). The literals below are the
+// unstretched tables. Each line reads the table built at its own
 // BASELINE_CV (pricingParameters.ts) — the same value the engine draws the
 // line's shared ordinary-loss year factor at — so the losses a line runs and
 // the table it is funded off cannot disagree. baseline-cv-table-check holds
@@ -509,7 +512,7 @@
 // distribution moves the crossing further there than in GL's flat tail region.
 
 import type { CoverageLine } from '../types/simulation';
-import { BASELINE_CV, RESERVE_MARGIN_CONFIDENCE_PARAM } from './pricingParameters';
+import { BASELINE_CV, CLF_STRETCH_95, RESERVE_MARGIN_CONFIDENCE_PARAM } from './pricingParameters';
 
 export type StaticClfLine = 'WC' | 'GL' | 'Property';
 
@@ -1202,14 +1205,29 @@ export function tableAtBaselineCv(line: StaticClfLine, cv: number): ClfTable {
   return set[line];
 }
 
-// WHAT THE ENGINE ACTUALLY READS: each line's table at its own BASELINE_CV.
-// The new-engine tables above (WC_NEW_ENGINE, GL_NEW_ENGINE,
+/**
+ * A TABLE STRETCHED ABOUT 1.0 SO ITS 95% STOP IS `at95` (wip/clf-stretch):
+ * CLF_new = 1 + (CLF_old - 1) x k, k = (at95 - 1) / (CLF_old at 95% - 1). A
+ * stretch about 1 keeps every stop on its own side of 1, so the table's
+ * Expected position (`expected`) and Expected's factor of exactly 1.0 do not
+ * move. See CLF_STRETCH_95 for why.
+ */
+export function stretchClfTable(table: ClfTable, at95: number): ClfTable {
+  const i95 = table.stops.indexOf(95);
+  if (i95 < 0) throw new Error('stretchClfTable: the table has no 95% stop');
+  const k = (at95 - 1) / (table.clf[i95] - 1);
+  return { ...table, clf: table.clf.map(c => 1 + (c - 1) * k) };
+}
+
+// WHAT THE ENGINE ACTUALLY READS: each line's table at its own BASELINE_CV,
+// stretched to its CLF_STRETCH_95 (wip/clf-stretch; clf-stretch-check holds
+// it). The new-engine tables above (WC_NEW_ENGINE, GL_NEW_ENGINE,
 // PROPERTY_NEW_ENGINE) and the member-engine tables before them are exported
 // as history, not in use.
 export const STATIC_CLF_TABLE: Record<StaticClfLine, ClfTable> = {
-  WC: tableAtBaselineCv('WC', BASELINE_CV.WC),
-  GL: tableAtBaselineCv('GL', BASELINE_CV.GL),
-  Property: tableAtBaselineCv('Property', BASELINE_CV.Property),
+  WC: stretchClfTable(tableAtBaselineCv('WC', BASELINE_CV.WC), CLF_STRETCH_95.WC),
+  GL: stretchClfTable(tableAtBaselineCv('GL', BASELINE_CV.GL), CLF_STRETCH_95.GL),
+  Property: stretchClfTable(tableAtBaselineCv('Property', BASELINE_CV.Property), CLF_STRETCH_95.Property),
 };
 
 // ⚠ ALL THREE LINES NOW HAVE A TABLE, so this is true universally and

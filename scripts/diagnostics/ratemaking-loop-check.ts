@@ -67,6 +67,11 @@ import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS, FULL_COST_BO
 import { newLossEngineRuns, NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
 
+// ⚠ 5%, NOT THE NEW-MEMBERS SLIDER'S TOP: this gate's thresholds were calibrated
+// on a book growing 5% a year, the slider's top until it widened to 0-10%
+// (pr/wider-underwriting-sliders). Pinned so the gate tests what it always did.
+const GROWING_BOOK = 0.05;
+
 const RULE = '='.repeat(72);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 // ⚠ SIX GAMES, AND THE REASON IS THE MECHANISM, NOT THRIFT. On the flagged arm
@@ -163,9 +168,9 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      // uw-hybrid: the intake positions are retired; new business arrives at
-      // NEW_BUSINESS_APPLICATIONS and the default rejects nobody.
-      d.byLine[l].newBusinessRejection = 0;
+      // Simple underwriting: the book grows only when the team adds members —
+      // the open arm adds 5% a year (GROWING_BOOK).
+      d.byLine[l].newMembers = GROWING_BOOK;
     }
   }
   return d;

@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v29';
+export const SAVE_KEY = 'riskpool_gamestate_v52';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -239,7 +239,111 @@ export const SAVE_KEY = 'riskpool_gamestate_v29';
 // years, the scenario targets and the paid-in capital are per line; and actual
 // admin runs over the admin priced. A v28 replay would price and book
 // differently.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28'];
+// ⚠ v30 SINCE THE SHOCKS LANDING (wip/shocks). Single-player draws shocks at
+// the catalogue's odds; A is one year, T one claim grown by trend and book; the
+// T covers replace the aggregate stop; Investment Loss hits each asset class;
+// GL's pool limit is gone; and the pure premium is struck from a shock-free
+// shadow. A v29 replay would draw, cede and price differently.
+// ⚠ v31 SINCE SIMPLE UNDERWRITING (wip/simple-underwriting). A v30 save's
+// decisions carry renewalsDeclined and newBusinessRejection, which nothing
+// reads; its book was units with risk scores, opened on their summed sizes and
+// grown through a unit ledger, where this engine opens every game on the
+// opening book and draws on 100 equal members. Its replay would open and
+// play a different pool, so it is cleared the same way.
+// ⚠ v32 SINCE ADVERSE DEVELOPMENT (wip/adverse-development). Reserve inflation
+// is off and unpriced; in hosted and Test player games every open prior year
+// develops by a λ drawn at its line's chosen level, and the host's percentages
+// are retired; single player has none. A v31 replay would develop, reserve and
+// price differently.
+// ⚠ v34 SINCE ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). Admin is 20% of
+// premium on every line; profit and contingency, the fixed and per-exposure
+// admin and the admin trend are gone, so every rate — the pre-game's included —
+// and the prior board's margin solve differently. A v32 replay would price and
+// book different admin. ⚠ v33 IS SKIPPED, AND RETIRED: it was the reverted
+// development-pricing build's key, live on aws for a while, so a v33 save is
+// that build's and must not load here.
+// ⚠ v35 SINCE THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios). Scenario N
+// plays a fixed seed with its pre-game at true cost and the prior board at
+// Expected, and nothing fits its opening; the instance's id is the seed's
+// text. A v34 save's instance carries the scenario number as its id and a
+// pre-game played at a solved margin on scaled losses, so its replay would
+// open and play a different pool.
+// ⚠ v36 SINCE THE REINSURANCE LAYERS (wip/reinsurance-layers). Eight T covers
+// on every line (9, 19, 29 and 39 xs 1; 8, 18, 28 and 38 xs 2) on a tower cut
+// at $30M too, each priced every year by the pricing workbook's method on that
+// year's claims. A v35 replay would place, cede and price differently.
+// ⚠ v37 SINCE RISK CONTROL (wip/risk-control). The Risk Control slider is live:
+// charged in the rate, booked as Other Admin Expense, and cutting the year's
+// normal losses; the expense ratios carry it. A v36 save's slider was held at
+// 0% by the old switch whatever it stored, so its replay could charge and cut
+// what that game never did.
+// ⚠ v38 SINCE THE AGGREGATE COVER (wip/aggregate-cover). A line can buy an
+// aggregate cover on its attritional losses beside the per-claim layer
+// (LineDecisionSet.aggregateCover), priced in the rate and recovering at
+// booking. A v37 save has no such choice; its replay would be the same game,
+// but a v37 build reading a v38 save would drop the cover silently.
+// ⚠ v39 SINCE LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency). Each
+// line's large claims are drawn at Low 7.5%, Mid 5.25%, High 2.25% a year in
+// every game, shocks on or off, not with the catalogue's events (Nuclear
+// Verdict alone keeps its own), and the pricing shadow starts with the first
+// of them. A v38 replay would draw, cede and price differently.
+// ⚠ v40 SINCE RISK CONTROL MOVED INTO THE DIVISOR (wip/risk-control-divisor).
+// The rate is pure premium x CLF / (1 - admin - slider) + reinsurance, where
+// v39 multiplied it by (1 + slider): at any slider above 0% a v39 replay would
+// charge, book admin and size the cut differently.
+// ⚠ v41 SINCE LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events). The separate large-claim draw of v39 is gone: a v40 game drew large
+// claims at the pricing odds in every game and recorded each as "Large claim";
+// its replay here would draw none of those, and its expectation and capital
+// would differ. Cleared the same way.
+// ⚠ v42: THE DIVIDEND AND THE ASSESSMENT ARE DOLLARS (wip/dividends-in-dollars).
+// LineDecisionSet's dividendPct/assessmentPct became dividendAmount/
+// assessmentAmount, so a v41 save's decisions — and every played year's, which a
+// reload replays — carry fields the engine no longer reads.
+// ⚠ v44: PRICING'S ALAE LOAD IS FIXED (pr/alae-load). Every rate — the
+// pre-game's included — loads ALAE at PRICING_ALAE_LOAD, not the window's mean
+// drawn ratio, so a v42 replay would strike different rates. ⚠ v43 IS SKIPPED,
+// AND RETIRED: it is pr/clf-stretch's key, which merges after this branch and
+// moves to v45 when rebased; no two pull requests share a key.
+// ⚠ v45: FIFTEEN SCENARIOS' SEEDS RE-PICKED (pr/seed-switch). A v44 save of
+// scenario N carries the seed it was built on, but a reader of the scenario
+// number — the Year Walkthrough's seed (SCENARIO_SEEDS[instance.scenario]), a
+// hosted room rebuilt from it — now resolves it to the new seed, so a v44 save
+// of a switched scenario would disagree with itself. ⚠ So pr/clf-stretch,
+// promised v45 above, takes v46 when rebased.
+// ⚠ v47: MID-GAME EDITS (pr/mid-game-edits). A Test player game now carries its
+// settings by year (developmentLevelsByYear), its pinned shock switch (shocksOn)
+// and its change history on the setup, and its shock schedule can change for
+// later years. ⚠ v46 IS SKIPPED, NOT RETIRED: it is pr/clf-stretch's, promised
+// above and not yet merged, so no two pull requests share a key.
+// ⚠ v48: MARKET COMPETITION (pr/market-competition). A line's decisions carry
+// acceptNonRenewed, and the setup can carry each year's market result
+// (marketByYear, hosted rooms only), which moveBook reads. A Single player or
+// Test player game has neither and plays as before, but the key moves once with
+// the schema. v46 is still pr/clf-stretch's and still skipped.
+// ⚠ v49 SINCE THE FUNDING TABLES ARE STRETCHED (pr/clf-stretch, rebased onto
+// aws ef009cb, with the market's k set for the stretched tables). Every
+// funding level but Expected now reads a stretched factor (CLF_STRETCH_95),
+// required capital reads the same table, and a hosted room's market pulls at
+// MARKET_K's stretched values: a v48 replay would charge a different rate at
+// any funding level but Expected, hold different capital, and move a market
+// room's books differently. v46, promised to this branch and never used on
+// aws, is retired with v48.
+// ⚠ v50: OUTSIDE MEMBERS BY THE WIDE TAPER (pr/market-l1). A hosted market
+// room's stored results — which a reload replays — were made by the old cutoff
+// and best-first quality; a v48 save would mix the two rules. ⚠ v49 IS
+// SKIPPED, NOT RETIRED: it is pr/clf-stretch's (#72), open and not yet merged,
+// so no two pull requests share a key. v48 is retired.
+// ⚠ v51: pr/clf-stretch (#72) MERGED WITH aws 371472b (#89, the wide taper),
+// above aws's v50. Its v49 — the note above, and skipped by #89 — is retired
+// with v50: a v50 save holds rates, capital and market results from the
+// unstretched tables and aws's k.
+// ⚠ v52: THE PRIOR BOARD AT 65% WITH ITS COVERS AND DRAWN GROWTH, NEW PAID-IN
+// CAPITAL, PLAY DEFAULTS AT 65% WITH THE COVERS, AND NEW SCENARIO SEEDS
+// (pr/pregame-65). A v51 save's pre-game, opening and default decisions were
+// made by the old history, capital and seeds; replayed here they would not
+// match. v51 is retired.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51'];
 
 /**
  * Fields dropped on the way out.

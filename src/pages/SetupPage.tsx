@@ -5,9 +5,17 @@ import RippleLogo from '../assets/RippleLogo';
 import { GAME_LENGTH_YEARS } from '../data/defaultAssumptions';
 import WelcomeModal from '../components/WelcomeModal';
 import { SCENARIO_OPTIONS, randomScenarioId } from '../utils/scenarios';
+import HostCreateScreen from '../session/screens/HostCreateScreen';
+import type { ScheduledShock } from '../types/shocks';
 
 interface SetupPageProps {
-  onStart: (settings: GameSetupSettings) => void;
+  /**
+   * Start a solo game. SINGLE PLAYER passes no `test`: the shock schedule and
+   * each line's development level are drawn from the seed (utils/soloGame).
+   * TEST PLAYER passes the schedule set on the host's own setup screen; its
+   * development levels ride on the settings (wip/adverse-development).
+   */
+  onStart: (settings: GameSetupSettings, test?: { schedule: ScheduledShock[] }) => void;
 }
 
 const COVERAGE_LINES: { value: CoverageLine; label: string; hint: string }[] = [
@@ -34,6 +42,8 @@ export default function SetupPage({ onStart }: SetupPageProps) {
   const [instanceId, setInstanceId] = useState(() => randomScenarioId());
   const [activeLines, setActiveLines] = useState<CoverageLine[]>(['WC']);
   const [showWelcome, setShowWelcome] = useState(false);
+  // TEST PLAYER: the host's setup screen in place of this form.
+  const [testOpen, setTestOpen] = useState(false);
 
   function toggleLine(line: CoverageLine) {
     setActiveLines(prev =>
@@ -41,11 +51,31 @@ export default function SetupPage({ onStart }: SetupPageProps) {
     );
   }
 
+  // Preserve canonical WC/GL/Property order regardless of click sequence.
+  const orderedLines = COVERAGE_LINES.map(l => l.value).filter(l => activeLines.includes(l));
+  const canStart = !!poolName.trim() && activeLines.length > 0;
+
   function handleStart() {
-    if (!poolName.trim() || activeLines.length === 0) return;
-    // Preserve canonical WC/GL/Property order regardless of click sequence.
-    const orderedLines = COVERAGE_LINES.map(l => l.value).filter(l => activeLines.includes(l));
+    if (!canStart) return;
     onStart({ poolName: poolName.trim(), gameLength, startingYear, instanceId, activeLines: orderedLines });
+  }
+
+  // ⚠ THE HOST'S OWN SETUP SCREEN, NOT A COPY OF IT (HostCreateScreen, solo
+  // mode), opened on this form's values. No admin sign-in: that gate is
+  // HostScreen's, around hosting a room, and nothing here creates one.
+  if (testOpen) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 flex items-center justify-center p-6">
+        <div className="w-full max-w-[840px]">
+          <h2 className="mb-3 text-xl font-bold text-slate-800">Test player</h2>
+          <HostCreateScreen soloTest={{
+            initial: { poolName: poolName.trim(), gameLength, startingYear, instanceId, activeLines: orderedLines },
+            onStart: (settings, schedule) => onStart(settings, { schedule }),
+            onBack: () => setTestOpen(false),
+          }} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -108,7 +138,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   onChange={e => setGameLength(parseInt(e.target.value))}
                   className="w-full accent-blue-600 h-2"
                 />
-                <div className="flex justify-between text-sm text-gray-400 mt-1.5">
+                <div className="flex justify-between text-sm text-black mt-1.5">
                   <span>{GAME_LENGTH_YEARS.min} years</span>
                   <span>{GAME_LENGTH_YEARS.max} years</span>
                 </div>
@@ -126,7 +156,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
-                <p className="text-sm text-gray-400 mt-1.5">Controls calendar labels only</p>
+                <p className="text-sm text-black mt-1.5">Controls calendar labels only</p>
               </div>
             </div>
 
@@ -145,13 +175,13 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                 <button
                   type="button"
                   onClick={() => setInstanceId(randomScenarioId())}
-                  className="px-5 py-3 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-gray-600 transition flex items-center gap-2 text-base font-medium"
+                  className="px-5 py-3 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-black transition flex items-center gap-2 text-base font-medium"
                 >
                   <Shuffle size={16} />
                   Random
                 </button>
               </div>
-              <p className="text-sm text-gray-400 mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
+              <p className="text-sm text-black mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
             </div>
 
             {/* Coverage lines */}
@@ -186,7 +216,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   );
                 })}
               </div>
-              <p className={`text-sm mt-1.5 ${activeLines.length === 0 ? 'text-red-500' : 'text-gray-400'}`}>
+              <p className={`text-sm mt-1.5 ${activeLines.length === 0 ? 'text-red-500' : 'text-black'}`}>
                 {activeLines.length === 0
                   ? 'Select at least one coverage line.'
                   : 'Lines are chosen once at setup and locked for the game.'}
@@ -210,17 +240,31 @@ export default function SetupPage({ onStart }: SetupPageProps) {
               </div>
             </div>
 
-            <button
-              onClick={handleStart}
-              disabled={!poolName.trim() || activeLines.length === 0}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
-            >
-              Start Simulation
-            </button>
+            {/* ⚠ TWO WAYS TO PLAY SOLO. Single player draws the shock schedule and
+                each line's development level from the scenario. Test player opens
+                the host's setup screen first and plays exactly what is set there. */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                data-testid="start-single-player"
+                onClick={handleStart}
+                disabled={!canStart}
+                className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
+              >
+                Single player
+              </button>
+              <button
+                data-testid="open-test-player"
+                onClick={() => setTestOpen(true)}
+                disabled={!canStart}
+                className="w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
+              >
+                Test player
+              </button>
+            </div>
           </div>
         </div>
 
-        <p className="text-center text-sm text-gray-400 mt-5">
+        <p className="text-center text-sm text-black mt-5">
           All member names and entities are fictional. No real public entity names are used.
         </p>
       </div>

@@ -70,12 +70,19 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LocalSessionTransport } from '../../src/session/localTransport';
+import { LocalSessionTransport, ROOM_KEY_PREFIX } from '../../src/session/localTransport';
 import { HttpSessionTransport } from '../../src/session/httpTransport';
 import type { SessionTransport } from '../../src/session/contract';
 import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
 import type { CoverageLine } from '../../src/types/simulation';
-import { decisionsForYear, governingYear } from '../../src/session/client/decisions';
+import { decisionsForYear, decisionsToJson, governingYear } from '../../src/session/client/decisions';
+import { buildTeamGame, replayTeamYears } from '../../src/session/client/buildGame';
+import { marketLockInputFor } from '../../src/session/client/marketLock';
+import { marketByYearForEngine } from '../../src/session/market';
+import { MARKET_BOOK_RISK_FADE } from '../../src/data/pricingParameters';
+import type { MarketLockInput } from '../../src/session/contract';
+import { SHOCK_EVENTS } from '../../src/utils/shockLosses';
+import { developmentLevelOf } from '../../src/utils/adverseDevelopment';
 import type {
   RoomView, TeamLineDecisions, TeamYearFigures, TeamYearSummary,
 } from '../../src/session/contract';
@@ -106,12 +113,14 @@ const lineDecisions = (): TeamLineDecisions => ({
   // Not the default cover, so a transport that substituted the default
   // would fail the read-back below.
   reinsuranceOption: 'working',
-  // Not the defaults (0 and 0), so a transport that substituted one fails.
-  renewalsDeclined: 0.07,
-  newBusinessRejection: 0.12,
+  // Not the defaults (0 and 0), so a transport that substituted one fails —
+  // and above the sliders' old 5% top (0-10% since they widened), so a
+  // transport that clipped to the old range fails too.
+  nonRenewal: 0.10,
+  newMembers: 0.08,
   riskControlPct: 0.03,
-  dividendPct: 0.05,
-  assessmentPct: 0,
+  dividendAmount: 2_000_000,
+  assessmentAmount: 0,
   allocation: { cashPct: 0.2, bondsPct: 0.6, equitiesPct: 0.2 },
 });
 
@@ -207,6 +216,34 @@ let makeTransport: () => SessionTransport & { faults: { failNext(code?: SessionE
 function transport() {
   return makeTransport();
 }
+
+/**
+ * ⚠ THE STORE, REACHED AROUND THE INTERFACE — set by each pass, used only by the
+ * TEAM NUMBERS block: to make an OLDER ROOM (numbers taken off the stored record,
+ * as one written before they existed), to take a team out of a room (no endpoint
+ * does), and to read what the room stores rather than what a view shows.
+ */
+interface StoreHooks {
+  unnumber(code: string): Promise<void>;
+  dropTeam(code: string, name: string): Promise<void>;
+  stored(code: string): Promise<{ next?: number; byName: Record<string, number | undefined> }>;
+  /** MARKET COMPETITION: take the room's market setting off the stored record — a room from before the setting. */
+  unmarket(code: string): Promise<void>;
+}
+let store: StoreHooks;
+
+/** The localStorage room record — the localStorage pass and the stub server's store alike. */
+const localStore: StoreHooks = (() => {
+  type Rec = { nextTeamNumber?: number; market?: string; teams: Array<{ name: string; teamNumber?: number }> };
+  const get = (code: string): Rec => JSON.parse(globalThis.localStorage.getItem(ROOM_KEY_PREFIX + code)!) as Rec;
+  const put = (code: string, r: Rec) => globalThis.localStorage.setItem(ROOM_KEY_PREFIX + code, JSON.stringify(r));
+  return {
+    async unnumber(code) { const r = get(code); delete r.nextTeamNumber; for (const x of r.teams) delete x.teamNumber; put(code, r); },
+    async dropTeam(code, name) { const r = get(code); r.teams = r.teams.filter(x => x.name !== name); put(code, r); },
+    async stored(code) { const r = get(code); return { next: r.nextTeamNumber, byName: Object.fromEntries(r.teams.map(x => [x.name, x.teamNumber])) }; },
+    async unmarket(code) { const r = get(code); delete r.market; put(code, r); },
+  };
+})();
 
 /**
  * Advance one year the way a real client does: from the year it can SEE.
@@ -705,11 +742,11 @@ async function main(): Promise<void> {
     eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
-    eq(seen?.renewalsDeclined, 0.07, 'and the share of renewals declined');
-    eq(seen?.newBusinessRejection, 0.12, 'and the new-business rejection rate');
+    eq(seen?.nonRenewal, 0.10, 'and the non-renewal share (10%, the new top)');
+    eq(seen?.newMembers, 0.08, 'and the new members share (8%, above the old 5% top)');
     ok(seen !== undefined && !('renewalCut' in seen) && !('intakeLevel' in seen),
        'and nothing of the retired renewal cut or intake position (uw-hybrid)');
-    eq(seen?.dividendPct, 0.05, 'and the dividend');
+    eq(seen?.dividendAmount, 2_000_000, 'and the dividend, in dollars');
     // THE WORLDS' SPREAD (loss engine commit 4b): what the team posts beside the
     // average comes back exactly, for the host's minimum column.
     const spread = after.room.teams[0].resultsByYear?.['1']?.surplusRange;
@@ -829,6 +866,56 @@ async function main(): Promise<void> {
     eq(JSON.stringify(bareRead.room.priorDevelopment), '{}',
       'a room created without prior development carries none');
 
+    // ⚠ ADVERSE DEVELOPMENT'S LEVELS (wip/adverse-development) — what the host
+    // now sets per line. Carried on the room; a level for a line the room does
+    // not play, or a value that is not a level, is DROPPED, not refused; a room
+    // without them carries none (the engine then reads its default); and a
+    // team's game, built from the room, plays exactly the room's levels.
+    const lv = await t.createRoom({
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
+      eventName: 'p', expectedTeams: 1, shocks: [], lines: ['WC', 'GL'],
+      developmentLevels: { WC: 'High', GL: 'Extreme', Property: 'Low' } as never,
+    });
+    const lvRead = await t.read({ code: lv.code, token: lv.hostToken });
+    eq(JSON.stringify(lvRead.room.developmentLevels), JSON.stringify({ WC: 'High' }),
+      'the room carries the levels the host set; a non-level and an unplayed line are dropped');
+    const lvJoin = await t.join({ code: lv.code, teamName: 'Levels', role: 'player' });
+    const lvTeam = await t.read({ code: lv.code, token: lvJoin.teamToken });
+    eq(JSON.stringify(lvTeam.room.developmentLevels), JSON.stringify({ WC: 'High' }),
+      'a team reads the room\'s levels');
+    const built = buildTeamGame(lvTeam.room, lvJoin.lines);
+    eq(JSON.stringify(built.gameState.setup.developmentLevels), JSON.stringify({ WC: 'High' }),
+      'a team\'s game, built from the room, plays the room\'s levels');
+    eq(bareRead.room.developmentLevels === undefined || JSON.stringify(bareRead.room.developmentLevels) === '{}', true,
+      'a room created without levels carries none');
+
+    // NONE — the host's no-development level, carried as 'Off' (single
+    // player's own setting) to every team like the other levels, and played as
+    // no development on that line; the line beside it keeps its level.
+    const none = await t.createRoom({
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
+      eventName: 'p', expectedTeams: 2, shocks: [], lines: ['WC', 'GL'],
+      developmentLevels: { WC: 'Off', GL: 'Mid' },
+    });
+    const noneRead = await t.read({ code: none.code, token: none.hostToken });
+    eq(JSON.stringify(noneRead.room.developmentLevels), JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+      'a room carries None (\'Off\') beside a level');
+    for (const name of ['None A', 'None B']) {
+      const j = await t.join({ code: none.code, teamName: name, role: 'player' });
+      const r = await t.read({ code: none.code, token: j.teamToken });
+      eq(JSON.stringify(r.room.developmentLevels), JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+        `team ${name} reads the room's None`);
+      const g = buildTeamGame(r.room, j.lines);
+      eq(JSON.stringify(g.gameState.setup.developmentLevels), JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+        `team ${name}'s game carries the None`);
+      eq(`${developmentLevelOf(g.gameState.setup, 'WC')} ${developmentLevelOf(g.gameState.setup, 'GL')}`, 'null Mid',
+        `team ${name}'s game develops nothing on the None line and Mid on the other`);
+    }
+    // An old room — no levels — still reads the default on every line.
+    const bareBuilt = buildTeamGame(bareRead.room, ['GL']);
+    eq(developmentLevelOf(bareBuilt.gameState.setup, 'GL'), 'Low',
+      'a room without levels still plays the default, Low');
+
     // THE POOL NAME. The host sets it apart from the event name; a room created
     // without one — by a client older than the handler, or before it existed —
     // names its pool after the event, as does a blank one. The lobby still
@@ -872,6 +959,205 @@ async function main(): Promise<void> {
     eq((asWatcher.you.lines ?? []).join(','), 'WC,GL,Property', 'read gives a viewer those lines');
     const asPlayer = await t.read({ code: room.code, token: one.teamToken });
     eq((asPlayer.you.lines ?? []).join(','), 'WC,GL,Property', 'read gives a player its own lines');
+  }
+
+  // ---- THE ROOM MARKET SHARE --------------------------------------------
+  //
+  // Stored once a year, in the submit that brings in the last result from the
+  // teams that locked in that year; a team that did not lock in a year is
+  // stopped and counts on its last reported figures. SHOWN FOR THE LATEST KNOWN
+  // YEAR like every other result — the year just completed: with the room
+  // deciding year N, year N - 1's set (the opening posts before the first
+  // advance), as soon as it completes; the last year's once the game is over.
+  // (It was one year behind, N - 2, until results stopped running a year
+  // behind.) Host sees every team's
+  // (RoomView.marketShares); a player its own (CallerView.marketShare) and
+  // nothing of another team's.
+  {
+    const t = transport();
+    const LINES2: CoverageLine[] = ['WC', 'GL'];
+    const { code, hostToken } = await t.createRoom({
+      hostToken: newSessionToken(), seed: '7', yearCount: 4, startingYear: 2027,
+      eventName: 'Share Room', expectedTeams: 3, lines: LINES2, shocks: [],
+    });
+    const [a, b, c] = [
+      await t.join({ code, teamName: TEAMS[0], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[1], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[2], role: 'player' }),
+    ];
+    // A team's posted figures: WC exposure x, GL exposure 2x, premium 0.1x.
+    const post = (year: number, x: number): TeamYearSummary => {
+      const s = summaryFor(year, 1_000_000, LINES2);
+      s.byLine.WC = { ...s.byLine.WC!, activeExposure: x };
+      s.byLine.GL = { ...s.byLine.GL!, activeExposure: 2 * x };
+      s.pool = { ...s.pool, poolPremium: x * 100_000 };
+      return s;
+    };
+    const near = (v: number | undefined, want: number, what: string) =>
+      ok(v !== undefined && Math.abs(v - want) < 1e-12, `${what}: expected ${want}, got ${v}`);
+    const shares = async () => (await t.read({ code, token: hostToken })).room.marketShares;
+    const lockAll = async (year: number, who: typeof a[]) => {
+      for (const p of who) await t.submit({ code, token: p.teamToken, yearNumber: year, decisions: decisionsFor(year, `y${year}`) });
+    };
+
+    eq(await shares(), undefined, 'no market shares before any opening post');
+    for (const p of [a, b, c]) await t.submit({ code, token: p.teamToken, yearNumber: 0, result: post(0, 100) });
+    let m = await shares();
+    eq(m?.year, 0, 'before the first advance the opening posts stand in for 2025 — every team plays the same pre-game');
+    for (const name of TEAMS) {
+      near(m?.byTeam[name]?.byLine.WC, 1 / 3, `opening: ${name} holds a third of the room's WC`);
+      near(m?.byTeam[name]?.byLine.GL, 1 / 3, `opening: ${name} holds a third of the room's GL`);
+      near(m?.byTeam[name]?.pool, 1 / 3, `opening: ${name} holds a third of the room's premium`);
+    }
+
+    // Year 1: all three lock; the advance; all three post. Year 1 is the year
+    // just completed — known — so its set shows the moment the last locked team posts.
+    await lockAll(1, [a, b, c]);
+    await step(t, code, hostToken);
+    await t.submit({ code, token: a.teamToken, yearNumber: 1, result: post(1, 120) });
+    await t.submit({ code, token: b.teamToken, yearNumber: 1, result: post(1, 90) });
+    eq((await shares())?.year, 0, 'two of three locked teams posted year 1: still the opening set — the third is waited for');
+    await t.submit({ code, token: c.teamToken, yearNumber: 1, result: post(1, 90) });
+    eq((await shares())?.year, 1, 'year 1 completed in the room deciding year 2: its set shows at once — the year just completed is known');
+
+    // Year 2: A and B lock; C does not — it has stopped. The advance alone changes nothing.
+    await lockAll(2, [a, b]);
+    await step(t, code, hostToken);
+    m = await shares();
+    eq(m?.year, 1, 'the advance into year 3 alone changes nothing: year 2 has no results yet');
+    near(m?.byTeam[TEAMS[0]]?.byLine.WC, 120 / 300, 'year 1: own WC exposure / the room\'s');
+    near(m?.byTeam[TEAMS[0]]?.byLine.GL, 240 / 600, 'year 1: own GL exposure / the room\'s');
+    near(m?.byTeam[TEAMS[1]]?.pool, 9 / 30, 'year 1: own premium / the room\'s');
+    near(Object.values(m!.byTeam).reduce((x, v) => x + v.pool, 0), 1, 'year 1: the pool shares sum to 100%');
+
+    // A player sees its own share and nothing of another team's.
+    const asA = await t.read({ code, token: a.teamToken });
+    near(asA.you.marketShare?.pool, 12 / 30, 'a player reads its own pool share');
+    eq(asA.you.marketShare?.year, 1, 'and the year it is from');
+    eq(asA.room.marketShares, undefined, 'a player gets no RoomView.marketShares');
+    ok(asA.room.teams.filter(x => x.name !== TEAMS[0]).every(x => x.resultsByYear === undefined),
+       "a player receives no other team's results");
+    ok(asA.room.teams.find(x => x.name === TEAMS[0])?.resultsByYear?.['1'] !== undefined,
+       'a player still receives its own results');
+    const anon = await t.read({ code });
+    ok(anon.room.marketShares === undefined && anon.you.marketShare === undefined
+       && anon.room.teams.every(x => x.resultsByYear === undefined), 'an anonymous caller gets no shares and no results');
+
+    // A re-post of a year already stored changes nothing: it was worked out once.
+    await t.submit({ code, token: a.teamToken, yearNumber: 1, result: post(1, 500) });
+    near((await shares())?.byTeam[TEAMS[0]]?.byLine.WC, 120 / 300, 'a re-posted year-1 result leaves the stored set alone');
+
+    // Year 2's results: A posts, B (locked in) has not. Year 3 locks; the advance makes year 2 the latest known.
+    await t.submit({ code, token: a.teamToken, yearNumber: 2, result: post(2, 150) });
+    await lockAll(3, [a, b]);
+    await step(t, code, hostToken);
+    eq((await shares())?.year, 1, 'year 2 known but a locked team has not posted it: waited for — year 1 still shows');
+    await t.submit({ code, token: b.teamToken, yearNumber: 2, result: post(2, 100) });
+    m = await shares();
+    eq(m?.year, 2, 'the last locked team posting completes year 2, without waiting for the stopped team');
+    near(m?.byTeam[TEAMS[2]]?.byLine.WC, 90 / 340, 'the stopped team counts on its last reported figures (its year 1)');
+    near(m?.byTeam[TEAMS[0]]?.byLine.WC, 150 / 340, 'and stays in the totals of the teams still playing');
+    near(Object.values(m!.byTeam).reduce((x, v) => x + v.byLine.WC!, 0), 1, 'year 2: the WC shares sum to 100%');
+    // The stopped team's client still processes year 2 on carry-forward and posts it late.
+    await t.submit({ code, token: c.teamToken, yearNumber: 2, result: post(2, 80) });
+    near((await shares())?.byTeam[TEAMS[2]]?.byLine.WC, 90 / 340, 'a late post from the stopped team changes no stored share');
+
+    // Year 3's results, then the last advance: the game is over and the last year shows.
+    await t.submit({ code, token: a.teamToken, yearNumber: 3, result: post(3, 160) });
+    await t.submit({ code, token: b.teamToken, yearNumber: 3, result: post(3, 110) });
+    eq((await shares())?.year, 3, 'year 3 complete in the room deciding year 4: its set shows at once');
+    await lockAll(4, [a, b]);
+    await step(t, code, hostToken);
+    m = await shares();
+    eq(m?.year, 3, 'once the game is over, the newest complete year shows');
+    near(m?.byTeam[TEAMS[2]]?.byLine.WC, 80 / 350, 'the stopped team stays in the totals on its newest post');
+    near(m?.byTeam[TEAMS[2]]?.pool, 8 / 35, 'and on the pool, by premium');
+    for (const [p, x] of [[a, 170], [b, 120]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 4, result: post(4, x) });
+    eq((await shares())?.year, 4, 'and the final year shows when it completes');
+  }
+
+  // ---- THE STANDINGS: A TEAM READS THE ROOM (the Market Survey tab) ------
+  //
+  // A player and a viewer get every team's standing (RoomView.standings): the
+  // host's Teams table's figures, per team, for the year the table shows —
+  // the latest known year, currentYear - 1 — and the room's shares, exactly the
+  // host's. READ ONLY AND NOTHING ELSE: no decisions (the marker is searched for
+  // in the whole serialised standings), no result field the table does not
+  // show, no year but the one shown; the team rows' resultsByYear stay the
+  // caller's own. The host and an anonymous caller get no standings.
+  {
+    const t = transport();
+    const LINES2: CoverageLine[] = ['WC', 'GL'];
+    const { code, hostToken } = await t.createRoom({
+      hostToken: newSessionToken(), seed: '7', yearCount: 3, startingYear: 2027,
+      eventName: 'Standings Room', expectedTeams: 3, lines: LINES2, shocks: [],
+    });
+    const [a, b, c] = [
+      await t.join({ code, teamName: TEAMS[0], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[1], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[2], role: 'player' }),
+    ];
+    const viewer = await t.join({ code, teamName: TEAMS[1], role: 'viewer' });
+    // A team's posted year: the table's figures off-centre per team, a cumulative
+    // combined ratio the table does not show, and (played years) a decisions block.
+    const post = (year: number, k: number): TeamYearSummary => {
+      const s = summaryFor(year, 1_000_000 * k, LINES2, 1, true);
+      const table = (f: TeamYearFigures, j: number): TeamYearFigures => ({
+        ...f, premiumToSurplus: 1.1 * k + j, ratePer100: 3 + k + j / 10, rateChange: 0.01 * k, adminExpenseRatio: 0.2 + 0.001 * k,
+        yearCombinedRatio: 0.9 + 0.01 * k + 0.001 * j, combinedRatio: 0.5 + k,
+      });
+      return { ...s, pool: table(s.pool, 0), byLine: { WC: table(s.byLine.WC!, 1), GL: table(s.byLine.GL!, 2) } };
+    };
+    const TABLE_FIELDS = ['endingSurplus', 'premiumToSurplus', 'ratePer100', 'rateChange', 'adminExpenseRatio', 'yearCombinedRatio'];
+    const same = (x: unknown, y: unknown, what: string) => eq(JSON.stringify(x), JSON.stringify(y), what);
+    const read = async (token?: string) => (await t.read({ code, ...(token ? { token } : {}) }));
+
+    let r = await read(a.teamToken);
+    same(r.room.standings?.teams.map(x => x.name), [...TEAMS], 'standings: a player sees every team, in join order');
+    same(r.room.standings?.teams.map(x => x.teamNumber), [1, 2, 3], 'standings: each with its team number');
+    ok(r.room.standings!.teams.every(x => x.resultsByYear === undefined), 'standings: nothing posted, nothing shown');
+
+    for (const [p, k] of [[a, 1], [b, 2], [c, 3]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 0, result: post(0, k) });
+    r = await read(a.teamToken);
+    same(r.room.standings?.teams.map(x => Object.keys(x.resultsByYear ?? {})), [['0'], ['0'], ['0']], 'standings: before the first advance, the opening (2026) shows');
+    for (const [p, k] of [[a, 1], [b, 2], [c, 3]] as const) {
+      await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, `st${k}`) });
+    }
+    await step(t, code, hostToken);
+    for (const [p, k] of [[a, 1], [b, 2], [c, 3]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 1, result: post(1, k) });
+
+    const host = await read(hostToken);
+    eq(host.room.currentYear, 2, 'standings: the room is deciding year 2, so year 1 shows');
+    eq(host.room.standings, undefined, 'standings: the host gets none (it reads teams and marketShares)');
+    eq((await read()).room.standings, undefined, 'standings: an anonymous caller gets none');
+    for (const [who, token] of [['player', a.teamToken], ['viewer', viewer.teamToken]] as const) {
+      r = await read(token);
+      const st = r.room.standings;
+      ok(st !== undefined, `standings: a ${who} gets them`);
+      if (!st) continue;
+      for (const team of st.teams) {
+        const hostRow = host.room.teams.find(x => x.name === team.name)!;
+        same(Object.keys(team.resultsByYear ?? {}), ['1'], `standings (${who}): ${team.name} carries the year shown alone`);
+        const mine = team.resultsByYear!['1'];
+        const want = hostRow.resultsByYear!['1'];
+        for (const [scope, got, from] of [
+          ['pool', mine.pool, want.pool], ['WC', mine.byLine.WC, want.byLine.WC], ['GL', mine.byLine.GL, want.byLine.GL],
+        ] as const) {
+          same(Object.keys(got ?? {}).sort(), [...TABLE_FIELDS].sort(), `standings (${who}): ${team.name} ${scope} carries the table's fields and no other`);
+          for (const f of TABLE_FIELDS) {
+            eq((got as unknown as Record<string, number>)[f], (from as unknown as Record<string, number>)[f], `standings (${who}): ${team.name} ${scope} ${f} is the host's`);
+          }
+        }
+        ok(!('decisions' in mine) && !('developed' in mine) && !('surplusRange' in mine), `standings (${who}): ${team.name} carries no decisions, developed column or range`);
+      }
+      ok(!JSON.stringify(st).includes(String(DECISION_MARKER)) && !JSON.stringify(st).includes('"decisions"'), `standings (${who}): no decision anywhere in them`);
+      same(st.marketShares, host.room.marketShares, `standings (${who}): the room's shares are the host's`);
+      // The team rows themselves are unchanged: the caller's own results, nobody else's.
+      for (const row of r.room.teams) {
+        const own = row.name === (who === 'player' ? TEAMS[0] : TEAMS[1]);
+        ok(own ? row.resultsByYear !== undefined : row.resultsByYear === undefined, `standings (${who}): ${row.name}'s team row carries ${own ? 'its own' : 'no'} results`);
+      }
+    }
   }
 
   // ---- completion ------------------------------------------------------
@@ -1142,12 +1428,634 @@ async function main(): Promise<void> {
       'INVALID_REQUEST', 'a PIN combined with role: player is refused — a PIN never claims a team');
   }
 
+  // ---- TEAM RECOVERY CODES -----------------------------------------------
+  //
+  // ⚠ PHASE 1 OF DEVICE SWITCHING. A recovery code is shown ONCE — on the
+  // response that CREATES the team, never on a rejoin (contrast the PIN
+  // block above, where the SAME pin repeats every rejoin). reclaimTeam
+  // rotates the team's bearer token onto a new device; the old token stops
+  // working the instant that commits.
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const created = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+
+    ok(typeof created.recoveryCode === 'string' && /^\d{4}$/.test(created.recoveryCode),
+      'a player creating a team gets back a 4-digit recovery code');
+
+    const rejoin = await t.join({ code, teamName: TEAMS[0], role: 'player', token: created.teamToken });
+    ok(rejoin.recoveryCode === undefined, 'a rejoin never carries a recovery code');
+
+    ok(!JSON.stringify(await t.read({ code })).includes(created.recoveryCode as string),
+      'the recovery code is never carried on a room view, for anyone');
+
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[0], recoveryCode: '0000', token: newSessionToken() }),
+      'BAD_RECOVERY_CODE', 'a wrong recovery code is refused');
+
+    await rejects(
+      t.reclaimTeam({ code, teamName: 'Nobody FC', recoveryCode: created.recoveryCode as string, token: newSessionToken() }),
+      'TEAM_NOT_FOUND', 'reclaiming an unknown team name is refused');
+
+    const newDeviceToken = newSessionToken();
+    const reclaimed = await t.reclaimTeam({ code, teamName: TEAMS[0], recoveryCode: created.recoveryCode as string, token: newDeviceToken });
+    eq(reclaimed.rejoined, true, 'a successful reclaim comes back as a rejoin');
+    eq(reclaimed.pin, created.pin, "the team's PIN is unchanged by a reclaim");
+    ok(reclaimed.recoveryCode === undefined, 'a reclaim never reissues or re-returns the recovery code');
+
+    await rejects(t.read({ code, token: created.teamToken }), 'BAD_TOKEN',
+      "the old device's token stops working immediately after a reclaim");
+    const asNewDevice = await t.read({ code, token: newDeviceToken });
+    eq(asNewDevice.you.teamName, TEAMS[0], "the new device's token now authenticates as the team");
+
+    // Retried with the SAME new token — as if the response above was lost and
+    // the client resent the identical request: idempotent, not a failure.
+    const retried = await t.reclaimTeam({ code, teamName: TEAMS[0], recoveryCode: created.recoveryCode as string, token: newDeviceToken });
+    eq(retried.rejoined, true, 'retrying a reclaim with the same new token is idempotent');
+    eq(retried.teamToken, newDeviceToken, 'and hands back the same token, not a failure');
+  }
+
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const created = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+    for (let i = 0; i < 5; i++) {
+      await rejects(
+        t.reclaimTeam({ code, teamName: TEAMS[1], recoveryCode: '9999', token: newSessionToken() }),
+        'BAD_RECOVERY_CODE', `wrong attempt ${i + 1} of 5`);
+    }
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[1], recoveryCode: '9999', token: newSessionToken() }),
+      'TOO_MANY_ATTEMPTS', 'a sixth wrong attempt inside the window is rate-limited');
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[1], recoveryCode: created.recoveryCode as string, token: newSessionToken() }),
+      'TOO_MANY_ATTEMPTS', 'the CORRECT code is ALSO refused once tripped — the limiter blocks the team, not the guess');
+  }
+
+  // ---- HOST HAND-OFF -------------------------------------------------------
+  //
+  // ⚠ PHASE 2 OF DEVICE SWITCHING. A host mints a one-time link for a team;
+  // reclaiming with it rotates the token exactly like a recovery-code reclaim
+  // does, AND reissues a fresh recovery code (the team evidently lost its old
+  // device, and its old code with it) — the one place a reclaim ever hands
+  // one back.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const driver = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+
+    await rejects(
+      t.createHandoff({ code, token: driver.teamToken, teamName: TEAMS[0] }),
+      'NOT_HOST', 'a team token cannot create a hand-off for itself');
+    await rejects(
+      t.createHandoff({ code, token: hostToken, teamName: 'Nobody FC' }),
+      'TEAM_NOT_FOUND', 'a hand-off cannot be made for a team that does not exist');
+    await rejects(
+      t.reclaimTeam({ code, recoveryCode: '0000', handoffToken: 'also-given', token: newSessionToken() } as never),
+      'INVALID_REQUEST', 'recoveryCode and handoffToken together are refused — exactly one secret');
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[0], token: newSessionToken() } as never),
+      'INVALID_REQUEST', 'neither secret given is refused the same way');
+
+    const handoff = await t.createHandoff({ code, token: hostToken, teamName: TEAMS[0] });
+    ok(typeof handoff.handoffToken === 'string' && handoff.handoffToken.length >= 32,
+      'the host gets back a long, single-use hand-off token');
+    ok(handoff.expiresAtSec > Date.now() / 1000, 'and an expiry in the future');
+
+    await rejects(
+      t.reclaimTeam({ code, teamName: 'Nobody FC', handoffToken: handoff.handoffToken, token: newSessionToken() } as never),
+      'BAD_RECOVERY_CODE', 'a handoffToken combined with a MISMATCHING teamName is refused');
+
+    const newDeviceToken = newSessionToken();
+    const claimed = await t.reclaimTeam({ code, handoffToken: handoff.handoffToken, token: newDeviceToken } as never);
+    eq(claimed.rejoined, true, 'claiming a hand-off comes back as a rejoin');
+    eq(claimed.teamName, TEAMS[0], 'and resolves to the team the link was minted for — no teamName needed');
+    ok(typeof claimed.recoveryCode === 'string' && /^\d{4}$/.test(claimed.recoveryCode),
+      'and REISSUES a fresh recovery code — the team evidently lost its old device');
+    ok(claimed.recoveryCode !== driver.recoveryCode, 'a genuinely new code, not the old one echoed back');
+
+    await rejects(t.read({ code, token: driver.teamToken }), 'BAD_TOKEN',
+      "the original device's token stops working immediately");
+    const asNewDevice = await t.read({ code, token: newDeviceToken });
+    eq(asNewDevice.you.teamName, TEAMS[0], "the claiming device's token now authenticates as the team");
+
+    await rejects(
+      t.reclaimTeam({ code, handoffToken: handoff.handoffToken, token: newSessionToken() } as never),
+      'BAD_RECOVERY_CODE', 'the same hand-off link cannot be used a second time');
+
+    // Retried with the SAME new token — idempotent, not a failure.
+    const retried = await t.reclaimTeam({ code, handoffToken: handoff.handoffToken, token: newDeviceToken } as never);
+    eq(retried.rejoined, true, 'retrying a hand-off claim with the same new token is idempotent');
+    eq(retried.teamToken, newDeviceToken, 'and hands back the same token, not a failure');
+    ok(retried.recoveryCode === undefined, 'and does NOT reissue a second fresh code on the idempotent retry');
+  }
+
+  // ---- DRAFT SAVING --------------------------------------------------------
+  //
+  // ⚠ PHASE 3 OF DEVICE SWITCHING. The current year's UNSUBMITTED decisions,
+  // auto-saved every few seconds by the client; saveDraft never locks a year
+  // and is not a second way to edit one already locked. CallerView.draft is
+  // the team's own player ONLY — never the host, never another team, never a
+  // viewer watching this one.
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+    const viewer = await t.join({ code, teamName: TEAMS[0], role: 'viewer' });
+
+    await rejects(
+      t.saveDraft({ code, token: newSessionToken(), yearNumber: 1, decisions: decisionsFor(1, 'forged') }),
+      'BAD_TOKEN', 'an unrecognised token cannot save a draft');
+    await rejects(
+      t.saveDraft({ code, token: p0.teamToken, yearNumber: 2, decisions: decisionsFor(2, 'stale') }),
+      'WRONG_YEAR', 'a draft for a year that is not the room\'s current one is refused');
+
+    const saved = await t.saveDraft({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'first-draft') });
+    ok(typeof saved.savedAt === 'number' && saved.savedAt > 0, 'saveDraft returns a savedAt timestamp');
+
+    const mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.you.draft?.yearNumber, 1, "the saving team's own read carries the draft, for the right year");
+    eq((mine.you.draft?.decisions as { marker?: string } | undefined)?.marker, 'first-draft',
+      'and the exact decisions just saved');
+    eq(mine.you.draft?.savedAt, saved.savedAt, 'and the same savedAt saveDraft returned');
+
+    // Overwritten, not accumulated — one slot per team, not a history.
+    const resaved = await t.saveDraft({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'second-draft') });
+    const after = await t.read({ code, token: p0.teamToken });
+    eq((after.you.draft?.decisions as { marker?: string } | undefined)?.marker, 'second-draft',
+      'a second save replaces the first rather than keeping both');
+    eq(after.you.draft?.savedAt, resaved.savedAt, 'and the newer savedAt');
+
+    const other = await t.read({ code, token: p1.teamToken });
+    ok(other.you.draft === undefined, "a DIFFERENT team's read never carries this team's draft");
+
+    const host = await t.read({ code });
+    ok(!JSON.stringify(host.room).includes('second-draft'), "the host's room view never carries a draft");
+
+    const watched = await t.read({ code, token: viewer.teamToken });
+    ok(watched.you.draft === undefined, "a VIEWER watching this team never carries its draft");
+
+    // ⚠ A LOCKED YEAR ALWAYS WINS OVER ITS DRAFT. Locking the year deletes the
+    // draft in the same write (server/rooms.ts's submit, localTransport.ts's
+    // submit) — the whole point of the mechanism.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'locked-in') });
+    const postLock = await t.read({ code, token: p0.teamToken });
+    ok(postLock.you.draft === undefined, 'locking the year makes the draft disappear');
+
+    await rejects(
+      t.saveDraft({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'too-late') }),
+      'INVALID_REQUEST', 'saving a draft for an already-locked year is refused');
+  }
+
+  // ---- UNDO LOCK -------------------------------------------------------
+  //
+  // ⚠ A HOST ACTION, NOT A PLAYER ONE. Reopens a team's current year after it
+  // locked by submitting decisions; the decisions themselves are left
+  // untouched, so the team's form reopens on exactly what it submitted. And
+  // the undo must actually reach market-share computation
+  // (storeSharesIfComplete/roomSharesFor) — not just the UI's "locked" flag —
+  // which is the whole reason localTransport.ts gained its own lockedYears
+  // map alongside the one DynamoDB already had.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+
+    await rejects(
+      t.undoLock({ code, token: p0.teamToken, teamName: TEAMS[0], yearNumber: 1 }),
+      'NOT_HOST', "a team's own token cannot undo its own lock");
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: 'Nobody FC', yearNumber: 1 }),
+      'TEAM_NOT_FOUND', 'undoing a lock for an unknown team is refused');
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 }),
+      'INVALID_REQUEST', 'a team that has not locked has nothing to undo');
+
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'first-lock') });
+    let mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.locked, true, 'the team is locked after submitting decisions');
+
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 2 }),
+      'WRONG_YEAR', "undoing a year that is not the room's current one is refused");
+
+    await t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 });
+    mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.locked, false, "the host's undo reopens the team's lock");
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.lockedYear, null, 'and clears lockedYear');
+    eq((mine.you.decisionsByYear?.['1'] as { marker?: string } | undefined)?.marker, 'first-lock',
+      "the team's submitted decisions are UNTOUCHED — undo reopens editing, it doesn't erase it");
+
+    // Re-locking the same year afterward works normally.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'second-lock') });
+    mine = await t.read({ code, token: p0.teamToken });
+    eq(mine.room.teams.find(x => x.name === TEAMS[0])?.locked, true, 're-locking the same year after an undo succeeds normally');
+
+    // ⚠ MARKET SHARE: undo it again, advance past year 1, then have p1 (who
+    // never locked year 1 at all — already "stopped" by the existing rule)
+    // post ITS year-1 result. That alone triggers the computation
+    // (storeSharesIfComplete runs inside a result submit, never inside
+    // advance). p0 is now undone and must be treated as "stopped" the SAME
+    // way p1 always was, or the set would wait forever for a result nobody
+    // will ever post against a lock that no longer exists.
+    for (const p of [p0, p1]) await t.submit({ code, token: p.teamToken, yearNumber: 0, result: summaryFor(0, 1_000_000) });
+    await t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 });
+    await step(t, code, hostToken);
+    await t.submit({ code, token: p1.teamToken, yearNumber: 1, result: summaryFor(1, 1_000_000) });
+    const sharesNow = (await t.read({ code, token: hostToken })).room.marketShares;
+    eq(sharesNow?.year, 1, "year 1 completes on p1's post alone — p0 is not waited for, since its lock was undone");
+
+    await rejects(
+      t.undoLock({ code, token: hostToken, teamName: TEAMS[0], yearNumber: 1 }),
+      'WRONG_YEAR', 'undoing a year the room has already advanced past is refused');
+  }
+
+  // ---- MID-GAME EDITS (wip/mid-game-edits) --------------------------------
+  // The host changes the shock schedule and each line's development level for
+  // the current year and later ones. Authority, the rules, the lock warning,
+  // the history (host only), a team reading every year's settings, and the
+  // point of it all: a team rejoining on ANOTHER DEVICE rebuilds from the room
+  // and replays its played years byte-identical, while the edited year plays
+  // on the new settings. A room never edited reads its setup for every year.
+  {
+    const t = transport();
+    const [A, B] = [SHOCK_EVENTS[1].id, SHOCK_EVENTS[4].id];
+    const host = newSessionToken();
+    const made = await t.createRoom({
+      hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: 'Edits', expectedTeams: 2,
+      lines: ['WC', 'GL'], developmentLevels: { WC: 'Low', GL: 'Low' }, shocks: [{ shockId: A, yearNumber: 2 }],
+    });
+    const code = made.code;
+    const alpha = await t.join({ code, teamName: 'Alpha', role: 'player' });
+    const beta = await t.join({ code, teamName: 'Beta', role: 'player' });
+
+    // A ROOM NEVER EDITED — what an older room is — reads its setup for every year.
+    const r0 = await t.read({ code, token: host });
+    eq(r0.room.developmentLevelsByYear === undefined && r0.room.shocksOn === undefined && (r0.room.editHistory ?? []).length === 0, true,
+      'a room never edited carries no settings by year, no pinned switch and no history');
+    const oldBuild = buildTeamGame((await t.read({ code, token: beta.teamToken })).room, beta.lines);
+    eq(oldBuild.gameState.setup.developmentLevelsByYear === undefined && oldBuild.gameState.setup.shocksOn === undefined, true,
+      'a team\'s game from an unedited room reads its setup for every year');
+    const json = (x: unknown) => JSON.stringify(x);
+    const firstPlay = replayTeamYears(oldBuild.gameState, 3, undefined);
+    const playedBefore = [json(oldBuild.opening?.result), ...firstPlay.produced.map(p => json(p.result))];
+
+    await step(t, code, host);
+    await step(t, code, host);
+    // Alpha locks the current year (3) before the host's change.
+    await t.submit({ code, token: alpha.teamToken, yearNumber: 3, decisions: decisionsFor(3, 'a3') });
+
+    const y3 = { developmentLevels: { WC: 'High' as const, GL: 'Low' as const }, shocks: [B] };
+    const y4 = { developmentLevels: { WC: 'High' as const, GL: 'Mid' as const }, shocks: [A, B] };
+    await rejects(t.editGame({ code, token: alpha.teamToken, years: { '3': y3 } }), 'NOT_HOST', 'a team cannot change the game');
+    await rejects(t.editGame({ code, token: host, years: { '2': y3 } }), 'INVALID_REQUEST', 'a played year cannot be changed');
+    await rejects(t.editGame({ code, token: host, years: { '5': y3 } }), 'INVALID_REQUEST', 'a year past the game cannot be changed');
+    await rejects(t.editGame({ code, token: host, years: { '3': { ...y3, shocks: ['no-such-event'] } } }), 'INVALID_REQUEST',
+      'an unknown shock event is refused');
+
+    const edit = await t.editGame({ code, token: host, years: { '3': y3, '4': y4 } });
+    eq(edit.lockedTeams.join(','), 'Alpha', 'the change is made and names the team that had already locked the current year');
+    eq(edit.edits.length, 6, 'the six changes are recorded (WC in 3 and 4, GL in 4, a shock in 3, two in 4)');
+    eq((await t.editGame({ code, token: host, years: { '3': y3, '4': y4 } })).edits.length, 0, 'an edit that changes nothing records nothing');
+
+    const hostView = await t.read({ code, token: host });
+    eq(hostView.room.editHistory?.length, 6, 'the host reads the change history');
+    eq((hostView.room.editHistory ?? []).every(e => e.by === 'Host' && typeof e.at === 'number' && e.yearNumber >= 3), true,
+      'every history entry says who, when, and a current or later year');
+    const betaView = await t.read({ code, token: beta.teamToken });
+    eq(betaView.room.editHistory, undefined, 'a team is not told: its view carries no history');
+    eq(json(betaView.room.developmentLevelsByYear), json({ '3': { WC: 'High' }, '4': { WC: 'High', GL: 'Mid' } }),
+      'every team reads each year\'s levels');
+    eq(betaView.room.shocksOn, true, 'the shock switch is pinned as it stood at setup');
+    eq(json(betaView.room.shocks.filter(s => s.yearNumber === 2)), json([{ shockId: A, yearNumber: 2 }]), 'the played year\'s shock is untouched');
+
+    // ANOTHER DEVICE: Beta rejoins with its token, rebuilds from the room and replays.
+    const again = await t.join({ code, teamName: 'Beta', role: 'player', token: beta.teamToken });
+    eq(again.rejoined, true, 'Beta rejoins on a second device');
+    const dev2 = buildTeamGame(again.room, again.lines);
+    const replay2 = replayTeamYears(dev2.gameState, 3, undefined);
+    const playedAfter = [json(dev2.opening?.result), ...replay2.produced.map(p => json(p.result))];
+    eq(playedAfter.length === playedBefore.length && playedAfter.every((r, i) => r === playedBefore[i]), true,
+      'a second device replays the opening and every played year byte-identical after the edit');
+    const third = buildTeamGame((await t.read({ code, token: beta.teamToken })).room, beta.lines);
+    const y3a = replayTeamYears(replay2.state, 4, undefined).produced[0];
+    const y3b = replayTeamYears(replayTeamYears(third.gameState, 3, undefined).state, 4, undefined).produced[0];
+    eq(json(y3a?.result) === json(y3b?.result), true, 'two devices play the edited year identically');
+    eq(json(y3a?.result) !== json(replayTeamYears(firstPlay.state, 4, undefined).produced[0]?.result), true,
+      'and the edited year plays on the new settings, not the old');
+
+    await step(t, code, host);
+    await step(t, code, host);
+    await rejects(t.editGame({ code, token: host, years: { '4': y4 } }), 'GAME_COMPLETE', 'a finished game cannot be changed');
+  }
+
+  // ---- ADVANCED DEVELOPMENT AT SETUP (pr/advanced-development) ------------
+  // A room created with a level per line per year stores it as its settings
+  // by year — the field Edit game writes — and its history opens with the
+  // starting settings. Every team reads the table; each year plays at its own
+  // level: identically to a SIMPLE room given the same table through Edit game
+  // before year 1, and differently from the simple room left alone. Bad years
+  // and levels are refused. A simple room stores nothing by year and no history.
+  {
+    const t = transport();
+    const json = (x: unknown) => JSON.stringify(x);
+    const table = {
+      '1': { WC: 'Low' as const, GL: 'Off' as const, Property: 'High' as const },
+      '2': { WC: 'Mid' as const, GL: 'Off' as const },
+      '3': { WC: 'High' as const, GL: 'Low' as const },
+      '4': { WC: 'High' as const, GL: 'High' as const },
+    };
+    const want = { '1': { WC: 'Low', GL: 'Off' }, '2': { WC: 'Mid', GL: 'Off' }, '3': { WC: 'High', GL: 'Low' }, '4': { WC: 'High', GL: 'High' } };
+    const base = {
+      seed: '7', yearCount: 4, startingYear: 2027, expectedTeams: 1, lines: ['WC', 'GL'] as CoverageLine[],
+      developmentLevels: { WC: 'Low' as const, GL: 'Off' as const }, shocks: [],
+    };
+    for (const [bad, what] of [
+      [{ '0': { WC: 'Low' } }, 'a year 0'], [{ '5': { WC: 'Low' } }, 'a year past the game'], [{ '1.5': { WC: 'Low' } }, 'a fractional year'],
+      [{ '2': { WC: 'Extreme' } }, 'an unknown level'], [['Low'], 'a list in place of years'],
+    ] as const) {
+      await rejects(t.createRoom({ ...base, hostToken: newSessionToken(), eventName: 'Bad', developmentLevelsByYear: bad as never }),
+        'INVALID_REQUEST', `advanced setup: ${what} is refused`);
+    }
+    const host = newSessionToken();
+    const made = await t.createRoom({ ...base, hostToken: host, eventName: 'Advanced', developmentLevelsByYear: table });
+    const hv = await t.read({ code: made.code, token: host });
+    eq(json(hv.room.developmentLevelsByYear), json(want),
+      'advanced setup: the room stores the table as its settings by year (the unplayed Property dropped)');
+    const hist = hv.room.editHistory ?? [];
+    eq(json(hist.map(e => [e.kind, e.yearNumber, e.by, e.levels])),
+      json([1, 2, 3, 4].map(y => ['start', y, 'Host', want[String(y) as '1']])),
+      'advanced setup: the host\'s change history opens with each year\'s starting settings');
+    eq(hv.room.shocksOn, undefined, 'advanced setup: the shock switch is not pinned (no edit has been made)');
+    const team = await t.join({ code: made.code, teamName: 'Alpha', role: 'player' });
+    const tv = await t.read({ code: made.code, token: team.teamToken });
+    eq(json(tv.room.developmentLevelsByYear), json(want), 'advanced setup: the team reads every year\'s levels');
+    eq(tv.room.editHistory, undefined, 'advanced setup: a team reads no history');
+    const advGame = buildTeamGame(tv.room, team.lines);
+    eq(json(advGame.gameState.setup.developmentLevelsByYear), json(want), 'advanced setup: the team\'s game carries the table');
+
+    // The twin: a simple room, the same table applied through Edit game before year 1.
+    const host2 = newSessionToken();
+    const twin = await t.createRoom({ ...base, hostToken: host2, eventName: 'Twin' });
+    const tw0 = await t.read({ code: twin.code, token: host2 });
+    eq(tw0.room.developmentLevelsByYear === undefined && (tw0.room.editHistory ?? []).length === 0, true,
+      'a simple setup stores nothing by year and opens with no history');
+    const plain = buildTeamGame(tw0.room, ['WC', 'GL']);
+    await t.editGame({ code: twin.code, token: host2, years: Object.fromEntries(Object.entries(want).map(([y, d]) => [y, { developmentLevels: d as never, shocks: [] }])) });
+    const twinTeam = await t.join({ code: twin.code, teamName: 'Alpha', role: 'player' });
+    const twinGame = buildTeamGame((await t.read({ code: twin.code, token: twinTeam.teamToken })).room, twinTeam.lines);
+    const yearsOf = (g: ReturnType<typeof buildTeamGame>) => [json(g.opening?.result), ...replayTeamYears(g.gameState, 5, undefined).produced.map(p => json(p.result))];
+    const adv = yearsOf(advGame), tw = yearsOf(twinGame), pl = yearsOf(plain);
+    eq(adv.length === 5 && adv.every((r, i) => r === tw[i]), true,
+      'advanced setup: the opening and all four years play exactly as a simple room given the same table by Edit game');
+    eq(adv[1] === pl[1], true, 'and year 1, at the simple levels, plays as the simple room does');
+    eq([2, 3, 4].every(i => adv[i] !== pl[i]), true, 'while years 2 to 4, at their own levels, do not');
+
+    // Edit game on an advanced room: its rules and history, unchanged.
+    const e = await t.editGame({ code: made.code, token: host, years: { '3': { developmentLevels: { WC: 'Mid', GL: 'Low' }, shocks: [] } } });
+    eq(json(e.edits.map(x => [x.kind, x.yearNumber, x.line, x.from, x.to])), json([['development', 3, 'WC', 'High', 'Mid']]),
+      'Edit game on an advanced room reads the table: WC in year 3 from High to Mid');
+    const hv2 = await t.read({ code: made.code, token: host });
+    eq((hv2.room.editHistory ?? []).length, 5, 'and the history keeps the starting settings, then the edit');
+  }
+
+  // ---- MARKET COMPETITION (pr/market-competition) -------------------------
+  //
+  // The room's setting; what a lock carries; REAL LOCKING (a locked year refuses
+  // a different set, the host's unlock reopens it, a team unlocked and not
+  // re-locked plays its previous lock); the market step run ONCE at advance and
+  // stored with the room; each team reading only its own result; a second device
+  // replaying identically from it; a room with the market Off; and an older room
+  // that never had the setting. The step's arithmetic is market-step-check's job.
+  {
+    const t = transport();
+    const json = (x: unknown) => JSON.stringify(x);
+    const host = newSessionToken();
+    await rejects(t.createRoom({
+      hostToken: newSessionToken(), seed: '7', yearCount: 3, startingYear: 2027, eventName: 'Bad', expectedTeams: 2,
+      lines: WC, shocks: [], market: 'extreme' as never,
+    }), 'INVALID_REQUEST', 'an unknown market level is refused');
+    const made = await t.createRoom({
+      hostToken: host, seed: '7', yearCount: 3, startingYear: 2027, eventName: 'Market', expectedTeams: 4,
+      lines: WC, shocks: [], market: 'high',
+    });
+    const code = made.code;
+    eq(made.room.market, 'high', 'the room carries its market level');
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta'];
+    const joined = [];
+    for (const n of names) joined.push(await t.join({ code, teamName: n, role: 'player' }));
+    const [A, B, C, D] = joined;
+    eq((await t.read({ code, token: A.teamToken })).room.market, 'high', 'every team reads the level');
+
+    // What each team's own game sends with its lock: the struck rate, the book, the
+    // three decisions. Bravo and Charlie post dearer rates so members move.
+    const room0 = (await t.read({ code, token: host })).room;
+    const game0 = buildTeamGame(room0, WC).gameState;
+    const d1 = decisionsForYear(1, undefined, true);
+    const base = marketLockInputFor(game0, d1, 1);
+    ok(base !== null && base.byLine.WC !== undefined && base.byLine.WC.rate > 0 && base.byLine.WC.book > 0,
+      "a team's game produces its lock's market input: a positive rate and book per line");
+    eq(marketLockInputFor(game0, d1, 2), null, 'and none for a year its game is not on');
+    const scaled = (m: MarketLockInput, f: number, extra: Partial<MarketLockInput['byLine']['WC'] & object> = {}): MarketLockInput =>
+      ({ byLine: { WC: { ...m.byLine.WC!, rate: m.byLine.WC!.rate * f, ...extra } } });
+    const inputs: MarketLockInput[] = [
+      scaled(base!, 1.00, { newMembers: 0.10 }),
+      scaled(base!, 1.06, { newMembers: 0.05, nonRenewal: 0.04 }),
+      scaled(base!, 1.12),
+    ];
+    const dj = decisionsToJson(d1);
+
+    await rejects(t.submit({ code, token: A.teamToken, yearNumber: 1, decisions: dj }), 'INVALID_REQUEST',
+      'a lock in a market room without its rates and book is refused');
+    await rejects(t.submit({ code, token: A.teamToken, yearNumber: 1, decisions: dj, market: { byLine: { WC: { ...inputs[0].byLine.WC!, rate: -1 } } } }),
+      'INVALID_REQUEST', 'a lock with a rate that is not positive is refused');
+    await rejects(t.submit({ code, token: A.teamToken, yearNumber: 1, decisions: dj, market: { byLine: {} } }),
+      'INVALID_REQUEST', 'a lock missing a line the room plays is refused');
+    for (let i = 0; i < 3; i++) await t.submit({ code, token: joined[i].teamToken, yearNumber: 1, decisions: dj, market: inputs[i] });
+
+    // REAL LOCKING.
+    await t.submit({ code, token: A.teamToken, yearNumber: 1, decisions: dj, market: inputs[0] });
+    ok(true, 'the same lock sent again (a retry of a lost response) succeeds');
+    await rejects(t.submit({ code, token: A.teamToken, yearNumber: 1, decisions: dj, market: scaled(base!, 0.9) }),
+      'ALREADY_LOCKED', 'a locked team cannot send a different rate');
+    await rejects(t.submit({ code, token: A.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'changed'), market: inputs[0] }),
+      'ALREADY_LOCKED', 'nor different decisions');
+    // The host unlocks Bravo; Bravo sends a new set; the new one stands.
+    await t.undoLock({ code, token: host, teamName: 'Bravo', yearNumber: 1 });
+    await t.submit({ code, token: B.teamToken, yearNumber: 1, decisions: dj, market: inputs[1] });
+    eq((await t.read({ code, token: host })).room.teams.find(x => x.name === 'Bravo')?.locked, true,
+      'an unlocked team locks again, with a different set if it likes');
+    eq((await t.read({ code, token: host })).room.teams.find(x => x.name === 'Delta')?.locked, false,
+      "the host sees who hasn't locked");
+    eq((await t.read({ code, token: host })).room.marketByYear, undefined, 'no market step runs before the advance');
+
+    // THE ADVANCE RUNS THE STEP, ONCE.
+    await step(t, code, host);
+    const hostAfter = (await t.read({ code, token: host })).room;
+    const y1 = hostAfter.marketByYear?.['1'];
+    ok(y1 !== undefined, 'the advance stores the year\'s market step with the room');
+    eq(json(y1?.missing), json(['Delta']), 'a team that never locked is flagged to the host and left out');
+    eq(json(Object.keys(y1?.result ?? {}).sort()), json(['Alpha', 'Bravo', 'Charlie']), 'every locked team has a result');
+    eq(y1?.inputs.Bravo?.byLine.WC?.rate, inputs[1].byLine.WC!.rate, 'the step counts the rate the team posted');
+    const r1 = y1!.result;
+    ok((r1.Charlie?.WC?.willingShare ?? 0) > 0 && (r1.Charlie?.WC?.leftShare ?? 0) > 0, 'members want to leave the dearest team, and some do');
+    eq(r1.Alpha?.WC?.willingShare, 0, 'nobody leaves the cheapest team for a dearer one');
+    ok((r1.Alpha?.WC?.inGood ?? 0) > 0, 'the cheapest team with appetite takes leavers in');
+    const out = Object.values(r1).reduce((s, x) => s + (x.WC?.outExposure ?? 0), 0);
+    const inn = Object.values(r1).reduce((s, x) => s + (x.WC?.inGood ?? 0), 0);
+    ok(Math.abs(out - inn) < 1e-6 * Math.max(1, out), 'every member who left a team joined another (leavers in = leavers out)');
+    ok((r1.Charlie?.WC?.inGood ?? 0) + (r1.Charlie?.WC?.inOutside ?? 0) + (r1.Charlie?.WC?.inDropped ?? 0) === 0,
+      'a team with no appetite takes nobody in');
+    eq((await t.advance({ code, token: host, expectedYear: 1 })).advanced, false, 'a repeated advance (a lost response retried) does not advance again');
+    eq(json((await t.read({ code, token: host })).room.marketByYear?.['1']), json(y1), 'and does not run the step again');
+
+    // EACH TEAM READS ONLY ITS OWN.
+    const aView = await t.read({ code, token: A.teamToken });
+    eq(aView.room.marketByYear, undefined, 'a team does not read the room\'s market step');
+    eq(json(Object.keys(aView.you?.marketByYear?.['1'] ?? {})), json(['WC']), 'a team reads its own result');
+    eq(json(aView.you?.marketByYear?.['1']?.WC), json(r1.Alpha?.WC), 'and it is the stored one');
+    eq((await t.read({ code, token: D.teamToken })).you?.marketByYear, undefined, 'a team left out has no result');
+    const viewer = await t.join({ code, teamName: 'Alpha', role: 'viewer' });
+    eq(json((await t.read({ code, token: viewer.teamToken })).you?.marketByYear), json(aView.you?.marketByYear),
+      "a team's viewer reads the team's result");
+
+    // REPLAY: the dearest team's year 1 plays its moves, and a second device plays it identically.
+    const play = async (token: string, given?: RoomView) => {
+      const me = await t.read({ code, token });
+      const g = buildTeamGame(given ?? me.room, WC).gameState;
+      return replayTeamYears(g, 2, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear)).produced.map(p => json(p.result));
+    };
+    const first = await play(C.teamToken);
+    const again = await t.join({ code, teamName: 'Charlie', role: 'player', token: C.teamToken });
+    eq(again.rejoined, true, 'Charlie rejoins on a second device');
+    const second = await play(C.teamToken, again.room);
+    eq(first.length === 1 && json(first) === json(second), true, 'a second device replays the market year byte-identical');
+    const cRead = await t.read({ code, token: C.teamToken });
+    const without = replayTeamYears(buildTeamGame(cRead.room, WC).gameState, 2, cRead.you?.decisionsByYear).produced.map(p => json(p.result));
+    eq(json(first) !== json(without), true, 'and the market result changes what the year plays');
+    const c2 = replayTeamYears(buildTeamGame(cRead.room, WC).gameState, 2, cRead.you?.decisionsByYear,
+      marketByYearForEngine(cRead.you?.marketByYear)).state;
+    ok(c2.poolState.lines.WC!.bookExposure! < game0.poolState.lines.WC!.bookExposure!,
+      "the dearest team's book is smaller after members leave");
+
+    // YEAR 2: Alpha locks; Bravo locks and is unlocked and does not re-lock; Charlie does not lock.
+    const d2 = decisionsToJson(decisionsForYear(2, undefined, true));
+    await t.submit({ code, token: A.teamToken, yearNumber: 2, decisions: d2, market: inputs[0] });
+    await t.submit({ code, token: B.teamToken, yearNumber: 2, decisions: decisionsFor(2, 'b2-unlocked'), market: scaled(base!, 0.5) });
+    await t.undoLock({ code, token: host, teamName: 'Bravo', yearNumber: 2 });
+    await step(t, code, host);
+    const y2 = (await t.read({ code, token: host })).room.marketByYear?.['2'];
+    eq(json((await t.read({ code, token: host })).room.marketByYear?.['1']), json(y1), 'year 1\'s step is stored once and not rerun');
+    eq(y2?.inputs.Bravo?.stale, true, 'a team unlocked and not re-locked counts at its previous lock (flagged to the host)');
+    eq(y2?.inputs.Bravo?.byLine.WC?.rate, inputs[1].byLine.WC!.rate, 'at its last LOCKED rate, not the one it sent and had unlocked');
+    eq((await t.read({ code, token: B.teamToken })).you?.decisionsByYear?.['2'], undefined,
+      'and its unlocked set is gone, so its game plays its previous lock');
+    eq(y2?.inputs.Charlie?.stale, true, 'a team that did not lock counts at its last locked rate');
+    eq(y2?.inputs.Charlie?.fromYear, 1, 'which the host can see is year 1\'s');
+    eq(y2?.inputs.Alpha?.stale, false, 'a team that locked counts at what it locked');
+    const cPrev = y1!.result.Charlie!.WC!;
+    eq(y2?.inputs.Charlie?.byLine.WC?.book, cPrev.bookAfter * (1 - cPrev.engineNonRenewal),
+      "a team that did not lock counts on its book carried forward from last year's step");
+    eq(y2?.result.Alpha?.WC?.bookRiskBefore, 1 + (1 - MARKET_BOOK_RISK_FADE) * (y1!.result.Alpha!.WC!.bookRisk - 1),
+      "each year's book risk starts from last year's, faded halfway to 1.00");
+
+    // MARKET OFF: a lock needs no market input, and an advance stores no step.
+    const off = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Off', expectedTeams: 1, lines: WC, shocks: [], market: 'off' });
+    eq(off.room.market, 'off', 'a room with the market Off says so');
+    const o1 = await t.join({ code: off.code, teamName: 'Solo', role: 'player' });
+    await t.submit({ code: off.code, token: o1.teamToken, yearNumber: 1, decisions: dj });
+    ok(true, 'a lock in a room with the market Off needs no rates');
+    await rejects(t.submit({ code: off.code, token: o1.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'x') }), 'ALREADY_LOCKED',
+      'real locking holds with the market Off too');
+    await step(t, off.code, off.hostToken);
+    eq((await t.read({ code: off.code, token: off.hostToken })).room.marketByYear, undefined, 'a room with the market Off stores no step');
+    eq((await t.read({ code: off.code, token: o1.teamToken })).you?.marketByYear, undefined, 'and its team has no result');
+
+    // AN OLDER ROOM: no setting stored at all reads Off and plays as one.
+    const old = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Old', expectedTeams: 1, lines: WC, shocks: [], market: 'medium' });
+    await store.unmarket(old.code);
+    eq((await t.read({ code: old.code, token: old.hostToken })).room.market, 'off', 'an older room, with no setting stored, reads Off');
+    const ol = await t.join({ code: old.code, teamName: 'Elder', role: 'player' });
+    await t.submit({ code: old.code, token: ol.teamToken, yearNumber: 1, decisions: dj });
+    await step(t, old.code, old.hostToken);
+    eq((await t.read({ code: old.code, token: old.hostToken })).room.marketByYear, undefined, 'and stores no market step');
+  }
+
+  // ---- TEAM NUMBERS ------------------------------------------------------
+  //
+  // The first team to join is Team 1, the next Team 2, and so on — stored with
+  // the room, never changed once given, never reused (contract teamNumbers).
+  // An OLDER ROOM, written before numbers existed, is numbered by join order the
+  // first time it is read; `store` reaches around the interface to make one.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const numbersOf = async (token = hostToken) =>
+      Object.fromEntries((await t.read({ code, token })).room.teams.map(x => [x.name, x.teamNumber]));
+    const joined = [];
+    for (const name of TEAMS) joined.push(await t.join({ code, teamName: name, role: 'player' }));
+    const want = JSON.stringify({ [TEAMS[0]]: 1, [TEAMS[1]]: 2, [TEAMS[2]]: 3 });
+    eq(JSON.stringify(await numbersOf()), want, 'teams joining in a known order are numbered 1, 2, 3 in that order');
+    eq(JSON.stringify((await t.read({ code, token: hostToken })).room.teams.map(x => x.name)), JSON.stringify(TEAMS),
+      'and the host reads them in join order');
+    eq(JSON.stringify(await numbersOf(joined[1].teamToken)), want, 'a player reads the same numbers');
+    eq(JSON.stringify(await numbersOf('')), want, 'and so does an anonymous caller');
+    eq(JSON.stringify((await store.stored(code)).byName), want, 'the numbers are stored with the room');
+    await t.join({ code, teamName: TEAMS[0], role: 'player', token: joined[0].teamToken });
+    const v = await t.join({ code, teamName: TEAMS[2], role: 'viewer' });
+    await t.submit({ code, token: joined[1].teamToken, yearNumber: 1, decisions: decisionsFor(1, 'n') });
+    eq(JSON.stringify(await numbersOf(v.teamToken)), want, 'a rejoin, a viewer and a submit change no number');
+    await step(t, code, hostToken);
+    eq(JSON.stringify(await numbersOf()), want, 'nor does an advance');
+
+    // ⚠ NEVER REUSED: with team 3 taken out of the stored room, the next team
+    // to join is 4, not 3. (No endpoint removes a team; the store does.)
+    const late = await freshRoom(t);
+    const l1 = await t.join({ code: late.code, teamName: TEAMS[0], role: 'player' });
+    await t.join({ code: late.code, teamName: TEAMS[1], role: 'player' });
+    await t.join({ code: late.code, teamName: TEAMS[2], role: 'player' });
+    await store.dropTeam(late.code, TEAMS[2]);
+    await t.join({ code: late.code, teamName: 'Fourth FC', role: 'player' });
+    const lateNumbers = Object.fromEntries((await t.read({ code: late.code, token: l1.teamToken })).room.teams.map(x => [x.name, x.teamNumber]));
+    eq(JSON.stringify(lateNumbers), JSON.stringify({ [TEAMS[0]]: 1, [TEAMS[1]]: 2, 'Fourth FC': 4 }),
+      'a team that leaves takes its number with it: the next team is 4, not 3');
+
+    // ---- an older room, with no numbers stored ----
+    const old = await freshRoom(t);
+    for (const name of [TEAMS[2], TEAMS[0], TEAMS[1]]) await t.join({ code: old.code, teamName: name, role: 'player' });
+    await store.unnumber(old.code);
+    const before = await store.stored(old.code);
+    ok(before.next === undefined && Object.values(before.byName).every(n => n === undefined),
+      'the older room is stored with no team numbers and no next number');
+    const oldWant = JSON.stringify({ [TEAMS[2]]: 1, [TEAMS[0]]: 2, [TEAMS[1]]: 3 });
+    const firstRead = Object.fromEntries((await t.read({ code: old.code, token: old.hostToken })).room.teams.map(x => [x.name, x.teamNumber]));
+    eq(JSON.stringify(firstRead), oldWant, 'an older room read for the first time is numbered by join order');
+    const after = await store.stored(old.code);
+    eq(JSON.stringify(after.byName), oldWant, 'and that first read stores the numbers with the room');
+    eq(after.next, 4, 'with the room\'s next number one past them');
+    const fifth = await t.join({ code: old.code, teamName: 'Fourth FC', role: 'player' });
+    const thereafter = Object.fromEntries((await t.read({ code: old.code, token: fifth.teamToken })).room.teams.map(x => [x.name, x.teamNumber]));
+    eq(JSON.stringify(thereafter), JSON.stringify({ ...JSON.parse(oldWant), 'Fourth FC': 4 }),
+      'the next team to join the older room is 4, and none of the first three moved');
+
+    // An older room JOINED before anyone reads it is numbered by the join.
+    const old2 = await freshRoom(t);
+    for (const name of [TEAMS[1], TEAMS[0]]) await t.join({ code: old2.code, teamName: name, role: 'player' });
+    await store.unnumber(old2.code);
+    await t.join({ code: old2.code, teamName: TEAMS[2], role: 'player' });
+    eq(JSON.stringify((await store.stored(old2.code)).byName), JSON.stringify({ [TEAMS[1]]: 1, [TEAMS[0]]: 2, [TEAMS[2]]: 3 }),
+      'an older room\'s first join numbers its teams by join order and itself after them, and stores them');
+  }
+
 }
 
 // ---------------------------------------------------------------- the passes
 
-async function runPass(label: string, make: typeof makeTransport): Promise<number> {
+async function runPass(label: string, make: typeof makeTransport, hooks: StoreHooks = localStore): Promise<number> {
   makeTransport = make;
+  store = hooks;
   failures.length = 0;
   checks = 0;
   await main();
@@ -1298,8 +2206,40 @@ async function dynamoPasses(): Promise<number> {
     };
 
     const dynamo = dynamoFromEnv({ tableName: table, client });
+    // The room header's roster, for the TEAM NUMBERS block (StoreHooks).
+    const { GetCommand, UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
+    const { roomPk, ROOM_HEADER_SK } = await import('../../src/session/server/keys');
+    type Header = { nextTeamNumber?: number; roster: Record<string, { name: string; teamNumber?: number; joinedAt: number }> };
+    const headerKey = (code: string) => ({ pk: roomPk(code), sk: ROOM_HEADER_SK });
+    const header = async (code: string) =>
+      (await dynamo.doc.send(new GetCommand({ TableName: table, Key: headerKey(code), ConsistentRead: true }))).Item as Header;
+    const dynamoStore: StoreHooks = {
+      async unnumber(code) {
+        const ids = Object.keys((await header(code)).roster);
+        await dynamo.doc.send(new UpdateCommand({
+          TableName: table, Key: headerKey(code),
+          UpdateExpression: 'REMOVE nextTeamNumber' + ids.map((_, i) => `, roster.#t${i}.teamNumber`).join(''),
+          ExpressionAttributeNames: Object.fromEntries(ids.map((id, i) => [`#t${i}`, id])),
+        }));
+      },
+      async dropTeam(code, name) {
+        const id = Object.entries((await header(code)).roster).find(([, e]) => e.name === name)![0];
+        await dynamo.doc.send(new UpdateCommand({
+          TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE roster.#t', ExpressionAttributeNames: { '#t': id },
+        }));
+      },
+      async stored(code) {
+        const h = await header(code);
+        // A map has no order; join order is the roster's joinedAt (views.ts orderedRoster).
+        const byJoin = Object.values(h.roster).sort((a, b) => a.joinedAt - b.joinedAt);
+        return { next: h.nextTeamNumber, byName: Object.fromEntries(byJoin.map(e => [e.name, e.teamNumber])) };
+      },
+      async unmarket(code) {
+        await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE market' }));
+      },
+    };
     bad += await reached('DynamoDB, in-process', () =>
-      runPass('DynamoDB, in-process', () => new DynamoSessionTransport({ dynamo })));
+      runPass('DynamoDB, in-process', () => new DynamoSessionTransport({ dynamo }), dynamoStore));
 
     // ⚠ THE HANDLER EXACTLY AS LAMBDA LOADS IT: the module's own exported
     // `handler`, building its transport from the environment on first call — no
@@ -1323,7 +2263,7 @@ async function dynamoPasses(): Promise<number> {
         const addr = server.address();
         const shimPort = typeof addr === 'object' && addr ? addr.port : 0;
         const failed = await reached(label, () =>
-          runPass(label, () => new HttpSessionTransport({ baseUrl: `http://127.0.0.1:${shimPort}` })));
+          runPass(label, () => new HttpSessionTransport({ baseUrl: `http://127.0.0.1:${shimPort}` }), dynamoStore));
         await new Promise<void>(r => { server.close(() => r()); });
         return failed;
       };

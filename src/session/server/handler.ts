@@ -28,7 +28,8 @@
 // contract-and-transport change, not a handler one. It is named here because
 // "the handler was not touched" is a thing a reader should be able to confirm
 // deliberately rather than infer from a silent file. The same holds for
-// uw-hybrid's two sliders (renewalsDeclined, newBusinessRejection), which
+// the two underwriting sliders (nonRenewal and newMembers since simple
+// underwriting; renewalsDeclined and newBusinessRejection on uw-hybrid), which
 // replaced renewalCut and intakeLevel inside that block: no code here.
 //
 // ⚠ IT STILL SHIPS FIRST. The handler carries no new code but the DEPLOY ORDER
@@ -64,19 +65,33 @@ const STATUS: Record<SessionErrorCode, number> = {
   // refuses the request, which is the same shape as WRONG_YEAR and TEAM_TAKEN
   // above and maps to the same code.
   EVENT_IN_PROGRESS: 409,
+  // ⚠ 409, a state refusal like WRONG_YEAR: the team is locked for the year (real locking).
+  ALREADY_LOCKED: 409,
   // LINES_LOCKED is gone from the contract — a join carries no lines, so no
   // server can emit it. Nothing maps to 409 for it any more.
   TRANSPORT_FAILURE: 500,
+  // ⚠ 403, SAME BUCKET AS BAD_TOKEN/NOT_HOST — the wrong credential was
+  // presented, nothing a retry fixes on its own.
+  BAD_RECOVERY_CODE: 403,
+  // ⚠ 429, NOT 409 — this is a rate limit, not a state the room is in.
+  // httpTransport.ts's retryableFor(429) already treats a 429 as retryable by
+  // default, but the body's own retryable: false (set on the thrown
+  // SessionError) wins once the code is in its ERROR_CODES allow-list — see
+  // that file.
+  TOO_MANY_ATTEMPTS: 429,
 };
 
-// ⚠ TWO NEW ROUTES, AND THE DISPATCH BELOW NEEDED NOTHING ELSE. It calls
+// ⚠ THREE NEW ROUTES AND THE DISPATCH BELOW NEEDED NOTHING ELSE. It calls
 // transport[endpoint] generically, so a route is this list plus a method on the
 // transport — which is the property that made adding the lobby a contract
 // change rather than a handler change. Mike adds the routes in API Gateway; see
 // docs/AWS_HANDOFF.md.
-type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read' | 'listEvents' | 'setEventHidden';
+type Endpoint =
+  | 'createRoom' | 'join' | 'reclaimTeam' | 'createHandoff' | 'undoLock' | 'submit' | 'saveDraft' | 'advance' | 'read'
+  | 'listEvents' | 'setEventHidden' | 'editGame';
 const ENDPOINTS: readonly Endpoint[] = [
-  'createRoom', 'join', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
+  'createRoom', 'join', 'reclaimTeam', 'createHandoff', 'undoLock', 'submit', 'saveDraft', 'advance', 'read',
+  'listEvents', 'setEventHidden', 'editGame',
 ];
 
 function json(status: number, body: unknown): APIGatewayProxyStructuredResultV2 {

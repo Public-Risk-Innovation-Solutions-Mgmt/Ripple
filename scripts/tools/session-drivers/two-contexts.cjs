@@ -8,7 +8,7 @@
 // the right unit: separate storage, separate identity, separate everything but
 // the wire. Host in one, teams in the other, which is the actual topology.
 // ============================================================================
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 // ⚠ A PORT THE OS HANDS OUT, NOT ONE CHOSEN BY HAND. A fixed port survives a
@@ -133,8 +133,8 @@ const anyKeys = page => page.evaluate(() =>
     // ⚠ BOTH TEAMS LOCK AT ONCE. Two pages, one server, no client-side lock
     // anywhere on this path: the serialisation is the server's.
     await Promise.all(players.map(async p => {
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
-      await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+      await lockAndConfirm(p);
+      await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
     }));
     // The host learns by polling, so this waits for the locks to arrive rather
     // than sampling the instant the clicks return — a session across contexts
@@ -154,7 +154,7 @@ const anyKeys = page => page.evaluate(() =>
       const tick = async () => {
         const r = await (await fetch(`${API}/read`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, token: hostHeld.hostToken }),
         })).json();
         const done = r.room.teams.filter(t => (t.resultsByYear || {})[String(year)]).length === TEAMS.length;
         if (done || Date.now() > deadline) resolve();
@@ -179,8 +179,8 @@ const anyKeys = page => page.evaluate(() =>
   await host.waitForTimeout(20000);
 
   await Promise.all(players.map(async p => {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
-    await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
+    await lockAndConfirm(p);
+    await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
   }));
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForTimeout(300);
@@ -193,7 +193,7 @@ const anyKeys = page => page.evaluate(() =>
   for (;;) {
     const r = await (await fetch(`${API}/read`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, token: hostHeld.hostToken }),
     })).json();
     if (r.room.teams.every(t => (t.resultsByYear || {})[String(reportingYear)])) { t0 = Date.now(); break; }
     await new Promise(r2 => setTimeout(r2, 200));
@@ -208,15 +208,23 @@ const anyKeys = page => page.evaluate(() =>
   // ---- what the host reads back ----------------------------------------
   const wire = await (await fetch(`${API}/read`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, token: hostHeld.hostToken }),
   })).json();
   for (const t of wire.room.teams) {
     const years = Object.keys(t.resultsByYear || {}).map(Number).sort((a, b) => a - b);
     ok(JSON.stringify(years) === JSON.stringify([0, 1, 2, 3, 4]),
        `${t.name} reported every year across the wire ([${years.join(',')}])`);
   }
-  ok(wire.room.teams.every(t => t.decisionsByYear === undefined),
-     'and a read with no token still redacts every team\'s decisions');
+  // ⚠ READ AS THE HOST SINCE THE ROOM MARKET SHARE: an anonymous read no longer
+  // carries any team's results (the localStorage transport's over-send is
+  // closed, matching DynamoDB), so the scoreboard is read with the host token
+  // and the no-token read is checked for redaction on its own.
+  const anonWire = await (await fetch(`${API}/read`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })).json();
+  ok(anonWire.room.teams.every(t => t.decisionsByYear === undefined && t.resultsByYear === undefined),
+     'and a read with no token carries no team\'s decisions and no team\'s results');
 
   await host.click('[data-testid="host-tab-teams"]');
   await host.waitForTimeout(1200);

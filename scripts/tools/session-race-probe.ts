@@ -236,6 +236,24 @@ try {
     check(doubled === 0, `B∥: pairs not ending with exactly one team: ${doubled}`);
   }
 
+  // N∥. TEAM NUMBERS UNDER A CLASS JOINING AT ONCE: twelve teams with twelve
+  // names join one room together, five rooms over. Every join must land, and the
+  // room's numbers must be exactly 1 to 12, each once — the join's claim on the
+  // room's counter (rooms.ts, MAX_NUMBER_RACES) is what holds this.
+  {
+    let refused = 0, wrong = 0;
+    for (let i = 0; i < 5; i++) {
+      const { code } = await mkRoom(fresh());
+      const out = await Promise.all(Array.from({ length: 12 }, (_, k) =>
+        settle(fresh().join({ code, teamName: `N${k}`, role: 'player' }))));
+      refused += out.filter(o => !o.ok).length;
+      const numbers = (await fresh().read({ code })).room.teams.map(x => x.teamNumber).sort((a, b) => a - b);
+      if (JSON.stringify(numbers) !== JSON.stringify(Array.from({ length: 12 }, (_, k) => k + 1))) wrong++;
+    }
+    check(refused === 0, `N∥: 5 rooms x 12 teams joining at once — joins refused: ${refused}`);
+    check(wrong === 0, `N∥: rooms whose numbers are not exactly 1 to 12, each once: ${wrong}`);
+  }
+
   // F. THE BURST keys.ts HARD 1 is about: twenty teams post at once, every
   // transaction touching the one header item. All must land, rev must count
   // them exactly, and the host must see all twenty.
@@ -252,7 +270,17 @@ try {
     const after = await t.read({ code, token: hostToken });
     const held = after.room.teams.filter(x => x.resultsByYear?.['0'] !== undefined).length;
     check(posts.every(x => x.ok), `F: 20 simultaneous result posts all succeed (${posts.filter(x => !x.ok).length} refused)`);
-    check(after.room.rev === before + 20, `F: rev counts them exactly (${after.room.rev - before} of 20)`);
+    // ⚠ EACH OPENING POST MAY ALSO WRITE THE ROOM'S YEAR-0 MARKET SHARES (room
+    // market share), and that write bumps rev too — a poller must see it, and an
+    // HTTP client is answered 304 on an unchanged rev. So rev counts the twenty
+    // posts plus between one and twenty share writes, never fewer and never more;
+    // and the opening set left standing covers all twenty teams — a slow post's
+    // smaller set never replaces a fuller one.
+    const shareWrites = after.room.rev - before - 20;
+    check(shareWrites >= 1 && shareWrites <= 20,
+      `F: rev counts the 20 posts plus 1 to 20 share writes (${after.room.rev - before} = 20 + ${shareWrites})`);
+    check(after.room.marketShares?.year === 0 && Object.keys(after.room.marketShares.byTeam).length === 20,
+      `F: the opening market shares cover all 20 teams (${Object.keys(after.room.marketShares?.byTeam ?? {}).length})`);
     check(held === 20, `F: the host sees all 20 (${held})`);
     results.push(`info DynamoDB Local raised ${conflicts - conflictsBefore} TransactionConflict(s) during F`
       + (conflicts - conflictsBefore === 0 ? ' — the conflict-retry path was NOT exercised' : ' — the retry path ran'));
@@ -306,8 +334,20 @@ try {
   // guaranteed here and only the stamp can answer.
   {
     const shortLived = new DynamoSessionTransport({ dynamo: { ...dynamo, retentionSec: 1 } });
-    const { code, hostToken } = await mkRoom(shortLived);
-    await new Promise(r => setTimeout(r, 2100));
+    // ⚠ THE CLOCK HELD STILL WHILE THE ROOM IS MADE. The stamp is the creating
+    // second plus 1 (nowSec), and createRoom reads its own header back before it
+    // returns — so a room made late in a wall-clock second had only what was
+    // left of that second, and a slow create crossed into the next and found its
+    // own room expired (ROOM_NOT_FOUND out of mkRoom: handler run 40771249445).
+    // Held, the create sees one second throughout and returns; the wait below is
+    // then on the real clock, past the stamp, with the header still there.
+    const realNow = Date.now;
+    const at = realNow();
+    Date.now = () => at;
+    let made: Awaited<ReturnType<typeof mkRoom>>;
+    try { made = await mkRoom(shortLived); } finally { Date.now = realNow; }
+    const { code, hostToken } = made;
+    await new Promise(r => setTimeout(r, Math.max(0, (Math.floor(at / 1000) + 1) * 1000 - Date.now()) + 1100));
     const gone = await settle(shortLived.read({ code, token: hostToken }));
     check(!gone.ok && gone.code === 'ROOM_NOT_FOUND', `G: an expired room is ROOM_NOT_FOUND though its header is still there (${shown(gone, () => 'resolved')})`);
   }

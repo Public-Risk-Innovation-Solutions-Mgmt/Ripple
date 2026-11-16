@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
-import { buildAnnualStatement, topCombinedRatio, topSurplus } from '../utils/resultsStatement';
+import type { TeamMarketShare } from '../session/contract';
+import { buildAnnualStatement, newestCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import { RippleMark } from '../assets/RippleLogo';
 
@@ -20,22 +21,34 @@ interface HeaderProps {
    *  session player who has already locked shows what it is waiting for
    *  instead. */
   advanceLabel?: string;
-  /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
+  /** Which figures the bar shows — surplus, combined ratio and market share: the pool, or a line (GameShell passes a line only on the Decisions page). Defaults to the pool. */
   lineView?: LineView;
+  /**
+   * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM for the latest
+   * known year (CallerView.marketShare) — its line's on a line view, its
+   * premium share on the pool view. Passed only by a session screen; null
+   * there means the room holds no share for this team (an older handler sends
+   * none), and the chip is left out. Absent (single player): no chip.
+   */
+  roomMarketShare?: TeamMarketShare | null;
 }
 
-export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
-  const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
+export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
 
   // ============================================================================
-  // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
+  // THE COMBINED RATIO OF THE NEWEST YEAR, READ OFF THE ANNUAL STATEMENT, AND
+  // LABELLED WITH THAT YEAR ("Combined ratio 2027").
   //
   // Every cost — net losses, LAE, admin and the reinsurance cost — over what
-  // members were charged, summed over every played year since game start; before
-  // any year is played, over the pre-game years. It is the statement's own first
-  // row's Total (buildAnnualStatement → topCombinedRatio), for the view on
-  // screen: the pool's on the pool view, a line's on its own. So the top and the
-  // statement cannot disagree.
+  // members were charged, for the year the statement's newest column shows: the
+  // latest played year, or before year 1 the last history year. It is that
+  // column's Combined Ratio cell (buildAnnualStatement → newestCombinedRatio),
+  // for the view on screen: the pool's on the pool view, a line's on its own. So
+  // the top and the statement cannot disagree. The host's Teams table posts the
+  // same cell (session/client/results, yearCombinedRatio).
+  //
+  // ⚠ IT WAS THE CUMULATIVE SINCE GAME START (the statement's Total,
+  // topCombinedRatio), which a player could not find in any one column.
   //
   // ⚠ IT REPLACED "Loss Ratio (prem + admin)" — actualLossRatioPricingBasis,
   // net incurred over pool premium + admin. That figure is not gone: it stays
@@ -48,7 +61,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
     () => (gameState?.isStarted ? buildAnnualStatement(gameState, lineView) : undefined),
     [gameState, lineView],
   );
-  const combined = statement ? topCombinedRatio(statement) : undefined;
+  const combined = statement ? newestCombinedRatio(statement) : undefined;
   // ============================================================================
   // THE SURPLUS, READ OFF THE SAME STATEMENT: the balance sheet's Ending Surplus
   // for the latest year (topSurplus) — the opening before year 1, each played
@@ -59,17 +72,22 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   // ============================================================================
   const surplus = (statement ? topSurplus(statement) : undefined) ?? 0;
   // ============================================================================
-  // THE MARKET SHARE FOLLOWS THE VIEW, LIKE THE SURPLUS: a line's own
-  // exposure share on its view, read off the latest year there is — the last
-  // pre-game year before year 1, the last played year after — the same result
-  // the Calculation Audit's Market Share opens on. ⚠ NONE ON THE POOL VIEW:
-  // the three lines' markets are not comparable (WC and GL payroll, Property
-  // TIV), so the chip is left out rather than showing a blend of them.
+  // THE MARKET SHARE IS THE TEAM'S SHARE OF THE ROOM, AND ONLY IN A HOSTED GAME.
+  // Its exposure over every team's in the room on a line view, its premium over
+  // the room's on the pool view, for the latest known year — the room's own
+  // figure for this team (CallerView.marketShare), worked out where the room
+  // is kept so every screen in it reads the same number. ⚠ SINGLE PLAYER HAS NO
+  // CHIP: there is no room to share, and the share of the whole market of
+  // potential members (which a hosted team used to see as ~30% in a room of
+  // eight) is not a share of anything the player competes for.
   // ============================================================================
-  const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
-  const marketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
+  const marketShare = roomMarketShare
+    ? (lineView === 'pool' ? roomMarketShare.pool : roomMarketShare.byLine[lineView])
+    : undefined;
   const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
-  const instanceId = gameState?.instance?.instanceId ?? '—';
+  // ⚠ THE SCENARIO NUMBER, NEVER THE INSTANCE ID: a scenario's instance carries
+  // its fixed seed as its id (scenarios.ts), which no player or host is shown.
+  const instanceId = gameState?.instance?.scenario !== undefined ? String(gameState.instance.scenario) : (gameState?.setup?.instanceId ?? '—');
   const yearNumber = gameState?.currentYearNumber ?? 1;
   // ⚠ TWO YEARS, NAMED APART. The board sets next year's rates during the year
   // in progress: the PROGRAM YEAR is the one being priced (the setup's first
@@ -89,7 +107,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
           <div className="flex items-center gap-3 min-w-0">
             <RippleMark size={32} className="flex-shrink-0" />
             <span className="font-bold text-lg leading-none text-white flex-shrink-0">RIPPLE</span>
-            <span className="text-slate-600 flex-shrink-0">|</span>
+            <span className="text-slate-500 flex-shrink-0">|</span>
             {/* Same slot, two occupants that never overlap: the tagline
                 before a game exists, the SIMULATED pool's own name once one
                 does. The pool-name branch is untouched — it names the game
@@ -97,7 +115,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
             {isStarted ? (
               <span className="text-slate-300 text-sm truncate min-w-0">{poolName}</span>
             ) : (
-              <span className="text-slate-400 text-sm truncate min-w-0">Every decision creates impact.</span>
+              <span className="text-slate-300 text-sm truncate min-w-0">Every decision creates impact.</span>
             )}
           </div>
 
@@ -107,6 +125,9 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
               <Chip label="Year" value={`${yearNumber}`} />
               <Chip label="Calendar" value={`${calendarYear}`} testId="header-calendar" />
               <Chip label="Scenario" value={instanceId} mono />
+              {/* WHICH FIGURES THE NEXT CHIPS ARE: the pool's, or on Decisions the
+                  line being decided (GameShell passes the line only there). */}
+              <Chip label="Showing" value={lineView === 'pool' ? 'Pool' : lineView} testId="header-scope" />
               <Chip
                 label="Surplus"
                 value={formatCurrency(surplus, true)}
@@ -121,9 +142,9 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
                   map is at colorForRatio in formatters.ts; change neither alone. */}
               {combined !== undefined && (
                 <Chip
-                  label="Combined Ratio"
-                  value={formatPct(combined)}
-                  valueClass={colorForRatioOnDark(combined)}
+                  label={`Combined ratio ${combined.calendarYear}`}
+                  value={formatPct(combined.value)}
+                  valueClass={colorForRatioOnDark(combined.value)}
                   testId="header-combined-ratio"
                 />
               )}
@@ -153,7 +174,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
               <button
                 onClick={onAdvanceYear}
                 disabled={!canAdvance}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold transition-colors"
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold transition-colors"
               >
                 {advanceLabel ?? `Lock Program Year ${programYear}`}
                 <ChevronRight size={14} />
@@ -187,7 +208,7 @@ function Chip({
 }) {
   return (
     <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
-      <span className="text-slate-400 text-xs">{label}</span>
+      <span className="text-white text-xs">{label}</span>
       <span data-testid={testId} className={`text-sm font-bold min-h-[1.25rem] ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );

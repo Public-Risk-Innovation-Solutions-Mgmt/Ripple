@@ -65,6 +65,10 @@
 // and this says so.
 // ============================================================================
 
+// ⚠ 5%, NOT THE NEW-MEMBERS SLIDER'S TOP: this gate's thresholds were calibrated
+// on a book growing 5% a year, the slider's top until it widened to 0-10%
+// (pr/wider-underwriting-sliders). Pinned so the gate tests what it always did.
+const GROWING_BOOK = 0.05;
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -493,7 +497,7 @@ function playRates(g: number, decide?: (d: DecisionSet) => void): Record<string,
 
 /** The arm the assertion runs on: a player who is actually underwriting. */
 const DECIDING = (d: DecisionSet) => {
-  for (const l of LINES) d.byLine[l].newBusinessRejection = 0;   // uw-hybrid: intake positions retired
+  for (const l of LINES) d.byLine[l].newMembers = GROWING_BOOK;   // simple underwriting: a growing book
 };
 
 const poolChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };

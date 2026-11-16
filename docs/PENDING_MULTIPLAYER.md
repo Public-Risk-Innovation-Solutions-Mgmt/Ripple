@@ -11,6 +11,620 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## The prior board at 65% with its covers, new capital, play defaults and seeds (save key v52) — pr/pregame-65
+
+The pre-game's prior board, 2021–2026, now funds every year at 65% on each
+line's (stretched) table, adds New Members drawn around 5% with a 2% spread
+(seeded per scenario, 2021 none, each year's new exposure at the 20% penalty),
+renews everyone and buys the $19M xs $1M per-claim cover and the 125% / 50%
+aggregate cover — each recorded as the year's decisions, so the Annual
+Statement's Decisions section shows them. The history ends on today's 2026
+book. Paid-in capital is WC $0, GL $8.06M, Property $8.53M (was $3.0M / $12.0M /
+$12.5M). Every played year defaults to 65% with both covers carried, so 2027
+has no rate drop. All twenty seeds are re-picked from 1 to 120,000. Every
+setting and its reason is in pricingParameters.ts (`PRIOR_BOARD`,
+`PLAY_DEFAULTS`, `STARTING_CAPITAL`, `SCENARIO_SEEDS`) and docs/PARAMETERS.md.
+
+**Why.** At Expected every seed dropped its 2027 rate on WC and Property; at 65%
+without the covers 13 WC and 15 Property seeds did; at 65% with the covers carried,
+none. The 65% history made the openings too rich for today's targets, so the
+capital came down instead of the targets moving: GL and Property solved so
+today's seeds land on target on average; WC would need about −$2.94M, so it is
+floored at $0 and the seeds re-picked at this capital.
+
+**The openings** (premium to surplus at Expected with no cover, the basis the
+seeds were chosen on): all twenty within 5% of target on every line, worst
+4.9% (scenario 20's Property) — were 16 of 20, worst 10.4%. Candidates per slot
+within 5% and drawing at least two shocks in ten years ranged from 11 (scenario
+16) to 290 (scenario 20); the rich end is the thinnest. Each slot's pick is the
+steadiest of its candidates over ten years, single player and hosted at
+development Low: no line below zero in either mode, every 2027 rate rising.
+Sixteen slots switched to a steadier seed than the last pick; 15, 1, 18 and 16
+kept theirs. Scenario 13's seed scores 7.8 against 30.1 before (worst one-year
+surplus drop 15% against 66%); scenario 2 (9.7, a 26% drop) is the least steady.
+
+**Also carried here.** The Rate Indication shows 65% beside Expected, 70%, 80%
+and 90% — the default must show its own rate. And a Year Walkthrough fix: a
+team that moved its book while holding a cover was shown a member charge rate
+that missed the one charged (the engine bills the cover as a fixed price over
+the book after it moves); it predates this branch, and the default covers
+exposed it. The Rate Indication's build labels the history years' funding
+"65% (the prior board)", as the Decisions section does.
+
+**Built on its own** (pr/pregame-65, from aws 80da701): FAST 97/97 and SLOW
+4/4; typecheck clean; lint identical to aws (14 errors, 7 warnings, none in
+a changed file); the contract harness (DynamoDB, the built handler, admin)
+passes; all 36 session drivers pass with the admin-token hook (four restated to the
+new defaults — funding-slider, host-decisions, new-rate-panel, rate-indication
+— each failing as it should on aws's build).
+Restated gates, each with controls: scenarios, scenario-opening-drift (v4),
+fixed-seed-scenarios, simple-underwriting, aggregate-stop, aggregate-cover,
+expectation-shock-switch, large-claims-from-events, carry-decisions,
+event-likelihoods, exposure-scale, funding-basis, funding-table, lae-booking,
+new-rate-tieout, panel-engine-parity, pregame-surplus-flow, ratio-basis,
+reinsurance-tower, results-statement, risk-control, shock-effects,
+t-cover-layers, worlds and year-walkthrough. Fixtures that relied on a seed's
+draw moved: expectation-shock-switch's quiet game 7 → 3, large-claims-from-
+events 19 → 13, risk-control's average over all twenty scenarios. Baselines
+against aws 80da701, each control reproduced first: VALUE_IDENTITY_v96,
+SOLO_EXPORT_GUARD_v130, RENDER_IDENTITY_v132, SCENARIO_OPENINGS_v4, every move
+attributed by switching each part on alone.
+
+---
+
+## The funding tables stretched, and the market's k for them (save key v51) — pr/clf-stretch
+
+Each line's funding (CLF) table is its BaselineCV table stretched about 1.0,
+`CLF = 1 + (CLF − 1) × k`, with k set so the 95% stop is `CLF_STRETCH_95`: WC
+1.30, GL 1.25, Property 1.25 (k = 2.871 / 1.436 / 1.800). Every stop moves in
+proportion; Expected stays a factor of exactly 1.0. Required capital reads the
+same table (its 80% stop), so it rises by the same k. Why, and the measurement
+behind each stop, is beside `CLF_STRETCH_95` in pricingParameters.ts: the
+unstretched tables describe ordinary losses only and bought about half their
+label on the year's whole cost.
+
+**What it does** on aws 7fc44f9 — the fixed ALAE load and the switched seeds
+in (20 fixed-seed scenarios, five years, 100 worlds, shocks on, defaults but
+funding; share of line-years with a combined ratio ≤ 100% at 70 / 80 / 90%
+funding — aws without the stretch in brackets):
+
+| | WC | GL | Property |
+|---|---|---|---|
+| Single player | 72 / 87 / 95 (48 / 57 / 69) | 69 / 79 / 89 (63 / 72 / 82) | 61 / 76 / 87 (50 / 59 / 72) |
+| Hosted, None | 68 / 85 / 95 (44 / 53 / 65) | 53 / 63 / 73 (48 / 56 / 66) | 57 / 73 / 85 (47 / 56 / 68) |
+| Hosted, Low | 38 / 62 / 87 (15 / 22 / 34) | 39 / 52 / 66 (33 / 42 / 55) | 51 / 67 / 83 (40 / 49 / 62) |
+| Hosted, Mid | 1 / 4 / 24 (0 / 0 / 1) | 12 / 20 / 37 (9 / 14 / 23) | 35 / 52 / 73 (25 / 34 / 47) |
+
+⚠ **WC now over-delivers by 2–7 points and Property under by about 3.** The
+stops were chosen on aws a7d480d (single player WC 63 / 80 / 92, GL 67 / 78 /
+88, Property 63 / 78 / 90), before the fixed ALAE load and the seed switch.
+They are kept as set, not re-fitted.
+
+2027 rate at Expected / 70 / 80 / 90%: WC 3.58 / 3.89 / 4.10 / 4.40, GL 4.97 /
+5.31 / 5.56 / 5.91, Property 0.28 / 0.30 / 0.32 / 0.34 (per $100). Hosted GL and
+Property sit below single player because the host's shock draw fires more
+events.
+
+**Not a fix for adverse development.** Development raises the year's cost
+rather than its spread; at Mid, WC still loses surplus in most scenarios at
+70% funding (13 of 20 below zero). That wants a development loading in the
+rate, by level.
+
+**Capital status.** With required capital up by k, WC's status falls most at
+Expected, where nothing else moves: scenario-averaged line-years Strong /
+Adequate / Thin / Deficient, single player 97 / 0 / 0 / 3 → 93 / 4 / 0 / 3,
+hosted None 98 / 0 / 0 / 2 → 82 / 10 / 5 / 3, hosted Low 88 / 4 / 3 / 5 → 52 /
+13 / 4 / 31. Property in single player 53 / 25 / 4 / 18 → 47 / 26 / 6 / 21; GL
+barely moves. At 80% funding the higher premium builds surplus and the
+statuses come back to where they were. Status is shown and narrated only (the
+Year Walkthrough's capital stage, the downloads); nothing in play reads it.
+
+**The market's k, set for the stretched tables.** The market (aws #84–#87)
+was calibrated twice by the market-measurement chat: first on these stretched
+tables (test/clf-stretch-market, dc2d426: Medium WC 0.600 / GL 0.618 /
+Property 0.617, Low half, High double), then rescaled to the unstretched tables
+aws still had (Medium WC 6.159 / GL 1.364 / Property 2.242), noted as about 10×
+too strong on WC once the stretch lands. It lands here, so `MARKET_K` goes back
+to the stretched values; the reason is beside it in pricingParameters.ts.
+`market-step-check` is restated to them, with two controls (aws's rescaled k,
+and a Low that is not half of Medium, each refused) and the source broken by
+hand (Medium WC 6.159: exit 1). The market reaches only hosted rooms with the
+market on: no baseline here plays one, and the funding figures above (a hosted
+room with no market input) are identical on aws ef009cb.
+
+**Built on its own** (pr/clf-stretch, rebased onto aws ef009cb — the market
+in): FAST 96/96 (the sweep alone, `market-step-check` among them) and SLOW
+4/4, the manifest held; typecheck clean; lint identical to aws (its 14 errors
+and 7 warnings, none in a changed file); `clf-stretch-check` (new, FAST) with
+three controls and the source broken by hand (WC at 1.25: exit 1);
+`baseline-cv-table-check` and `funding-table-check` restated to the stretched
+table, each with a control; VALUE_IDENTITY_v95, SOLO_EXPORT_GUARD_v129 and
+RENDER_IDENTITY_v131 (first captured as v125 and v127 on aws ef009cb,
+renumbered past aws's baselines and recaptured twice: with aws f02bb15 merged
+in, then with aws 371472b, #89's wide taper), each control reproduced on aws
+first (v94, v128, v130) and every move attributed in the check's own note; save
+key v51 (v49 and aws's v50 retired); all 35 session drivers with
+the admin-token hook (`market-competition` 29/29, `market-survey` 106/106);
+the contract harness on every pass (562/562 local, http, DynamoDB and the
+built handler; admin 33/33; race probes).
+
+---
+## Fifteen scenarios' seeds re-picked (save key v45) — pr/seed-switch
+
+`SCENARIO_SEEDS` for 14, 20, 4, 1, 6, 3, 5, 10, 12, 8, 15, 11, 19, 9 and 17
+re-picked on the fixed ALAE load; 7, 18, 2, 13 and 16 kept. Each new seed opens
+within 5% of its slot's targets on every line, draws at least two shocks in ten
+years, and plays ten years (single player and hosted at Low, shocks on, the
+defaults) steadier than the seed it replaces, never below zero on any line.
+How they were chosen, the openings and the kept slots' misses are on
+`SCENARIO_SEEDS`. This settles the item owed below.
+
+**`SCENARIO_OPENING_BARS` restored** from temporary: worst miss 10.5% (10.35%,
+scenario 13's WC), 16 of 20 within 5% on every line. `SCENARIO_OPENINGS_v3`
+records the openings: the five kept scenarios' figures unchanged, the fifteen
+switched ones' moved to their seeds'.
+
+**One gate restated, not loosened:** aggregate-cover-check plays 14 in place of
+15, because 15 now draws no shock in five years and 8 a Recession where it drew
+Social Inflation, which left the large-claim control nothing to bite on (0
+problems when broken; 100 with 14).
+
+**With it, the session drivers fixed for the recovery code** (a separate
+commit, test-only): aws 45a7342's "Save your recovery code" modal held the game
+screen back on every team-creating join, so every hosted driver timed out on
+aws 0b4f5a5 itself; `_shared.cjs` now dismisses it in every context.
+
+**Checked against aws 0b4f5a5**, each control first: VALUE_IDENTITY_v94 holds;
+SOLO_EXPORT_GUARD_v119 (24 of 48, the Version row only); RENDER_IDENTITY_v121
+(26 of 174, all Year Walkthrough, the save key only). ⚠ **aws 0b4f5a5 does not
+reproduce RENDER_IDENTITY_v120**: 23 screens (every Rate Indication, 13 Year
+Walkthrough) differ deterministically, where f5e108a reproduces v117 in the same
+environment, so v120 was recorded on a tree other than the one merged; recorded
+at v121 in render-identity-check.ts. Typecheck clean; lint at aws's 21 problems;
+FAST 93/93; SLOW not run (the scenario-to-seed mapping only); all 27 session
+drivers with the admin-token hook; the contract harness on every pass and the
+race probes. Save key v45: **pr/clf-stretch, promised v45 below, takes v46.**
+
+## Pricing's ALAE load fixed per line (save key v44) — pr/alae-load
+
+Pricing loads ALAE at `PRICING_ALAE_LOAD` (WC 11%, GL 15%, Property 3.5%, each
+range's middle) every year, played and pre-game, not the window's mean drawn
+ratio; the ALAE booked is still drawn. Shown as "ALAE load (11.0%)" on the Rate
+Indication, Model tab and Year Walkthrough. Save key v44: v43 is pr/clf-stretch's,
+which merges after this and moves to v45 when rebased.
+
+**Owed — the seeds are to be re-picked on this build.** The openings moved with
+the pre-game's rates and were accepted as they fall (ruling, option 2):
+`SCENARIO_OPENING_BARS` holds scenarios-check 5 at what this build produces
+(worst miss 18.5%, 4 of 20 within 5%, against 12% and 18 when the seeds were
+picked) and is marked temporary; `SCENARIO_OPENINGS_v2` records the openings.
+Re-pick, then restore the bars and re-record.
+
+**With it, two checks red on aws since the tab cleanup:** carry-decisions-check's
+second-write control re-anchored on `setActiveTab('statement')`, and the
+new-rate-panel driver's two Results-tab checks run only when the tab is offered.
+
+**Checked against aws a7d480d, and again after each rebase — on 6941ade (team
+numbers, #73) and f5e108a (team recovery codes) — where every baseline held
+unchanged:** VALUE_IDENTITY_v94, SOLO_EXPORT_GUARD_v118,
+RENDER_IDENTITY_v120 (numbered past every one on multiplayer and pr/clf-stretch),
+each attributed; the full checks as recorded in the pull request.
+
+## Decisions carry into the next year in single player — wip/carry-decisions
+
+Single player and Test player now start each year from the decisions the year
+before was played on, as a hosted team always has: funding, the underwriting
+sliders, the reinsurance cover, the aggregate cover, the asset mix, risk
+control, dividends and assessments, and loan repayment. Only the first year
+opens on the defaults. `commitYear` (App.tsx) carries
+`settled.played.decisions` through `carryDecisions` (a copy, re-stamped with
+the next year's number); risk-control programs still come off the pool row's
+echo. A new game and a save without an editing buffer are the only other
+places the defaults are written. No save key change: a save replays the sets
+it played and restores its editing buffer as written.
+
+Nothing a game plays moves when its decisions are set every year: value
+identity, the export guard (48 of 48) and the render harness (236 of 236, which
+plays two years on the defaults) are unchanged against multiplayer 1a02966.
+What moves is what a player sees when a year opens — their own choices, not the
+defaults. `carry-decisions-check` (FAST) and the rate-indication driver hold it.
+
+---
+
+## Risk control in the divisor (save key v40) — wip/risk-control-divisor
+
+Risk control is an expense in the divisor, beside admin:
+
+    rate = pure premium × CLF ÷ (1 − admin share − risk control %) + reinsurance
+
+so the charge collected is exactly the risk-control % of the rate before
+reinsurance, and admin is its 20% of that same rate. This replaces the
+multiplier `× (1 + risk control %)` that landed first. The average cut m is
+re-sized so expected losses + LAE saved still equal the charge. At 0% the
+divisor is 1 − admin, and every figure is byte-identical to before.
+
+The Rate Indication, the Decisions panel, the Model tab and the Year
+Walkthrough each show the expense ratio, risk control taken from the line's
+current choice:
+
+    Admin                      20.0%
+    Risk control                2.0%
+    Total expense ratio        22.0%
+    Permissible loss ratio     78.0%
+
+Measured (20 scenarios, 5 years, shocks off, the slider on every line every
+year): the year-1 rate rises 0.80 ÷ 0.78 = +2.56% at 2% (the multiplier gave
++2.00%) and 0.80 ÷ 0.75 = +6.67% at 5%; losses + LAE saved over the five years
+are 0.99–1.04 of the charge on each line, in both modes. Admin collected is
+2.6% higher at 2% than under the multiplier, because admin is now taken on the
+risk-control share as well.
+
+A single player's decisions did not carry into the next year when this
+landed (`commitYear` reset them to defaults); they do since
+wip/carry-decisions, below — risk control included.
+
+---
+
+## The aggregate cover on attritional losses (save key v38) — wip/aggregate-cover
+
+Each line can buy, beside its per-claim layer, an aggregate cover on the year's
+attritional losses — normal losses plus the shocks' surges (A); never a large
+(T) claim, Economic Inflation's uplift or the development of an older year.
+None (the default; an absent choice reads as None), 110/50, 125/50, 150/50:
+attachment and limit as shares of expected attritional losses (expected normal
+losses x (1 + the average surge)). Priced by the pricing workbook's "Agg
+Attritional" tab (`AGGREGATE_COVER_OPTIONS` and `utils/aggregateCover.ts`):
+four surge cases at the shock assumptions' odds, each at the top of its A range
+(`AGGREGATE_COVER_SURGE_BASIS`; midpoint moves cases and terms together),
+normal luck at the line's ordinary-year CV, x load 1.2 / 1.0 / 1.0. Charged as
+reinsurance (no admin); the recovery is booked once, at the year's booking.
+Offered and priced the same in every game — single player, Test player and
+hosted, shocks on or off, events scheduled or not — as the per-claim covers are
+(COVERS_IN_EVERY_GAME); with no shocks it pays only on a bad ordinary year, and
+the menu does not say so (restated on multiplayer ed62748: aggregate-cover-check
+sections 1 and 6, the rate-indication driver's hosted room buying 110/50).
+
+2027 prices at default decisions: WC $667,967 / $292,675 / $94,629; GL $675,955
+/ $263,022 / $74,451; Property $879,680 / $434,590 / $188,692. ⚠ GL is $41 /
+$16 / $5 below the figures agreed before the build: the rate is struck on the
+book averaged over the worlds (GL 614.92), and the agreed figures were read off
+world 1's own book (614.95).
+
+**Landed with:** FAST 88/88 (the sweep alone) and SLOW 4/4, the manifest held;
+typecheck clean; lint identical to multiplayer 20f85ba (its 15 errors and 7
+warnings, none new); `aggregate-cover-check` (new), each section failing on a
+planted defect; VALUE_IDENTITY unchanged, SOLO_EXPORT_GUARD_v110 and
+RENDER_IDENTITY_v107 attributed against 20f85ba's own capture; all 24 session
+drivers with the admin-token hook (rate-indication extended to the cover,
+532/532); the contract harness on every pass (local, http, DynamoDB, built
+handler, admin, race probes). Screenshots are in
+`docs/screenshots/aggregate-cover/`.
+
+**Owed — the prices and the game's surges disagree.** The prices assume one
+surge level a year at T_COVER_FREQUENCY's odds (15% of years). The game's
+surges come from its catalogue, rarer: under today's surges the expected
+recovery in 2027 (aggregateCover.expectedRecoveryToday) is WC $212K / $126K /
+$30K, GL $346K / $159K / $40K, Property $446K / $334K / $153K, against expected
+recoveries at the priced odds of WC $557K / $293K / $95K, GL $563K / $263K /
+$74K, Property $733K / $435K / $189K. Until the game's surges follow those
+odds, recoveries will run below the prices.
+
+---
+
+## The shocks landing (save key v30) — owed checks CLEARED
+
+Landed on multiplayer for play-testing without the full checks; those were run
+on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
+
+**Cleared:**
+
+1. **FAST and SLOW** (`npx tsx scripts/gates.ts --all`): 85 of 86 green and
+   `cession-uplift-basis` expected red. 16 gates were red on 19b6f17; 15 were
+   restated to the shock design, each with a control that fails when broken.
+   `property-cat-check` needed no restatement: it was red on a defect.
+2. **Real defects fixed, each with a control:** Property catastrophe cession
+   went negative when a class attached above the layer's ceiling (attachment now
+   capped at the ceiling; `property-cat-check`); a shock's dollars were keyed by
+   event, so an event fired again while in force credited the year's whole cost
+   to both firings and the pool summed it twice (now one record per firing;
+   `shock-effects-check` 8); the dormant aggregate stop sampled T claims at table
+   size while its basis grew them by trend (`aggregate-stop-check` 2).
+3. **`cession-uplift-basis` stays expected red**, its reason restated. With
+   None every arm ceded nothing and it passed printing NaN; it now buys
+   $38M xs $2M and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%, because
+   the one T claim sits wholly above the attachment and all its development is
+   ceded. Measured that the T claims develop with their cohorts (GL +31% against
+   +38%), so it is not a routing concentration. **Ruled: it stays on the
+   expected-red list until adverse development lands. When adverse development
+   lands, re-derive its limits (6% per line, 1.5% pool) for the new design —
+   one T claim per event-line above the attachment, developing with adverse
+   development — and take it off the EXPECTED_RED list in `scripts/gates.ts`
+   then.** **DONE with the adverse-development landing:** the gate now grades
+   lifetime development cession against what the ceded claims' own cohort
+   development would cede (ratio <= 1.10 a line, <= 1.05 pooled). Measured
+   1.0000 on every line — with full-cost booking the only development left is
+   adverse development, allocated proportionally — against 2.4x-12x for the
+   concentration controls. It is off the EXPECTED_RED list and green.
+4. **Value and export baselines** recaptured as VALUE_IDENTITY_v84 and
+   SOLO_EXPORT_GUARD_v92: the control (19b6f17) moves 21,101 of 39,600 values
+   and all 24 exports, the landing's own movement; the owed-checks commits move
+   none.
+5. **`gate-timings.json`**: `shock-effects-check` entered at 60 from the sweep.
+6. **Every session driver** with the admin-token hook, the contract harness
+   (local, http, DynamoDB, the built Lambda handler) and the race probes: green.
+7. **The render attribution review** (cleared by the simple underwriting
+   landing, recorded at RENDER_IDENTITY_v89 in render-identity-check.ts): the 89
+   moves v87 absorbed are the cover list alone (31), WC and GL year-2 expected
+   losses (10) and Property's figures (48). One was a defect: the Calculation
+   Audit's reserve risk margin check read Review by exactly the retained
+   catastrophe on Property; the audit now recalculates it, and
+   audit-formula-check section 6 fails when the term is left out.
+
+**Still owed:**
+
+- **The shadow's cost** (`SHOCK_FREE_PRICING`): years after a shock run their
+  worlds twice; measured only through the drivers' and the report's run times.
+- **Known approximations, stated not fixed**: expected losses grow T by trend
+  only (no year-1 base in hand); with shocks off Property sits slightly below
+  the pre-landing build (Y10 $38.2M vs $39.1M over 20 scenarios) because the
+  fold no longer divides by the uplift; the T covers' brief prices do not follow
+  from the catalogue's odds (WC's expected loss ratio 16-27%).
+
+The figures this landing was read on are in `scripts/tools/shocks-report.ts`
+(sections 1-5 and `--growth`).
+
+---
+
+## The adverse-development landing (save key v32)
+
+Landed on multiplayer with the full checks: FAST 78/78, SLOW 4/4, the manifest,
+every session driver with the admin-token hook (test-player 31/31), the contract
+harness on every pass, and baselines VALUE_IDENTITY_v86, SOLO_EXPORT_GUARD_v94
+and RENDER_IDENTITY_v90 attributed against multiplayer ebc3b4a. Reserve
+inflation is off; hosted and Test player games choose Low / Mid / High adverse
+development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
+
+**Still owed:**
+
+- **The race probe's "No room with code …" failure** (`npm run contract:races`,
+  `scripts/tools/session-race-probe.ts`, section J's `advance` on a room created
+  a moment before). It failed on the FIRST run after the session drivers and a
+  Docker restart, twice (the adverse-development merge rounds); 6 of 6 reruns
+  then passed, 3 at the landing's head and 3 at multiplayer ebc3b4a. Suspected:
+  the local DynamoDB container's clock or a room expiry read just after a
+  restart (`live()` in `src/session/server/rooms.ts` reads a missing header and
+  one past `expiresAtSec` alike) — not yet confirmed. Treated as a flake for
+  this landing by the project lead's ruling.
+
+---
+
+## Development pricing — reverted on multiplayer; its build is 00b45eb
+
+Development pricing (the pre-game developing at the chosen level, learned
+development in pricing, Test player taking the host's shock switch, its gate,
+restatements, baselines and save key v33) is reverted on multiplayer, commit by
+commit (3e9639d … ca3f57e), so it does not go to aws with the Annual Statement.
+**The build with development pricing is commit 00b45eb**: multiplayer before the
+revert, with the Annual Statement and test-player work as of e3bc035 merged in.
+Build and test development pricing from there; to bring it back, revert the
+reverts.
+
+## Admin as a share of premium (save key v34) — wip/pricing-rework
+
+Admin is 20% of premium on every line (`ADMIN_SHARE_OF_PREMIUM`, per line so it
+can be set later): rate = pure premium x CLF / (1 - 20%) + reinsurance, the
+permissible loss ratio 80%, booked admin = that admin x (1 + the year's 0-2%
+overrun). Profit and contingency, the fixed and per-exposure admin and the admin
+trend are removed; the pre-game prices the same way. The Rate Indication, the
+Decisions panel and the Model tab show admin 20% and the permissible loss ratio
+80% every year. Save key v34 (v33 retired with it: the reverted development
+pricing's key, live on aws for a while).
+
+**Landed with:** FAST 81/81 and SLOW 4/4 (the manifest held); typecheck clean;
+lint identical to 8a4dae4 (its 14 errors and 7 warnings, none in a changed
+file); `admin-share-check` (new, replacing `admin-trend-check`) and seven gates
+and three drivers restated, each failing on a planted defect (WC's old 2% back in
+the divisor, WC's share at 19%, admin on the rate including reinsurance);
+baselines VALUE_IDENTITY_v89, SOLO_EXPORT_GUARD_v104 and RENDER_IDENTITY_v101,
+each attributed against multiplayer (8a4dae4 reproduced v87/v100; 3686296,
+merged in before landing, reproduced v103 — the downloads following the view),
+no loss, claim, reserve or pure-premium figure moved; all 24 session drivers
+with the admin-token hook; the contract harness on every pass (local, http,
+DynamoDB, built handler, admin, race probes).
+
+**Flagged:** WC's 2027 rate falls from 2026's in 8 of 20 scenarios, 3 by more
+than 2% (worst -3.15%) — the prior board's margin now carries what the 2%
+contingency did (figures at `ADMIN_SHARE_OF_PREMIUM`).
+**Pre-existing, not fixed:** `scripts/tools/rate-buildup-report.ts` (a tool, not
+a gate) fails its tie-out on 8a4dae4 too (its walk's exposure reads 0).
+
+## The Annual Statement laid out as the template
+
+The Annual Statement page and its new **Download Annual Statement (Excel)** button
+follow the template cell for cell, but for a short list of deliberate
+differences (below): every title, label and blank row in place, the five years
+shown, and Prior and All Years in the program-year sections. The template is now **the Pool sheet of
+`docs/Annual Statement Example v2.xlsx`**; the first, `docs/Annual Statement
+Example.xlsx`, is kept only as a control in the gate. v1's row 15, "Profit and
+Contigency", is gone, because it is a margin in the rate, not an expense; v2
+carries that removal itself. The layout is `TEMPLATE_ROWS` in
+`src/utils/annualStatementTemplate.ts`; its header says where every figure comes
+from. The Excel file (`annualStatementExport.ts`) has one sheet for the pool and
+one per line, with numbers in the cells.
+
+**v2's two changes.**
+- **All Years.** Column I is a new **All Years** column in Contributions To The
+  Current Calendar Year, Program Year Totals and the Gross, Ceded and Net blocks,
+  headed "All Years". On every dollar row it is the sum of Prior and the five
+  years, written in Excel as `=SUM(C:H)` over its own row, as the template does,
+  with the value cached. The ratio rows ("% Increase over Prior", "Loss & LAE
+  Ratio") are blank there. The Contributions' All Years Total Net Incurred is the
+  calendar year's Total Incurred Loss & LAE on the Net Income Statement, and the
+  gate asserts it.
+- **Spacing.** One blank row, not two, between the Contributions' Written
+  Premium and "Previous Reported Claims", so the statement is 155 rows.
+
+**Every deliberate difference from the template** is listed in one place,
+`annualStatementTemplate.ts` (`LABEL_CHANGES`, the inserted row, `showsPrior`,
+`cellBorders`, `shownFigure`); the page, the download and the gate all read it.
+The template file keeps its own wording. The gate prints the list, checks each
+entry against the template, and fails on any other cell that differs.
+- **Seven columns, the years aligned.** Every table is seven columns wide. Net
+  Income Statement For The Year, Balance Sheet at Year-End and Underwriting
+  leave C (Prior) and I blank, with their lines kept, so every box is the same
+  width; column I is drawn with H's lines there. Contributions, Program Year
+  Totals and the Gross, Ceded and Net blocks keep Prior, the five years and All
+  Years. Underwriting's first year "Change from Prior" and "% Change Over Prior"
+  are blank, as there is no Prior beside them.
+- **Headings.** "Net Income Statement" becomes **"Net Income Statement For The
+  Year"**, so it is clear its columns are what was booked in each calendar year.
+  "Reinsurance Information - Policy Year Totals" becomes **"Reinsurance
+  Information - Program Year Totals"**. "Contributions To The Current Calendar
+  Year - Net" and "Program Year Totals - Net" end **"- Net of Reinsurance"**.
+  Gross, Ceded and Net head their blocks in bold, on the left in the label
+  column (a cell style, not compared by the gate; `downloads.cjs` checks it on
+  screen).
+- **Net Income Statement rows.** "Premium" becomes **"Written Premium"**.
+  "Additional Admin Expense (risk control)" becomes **"Other Admin Expense"**.
+  The admin rows are General Admin Expense / % of Premium / Other Admin Expense
+  / % of Premium; **one row is inserted** for General Admin's own share, so the
+  statement is 156 rows, and each "% of Premium" is that row's own share of
+  Written Premium. The template's single "% of Premium" there covered both. All
+  three "% of Premium" rows in the section are indented and left-aligned, like
+  "% Increase over Prior".
+
+**Decided in the build, recorded here so nobody re-decides them:**
+
+- **Operating Ratio's denominator is the member charge**, the combined ratio's
+  own, because the reinsurance cost is a cost in its numerator. The Premium row
+  is net of reinsurance, and dividing by it would count reinsurance twice.
+- **Previously reported vs newly arising** (Contributions section), as specified
+  in the request that asked for it. For each OLDER accident year, with D its movement this
+  year and s its IBNR share of the reserve outstanding at the start of the year:
+  - Newly Arising Reserve Changes = −ΔIBNR + s·D: claims moving from IBNR to
+    reported (the reported pattern's emergence), plus IBNR's share of the year's
+    development. Its Payments are 0, because a newly reported claim is reserved,
+    not yet paid.
+  - Previously Reported Payments are the year's payments, and its Reserve
+    Changes are (1 − s)·D less them.
+  - Change in IBNR is ΔIBNR. The three sum to D, so Total Net Incurred did not
+    change.
+
+  The current program year's claims are all newly arising. Case vs IBNR is the
+  presentation split (`reserveSplit.ts`). The split is computed accident year by
+  accident year and line by line before it is summed into the columns.
+- **The Contributions variance.** Two re-splits, presentation only. Each
+  accident year's total paid and Total Net Incurred are unchanged by them, and
+  the gate checks both, with failing controls.
+  - **Newly reported claims are paid in part.** Of an older accident year's
+    newly reported amount, the share a new accident year pays in its first year
+    is paid: by line, the current program year's paid ÷ reported, held between 0
+    and the year's payments. Previously Reported Payments take the rest.
+  - **Settlement differences.** A draw per line, accident year and year: mean
+    zero, standard deviation `SETTLEMENT_SPREAD` (3%, a setting) of the
+    previously reported payments. It comes from the game's seed, so every world
+    draws the same. It adds to Previously Reported Reserve Changes and comes off
+    Change in IBNR. **The program-year blocks carry the same draws:** each
+    accident year's draws to date move from IBNR Reserves to Case Reserves (and
+    so Reported) in Program Year Totals and the Gross and Net blocks. Ceded
+    carries none, since the draw is on the retained claims, so Net = Gross −
+    Ceded holds. Each year's Change in IBNR and Reserve Changes in the
+    Contributions are therefore exactly the movement in those rows; the gate ties
+    them, every column, against the statement a year earlier. Paid, Total
+    Incurred and the reserves' total are the engine's. **Each year's draw is
+    capped at the IBNR the accident year has left** (its IBNR that year less the
+    draws already moved); what it would take beyond that is dropped, not carried
+    over, so no IBNR cell goes below zero. The gate checks every IBNR cell, with
+    a control that, uncapped, goes negative (48 of 1,404 cells across three test
+    games did, the worst −$288K).
+  - **Not built: LAE paid half at report, half at close.** LAE paid is the
+    engine's own figure (`laePaid` = LAE share × gross paid): it is cash, it
+    earns investment income, and the LAE reserve is the balance sheet's Loss
+    Expense Reserves. Scheduling it would change engine figures, not only how the
+    statement splits them.
+- **The Contributions' Written Premium is each program year's own written
+  premium** (net), with Prior the sum of the older years, so no column reads 0.
+- **Underwriting's Change from Prior is a percentage** (the template's C60 is
+  "%"); the old statement showed the change in $M. **Retained %** is Renewal
+  Business over last year's Written Exposures; Prior's covers the years in it
+  that have a year before them (2021, the pool's first, has none).
+- **At pool scope the underwriting rows are the lines' sums only where the
+  lines share a unit.** WC and GL are both payroll; Property is building value
+  (TIV). A pool writing Property beside WC or GL shows "—" in all seven underwriting rows:
+  Written Exposures, Change from Prior, New Business, Renewal Business, Retained
+  %, Current Rate and % Change Over Prior. A WC and GL pool shows their sums, and
+  its rate is the exposure-weighted rate. A Property-only pool is in one unit
+  and shows its line's figures.
+- **The header's combined-ratio chip is unchanged** (cumulative since game
+  start). The statement has no Total column now, so `combined-ratio.cjs` works
+  the cumulative ratio out from the statement's own cells. ⚠ It does so after
+  years 1 and 2 only. Before year 1 the chip covers every pre-game year, and
+  with Prior off the Net Income Statement the older years are on no cell.
+
+**Borders, copied from the template cell for cell.** The template's lines are
+the boxed year headers, the thin vertical lines on every row (label column
+included), the line closing each section and the balance sheet's lines under each
+group. They are read from the file by `scripts/tools/generate-statement-borders.ts`
+into `src/utils/annualStatementBorders.ts`, generated and never edited by hand:
+now from v2's Pool sheet, nine columns A to I, one entry per template row
+(`TEMPLATE_BORDERS`). The statement's own lines are those through its
+differences (`cellBorders`): the inserted row draws row 13's lines, and above
+the Contributions column I draws H's. The table includes the template's last row
+(155), which carries the Net block's closing line. The page draws them in CSS and the download writes them
+with **exceljs** (SheetJS community writes no borders). exceljs is a dynamic
+import: about 940 kB, fetched only when the button is pressed. The gate reads
+the template file itself and compares every cell's border in the downloaded
+file, A–I on all 156 rows, through the list. `downloads.cjs` does the same for the screen and
+checks that exceljs is not loaded with the page. Re-run the generator if the
+template's lines ever change; the gate fails until you do.
+
+**The PDF** (`annualStatementPdf.ts`, the **Download Annual Statement (PDF)**
+button beside the Excel one) draws the same statement cell for cell: every
+section, row label, blank row, heading and border (`TEMPLATE_ROWS`,
+`cellBorders`), Prior where shown, the five years, All Years, each figure as
+the page writes it, negatives in red. One statement per sheet in the
+workbook's order, each from a new page, landscape Letter, a header on every
+page (pool, line, the year the statement stands at) and "Page n of N" in the
+footer. Text is 9pt; blank rows are half height, as they only space the
+sections; a section stays on one page where it fits, so a statement runs to
+three pages. It is built in the browser with **jsPDF**, a dynamic import
+fetched only on the press, like exceljs; the page's own bundle grows 4 kB (the
+drawing code). Standard Helvetica has no "−", so negatives print "-" (still
+red). `annual-statement-pdf-check` (FAST) reads the file back with pdf.js on
+six games against the statements, with three failing controls;
+`downloads.cjs` presses the button and opens the file, and `test-player.cjs`
+and `viewer.cjs` press it in a Test player and a hosted game.
+
+**The downloads follow the view** (`statementsForView`), the Excel file and
+the PDF alike. On a line's view: that line's statement alone (one sheet, about
+three PDF pages). On the Pool view: the pool's, then each line the team writes,
+but a team writing one line gets the pool's alone, since its pool statement is
+that line's. Each file is named by the view and the year the statement stands
+at, e.g. `Annual_Statement_WC_2026.xlsx` or `Annual_Statement_Pool_2026.pdf`.
+The page itself is unchanged. The template and PDF checks hold each view's file
+to exactly its statements, in a three-line and a one-line game, with controls
+for the wrong set; `downloads.cjs` presses both buttons on every view of both.
+
+**Landed with:** `annual-statement-template-check` (new, in FAST): every figure
+tied to the engine on six games, the Excel file against the template through the
+list of deliberate differences (which it prints), the admin "% of Premium" ties,
+the Contributions variance's invariants, and the operating ratio by hand on
+scenario 1 WC 2027 (94.40%), each with a failing control. Also
+VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v103 (24 Results hashes
+unchanged since v94; the 24 statement hashes carry the borders from v96, the
+filled blanks from v97, All Years from v98, the two renamed headings from v99,
+the seven columns, row changes and variance from v100, the draws on the
+program-year blocks from v101, their cap from v102, and the one-line games'
+Pool file holding the pool's statement alone from v103, each attributed in
+`solo-export-guard.ts`), RENDER_IDENTITY_v100 (exactly the 26 Annual Statement
+screens moved at each of v92 to v95, v97, v98 and v100 — the PDF button — and 8 of them at v99 — v96 was development
+pricing's, reverted with it — each attributed in
+`render-identity-check.ts`; borders move none, since it fingerprints text), and
+all 24 session drivers with the admin-token hook. Screenshots are in
+`docs/screenshots/annual-statement/`.
+
+---
+
 ## 0. Rules for the player-facing documents
 
 - **The welcome memo never mentions funding levels, cushions, confidence
@@ -304,6 +918,10 @@ before it (VALUE_IDENTITY v63, SOLO_EXPORT_GUARD v66, RENDER_IDENTITY v43).
   (`SHOCK_EVENT_LABELS`).
 
 ### Risk control — pending design
+
+⚠ **Superseded:** risk control is live and charged in the divisor — see "Risk
+control in the divisor (save key v40)" at the top. The text below is kept as
+the record of the earlier plan.
 
 **Hidden like satisfaction**, behind `RISK_CONTROL` (off): no charge and no
 effect until risk control is redesigned **at pool level** — its effect on the

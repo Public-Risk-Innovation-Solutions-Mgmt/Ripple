@@ -26,15 +26,57 @@
 // cost, a recovery struck on expected rather than
 // actual, a recovery left where it was booked, and a wording that gives away
 // the expected recovery.
+//
+// ⚠ RESTATED FOR THE SHOCKS LANDING (wip/shocks, 2ae5c1a): the stop is
+// DORMANT as shipped — AGGREGATE_STOP off, the per-occurrence T covers
+// (REINSURANCE_OPTIONS) offered in its place. So this gate now does both:
+//
+//   0. THE DORMANCY, as shipped: the switch off, the T covers offered (None
+//      and the eight layers — see the restatement below), None the default,
+//      no stop id accepted.
+//
+// and then SWITCHES THE STOP ON INSIDE ITS OWN PROCESS and grades 1-5 on the
+// dormant code, so it stays correct for the day it is switched back on. Off,
+// "the packages" of 1 are now the T covers. A solo game's shocks are on
+// (SOLO_SHOCKS), so a solo prior board holds the shocks-on default, Bad-year;
+// the shocks-off default (None) is read from defaultReinsuranceOption.
+// 2's sample mean is held to 4 standard errors of the samples, not a flat 1%:
+// a T is now ONE fixed-dollar claim of up to $40M, and Property's 50,000
+// samples carry about 0.8% of noise on their own.
+//
+// ⚠ RESTATED FOR wip/reinsurance-layers: the T covers are now None plus EIGHT
+// per-occurrence layers — 9, 19, 29 and 39 xs 1; 8, 18, 28 and 38 xs 2 — not
+// the four of wip/shocks, so 0.'s written-out menu is the eight (still None the
+// default, None alone with shocks off, 38 xs 2 still the widest). The stop
+// itself is untouched. 0. gains a second control: the old four-cover menu put
+// back on a line at runtime must fail it.
+//
+// ⚠ RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
+// game, shocks on or off, so the T covers are offered in every game too — 0.
+// now wants None and the eight layers with shocks OFF as well (it used to want
+// None alone), None still the default both ways. New control: the switch
+// LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime (shocks off -> None only)
+// must fail 0.
+//
+// ⚠ RESTATED FOR wip/large-claims-from-events: large claims come only from
+// T-shock events again (no separate frequency draw), and the covers stay in
+// every game by their own switch, COVERS_IN_EVERY_GAME (it replaces
+// LARGE_CLAIMS_EVERY_GAME, which no longer exists). 0. is unchanged in what it
+// wants — None and the eight layers with shocks on AND off, None the default
+// both ways — and its control now throws COVERS_IN_EVERY_GAME.enabled = false at
+// runtime (shocks off -> None only), which must fail 0., then restores it.
 // ============================================================================
 
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, STOP_RECOVERY_OFF_CLAIMS_COST,
+  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, REINSURANCE_OPTIONS,
+  COVERS_IN_EVERY_GAME, REINSURANCE_DEFAULT_OPTION, STOP_RECOVERY_OFF_CLAIMS_COST,
 } from '../../src/data/pricingParameters';
 import {
   sampledYearTotals, stopQuotes, stopRecovery, stopTerms, stopWording, type StopQuote,
 } from '../../src/utils/aggregateStop';
-import { defaultReinsuranceOption, isReinsuranceOption, placementFor } from '../../src/utils/reinsuranceOptions';
+import {
+  defaultReinsuranceOption, fullTowerOption, isReinsuranceOption, placementFor, reinsuranceOptionIds,
+} from '../../src/utils/reinsuranceOptions';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { quoteNewRateStack } from '../../src/utils/linePricing';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -51,22 +93,106 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(1, Math.abs(b));
 
+// ⚠ RESTATED FOR THE PRIOR BOARD'S COVERS (pr/pregame-65): the default
+// per-claim cover is now $19M xs $1M on every line, shocks on or off
+// (REINSURANCE_DEFAULT_OPTION, carried from PRIOR_BOARD), not None — so 0.
+// wants $19M xs $1M the default both ways, and 1.'s dormant packages want it
+// a valid T cover placing its layers. The play defaults also carry the
+// aggregate cover on attritional losses (125/50), a separate product: the
+// stop's own games (3, 4) hold the stop alone, aggregate cover None, so
+// their recoveries are the stop's. New control: None put back as the default
+// (the board before) must fail 0.
+//
+
+// ---------------------------------------------------------------- 0
+// THE DORMANCY (shocks landing): as shipped the stop is off and the T covers
+// are what a team is offered. Written out here, not read from the parameter.
+const T_COVER_IDS = [
+  'none', '$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M',
+  '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M',
+];
+function gradeDormancy(tag: string) {
+  const off = !AGGREGATE_STOP.enabled;
+  // COVERS_IN_EVERY_GAME: the same nine with the game's shocks off.
+  const offered = LINES.every(l => reinsuranceOptionIds(l, true).join('|') === T_COVER_IDS.join('|')
+    && reinsuranceOptionIds(l, false).join('|') === T_COVER_IDS.join('|'));
+  // The prior board's per-claim cover, carried (pr/pregame-65) — written out here.
+  const defaults = LINES.every(l => defaultReinsuranceOption(l) === '$19M xs $1M' && defaultReinsuranceOption(l, false) === '$19M xs $1M');
+  const noStopIds = LINES.every(l => AGGREGATE_STOP_OPTIONS.every(o => o.id === 'none' || !isReinsuranceOption(l, o.id)));
+  // The widest cover places every layer of the tower: $39M xs $1M (wip/reinsurance-layers).
+  const widest = LINES.every(l => fullTowerOption(l) === '$39M xs $1M');
+  check(off && offered && defaults && noStopIds && widest,
+    `${tag}0. as shipped the stop is dormant: switch off, the T covers offered (shocks on or off), $19M xs $1M the default, no stop id accepted`,
+    `AGGREGATE_STOP ${AGGREGATE_STOP.enabled ? 'ON' : 'off'}; WC offers ${reinsuranceOptionIds('WC').join(', ')}; `
+    + `shocks off ${reinsuranceOptionIds('WC', false).join(', ')}; `
+    + `offered ${offered}, defaults ${defaults}, no stop ids ${noStopIds}, widest ${LINES.map(l => fullTowerOption(l)).join(' / ')} (want $39M xs $1M)`);
+}
+console.log('THE AGGREGATE STOP, PER LINE — DORMANT AS SHIPPED');
+gradeDormancy('');
+// ...and its CONTROL here, before the switch is thrown for 1-5.
+{
+  const before = failures.length;
+  const saved = console.log; console.log = () => {};
+  AGGREGATE_STOP.enabled = true;
+  try { gradeDormancy(''); } finally { AGGREGATE_STOP.enabled = false; console.log = saved; }
+  const caught = failures.splice(before).filter(f => f.startsWith('0.'));
+  check(caught.length > 0, 'control: the stop left switched on is caught by 0.');
+}
+// ...and the wip/shocks four-cover menu, put back on GL at runtime, is caught too.
+{
+  const before = failures.length;
+  const saved = console.log; console.log = () => {};
+  const opts = REINSURANCE_OPTIONS as Record<string, readonly { id: string }[]>;
+  const was = opts.GL;
+  opts.GL = was.filter(o => ['none', '$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'].includes(o.id)) as typeof was;
+  try { gradeDormancy(''); } finally { opts.GL = was; console.log = saved; }
+  const caught = failures.splice(before).filter(f => f.startsWith('0.'));
+  check(caught.length > 0, 'control: the wip/shocks four-cover menu offered on GL is caught by 0.');
+}
+// ...and COVERS_IN_EVERY_GAME switched off (shocks off -> None alone) is caught too.
+{
+  const before = failures.length;
+  const saved = console.log; console.log = () => {};
+  COVERS_IN_EVERY_GAME.enabled = false;
+  try { gradeDormancy(''); } finally { COVERS_IN_EVERY_GAME.enabled = true; console.log = saved; }
+  const caught = failures.splice(before).filter(f => f.startsWith('0.'));
+  check(caught.length > 0, 'control: COVERS_IN_EVERY_GAME switched off (None alone with shocks off) is caught by 0.');
+}
+// ...and None put back as the default (the board before pr/pregame-65) is caught too.
+{
+  const before = failures.length;
+  const saved = console.log; console.log = () => {};
+  const defs = REINSURANCE_DEFAULT_OPTION as Record<string, string>;
+  const was = defs.GL;
+  defs.GL = 'none';
+  try { gradeDormancy(''); } finally { defs.GL = was; console.log = saved; }
+  const caught = failures.splice(before).filter(f => f.startsWith('0.'));
+  check(caught.length > 0, 'control: None put back as GL\'s default (the board before) is caught by 0.');
+}
+// THE STOP, SWITCHED ON IN THIS PROCESS ONLY, for 1-5.
+AGGREGATE_STOP.enabled = true;
+
 // ---------------------------------------------------------------- 1
 const BRIEF: Record<string, [number, number]> = { none: [0, 0], working: [1.0, 0.5], 'bad-year': [1.15, 0.5], catastrophe: [1.3, 1.0] };
 function gradeOptions(defaultOf: (l: CoverageLine) => string, preGame: ResultSet[], tag: string) {
   const shapes = AGGREGATE_STOP_OPTIONS.length === 4
     && AGGREGATE_STOP_OPTIONS.every(o => BRIEF[o.id] && BRIEF[o.id][0] === o.attachment && BRIEF[o.id][1] === o.limit);
   // ⚠ THE DEFAULT FOLLOWS THE GAME'S SHOCKS (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF):
-  // Bad-year with them on; None with them off — so a solo game's prior board,
-  // shocks off in single-player, holds None.
-  const defaults = LINES.every(l => defaultOf(l) === 'bad-year')
-    && preGame.every(r => LINES.every(l => r.byLine[l]!.decisions.reinsuranceOption === 'none'));
+  // Bad-year with them on; None with them off. Since the shocks landing a solo
+  // game's shocks are on (SOLO_SHOCKS), so its prior board holds Bad-year.
+  const defaults = LINES.every(l => defaultOf(l) === 'bad-year' && defaultReinsuranceOption(l, false) === 'none')
+    && preGame.every(r => LINES.every(l => r.byLine[l]!.decisions.reinsuranceOption === 'bad-year'));
   const noLayers = LINES.every(l => AGGREGATE_STOP_OPTIONS.every(o => placementFor(l, o.id).every(p => !p)));
+  // Off, the T covers (shocks landing): the prior board's $19M xs $1M the
+  // default (pr/pregame-65), placing its layers, and every other option a
+  // placement of whole tower layers.
   AGGREGATE_STOP.enabled = false;
-  const dormant = LINES.every(l => isReinsuranceOption(l, defaultReinsuranceOption(l)) && placementFor(l, defaultReinsuranceOption(l)).some(Boolean));
+  const dormant = LINES.every(l => isReinsuranceOption(l, defaultReinsuranceOption(l))
+    && placementFor(l, defaultReinsuranceOption(l)).some(Boolean)
+    && REINSURANCE_OPTIONS[l as 'WC'].every(o => o.limit === 0 || placementFor(l, o.id).some(Boolean)));
   AGGREGATE_STOP.enabled = true;
   check(AGGREGATE_STOP.enabled && shapes && defaults && noLayers && dormant,
-    `${tag}1. four options as briefed, Bad-year the default with shocks on and None for a solo prior board (shocks off), no occurrence layer; off, the packages`,
+    `${tag}1. four options as briefed, Bad-year the default with shocks on (a solo prior board too) and None with them off, no occurrence layer; off, the T covers`,
     `${preGame.length} pre-game years checked`);
 }
 
@@ -78,14 +204,18 @@ const shippedPrice: Price = (q, totals) => {
   const mean = m1 / totals.length;
   return mean + AGGREGATE_STOP_SD_LOAD * Math.sqrt(Math.max(0, m2 / totals.length - mean * mean));
 };
-function gradePrice(price: Price, tag: string) {
-  let worstPrice = 0, worstMean = 0, worstCharge = 0;
+// `drift` scales the samples' mean check only — the control for 4 standard errors.
+function gradePrice(price: Price, tag: string, drift = 1) {
+  let worstPrice = 0, worstMean = 0, worstSe = 0, worstCharge = 0;
   const shown: string[] = [];
   for (const l of LINES) for (const y of [1, 5, 10]) {
     const exposure = 800 + 50 * y;
     const totals = sampledYearTotals(l, exposure, y);
     const mean = totals.reduce((a, b) => a + b, 0) / totals.length;
-    worstMean = Math.max(worstMean, Math.abs(mean / expectedLossBreakdown(l, exposure, y).total - 1));
+    const se = Math.sqrt(totals.reduce((a, b) => a + (b - mean) ** 2, 0) / totals.length / totals.length);
+    const expected = expectedLossBreakdown(l, exposure, y).total * drift;
+    worstMean = Math.max(worstMean, Math.abs(mean / expected - 1));
+    worstSe = Math.max(worstSe, Math.abs(mean - expected) / se);
     for (const q of stopQuotes(l, exposure, y)) {
       worstPrice = Math.max(worstPrice, rel(q.premium, price(q, totals)));
       const stack = quoteNewRateStack({
@@ -98,9 +228,10 @@ function gradePrice(price: Price, tag: string) {
       if (y === 1 && q.optionId === 'bad-year') shown.push(`${l} ${(q.premium / 1e6).toFixed(3)}M`);
     }
   }
-  check(worstPrice < 1e-9 && worstMean < 0.01 && worstCharge < 1e-9,
+  check(worstPrice < 1e-9 && worstSe < 4 && worstCharge < 1e-9,
     `${tag}2. price = E[recovery] + ${AGGREGATE_STOP_SD_LOAD} x SD, over samples averaging the engine's expected loss, charged in full, nothing off the claims cost`,
-    `Bad-year, year 1, $1,000M+ book: ${shown.join(', ')}; samples off expected by at most ${(worstMean * 100).toFixed(2)}%`);
+    `Bad-year, year 1, $1,000M+ book: ${shown.join(', ')}; samples off expected by at most ${(worstMean * 100).toFixed(2)}% `
+    + `(${worstSe.toFixed(1)} standard errors)`);
 }
 
 // ---------------------------------------------------------------- games
@@ -110,7 +241,8 @@ function play(id: string, years: number, option: string): Played {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const decide = (y: number): DecisionSet => {
     const d = defaultDecisionSet(y);
-    return { ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: option }])) as DecisionSet['byLine'] };
+    // The stop alone: no aggregate cover on attritional losses beside it (pr/pregame-65).
+    return { ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: option, aggregateCover: 'none' }])) as DecisionSet['byLine'] };
   };
   let gs = { setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1), priorHistory, earlyPreGameHistory } as GameState;
   const results: ResultSet[] = [], states: PoolState[] = [poolState];
@@ -172,7 +304,7 @@ function gradeWording(wording: (id: string) => string, tag: string) {
     `${tag}5. players see each option's name, what it covers and its price — nothing of how it was priced`, `"${bad}"`);
 }
 
-console.log('THE AGGREGATE STOP, PER LINE');
+console.log('\nTHE AGGREGATE STOP, SWITCHED ON IN THIS PROCESS');
 gradeOptions(defaultReinsuranceOption, games[0].pre, '');
 gradePrice(shippedPrice, '');
 gradeBooking(shippedBooked, '');
@@ -190,6 +322,7 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 };
 controlFails('Working made the default', () => gradeOptions(() => 'working', games[0].pre, ''), '1.');
 controlFails('a price without the SD load', () => gradePrice((q, t) => shippedPrice(q, t) - AGGREGATE_STOP_SD_LOAD * q.sdRecovery, ''), '2.');
+controlFails('samples 2% off the engine\'s expected loss', () => gradePrice(shippedPrice, '', 1.02), '2.');
 STOP_RECOVERY_OFF_CLAIMS_COST.enabled = true;
 controlFails('the expected recovery netted off the claims cost', () => gradePrice(shippedPrice, ''), '2.');
 STOP_RECOVERY_OFF_CLAIMS_COST.enabled = false;

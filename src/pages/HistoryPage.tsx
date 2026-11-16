@@ -132,7 +132,7 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
       <HistoryTable title="Premium, Losses & Income" icon={<Activity size={17} />} years={historicalYears} rows={performanceRows} />
       <HistoryTable title="Reserves & Capital" icon={<Shield size={17} />} years={historicalYears} rows={capitalRows} />
 
-      <div className="bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-600">
+      <div className="bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-xs text-black">
         This history is read-only, simulated through the real engine at default decisions before play begins
         (each line runs its own past), and does not consume any of the player’s decision years.
       </div>
@@ -175,7 +175,7 @@ function HistoryTable({
           <tbody className="divide-y divide-gray-100">
             {rows.map(row => (
               <tr key={row.label} className="hover:bg-gray-50">
-                <td className="px-5 py-3 text-gray-600">{row.label}</td>
+                <td className="px-5 py-3 text-black">{row.label}</td>
                 {years.map((year, index) => (
                   <td
                     key={`${row.label}-${year.calendarYear}`}

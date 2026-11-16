@@ -22,8 +22,17 @@
 //
 // The games vary their decisions by year, so a replay on the wrong year's
 // decisions shows. ⚠ AND IT FAILS WHEN BROKEN — THE CONTROLS: a replay on the
-// default decisions, a save whose world 1 claims were lost, and the codec's own
-// (a flipped character, an uncompressed save).
+// default decisions, a save whose world 1 claims were lost, a reload that
+// forgets the shock-free shadow, and the codec's own (a flipped character, an
+// uncompressed save).
+//
+// ⚠ SINCE THE SHOCKS LANDING (2ae5c1a) A SOLO GAME DRAWS SHOCKS, and from the
+// first year one is in force the game keeps a SHOCK-FREE SHADOW
+// (GameState.pricingShadow) the pure premium is struck from. The save never
+// holds it; the replay rebuilds it. So the gate requires a game saved with a
+// shock already in force (RT0's Investment Loss in year 3, RT1's Winterstorm
+// in year 2), the reloaded shadow's ledger to equal the one saved, the save to
+// hold no shadow — and a reload that drops the shadow to be caught by 3.
 //
 // WHAT IT CANNOT SEE: anything the browser does — quota is save-size-check's
 // job; the reload's progress and timing in Chromium are commit 10's report.
@@ -64,7 +73,9 @@ function start(id: string, seed: number): GameState {
 function decide(y: number): DecisionSet {
   const d = defaultDecisionSet(y);
   if (y % 2 === 0) { d.byLine.WC.fundingAtExpected = false; d.byLine.WC.fundingConfidenceLevel = 0.9; }
-  if (y % 3 === 0) d.byLine.GL.reinsuranceOption = 'catastrophe';
+  // The shocks landing (2ae5c1a) retired the aggregate stop's 'catastrophe':
+  // the options are the per-occurrence T covers, so GL buys one every third year.
+  if (y % 3 === 0) d.byLine.GL.reinsuranceOption = '$18M xs $2M';
   return d;
 }
 
@@ -146,6 +157,9 @@ console.log(`${GAMES} games, ${YEARS} years, saved after year ${SAVE_AT} and rel
 
 let compared = 0, viewsSame = 0, averagesOnly = 0, claimRows = 0;
 let defaultsCaught = false, claimsCaught = false;
+// The shocks landing: games saved with the shadow already running, and the
+// games in which a reload that forgot it was caught by 3.
+let shadowSaves = 0, shadowDropCaught = 0, shadowSwapCaught = 0;
 const reload = async (gs: GameState) => {
   const saved = (unpackSave(packSave({ gameState: gs, startingFinancials: null, initialMembers: null, currentDecisions: gs.currentDecisions })) as
     { gameState: SavedGame }).gameState;
@@ -167,7 +181,7 @@ for (let g = 0; g < GAMES; g++) {
 
   // --- 2. the averages only ------------------------------------------------
   const keys = Object.keys(saved);
-  if (keys.some(k => ['worlds', 'poolState', 'priorHistory', 'earlyPreGameHistory'].includes(k))) {
+  if (keys.some(k => ['worlds', 'poolState', 'priorHistory', 'earlyPreGameHistory', 'pricingShadow'].includes(k))) {
     fail(`g${g}: the save holds more than the averages — ${keys.join(', ')}`);
   } else averagesOnly++;
   claimRows += saved.world1Claims.reduce((t, r) => t + LINES.reduce((u, l) => u + ((r[l]?.claims as unknown[] | undefined)?.length ?? 0), 0), 0);
@@ -176,6 +190,11 @@ for (let g = 0; g < GAMES; g++) {
   {
     const view: string[] = [];
     diff(playerView(b), playerView(restored.gameState), `g${g}.view`, view);
+    // The shocks landing: the shadow the next rate is struck from, rebuilt by
+    // the replay, must be the one the game had.
+    if (b.pricingShadow) shadowSaves++;
+    if (!!b.pricingShadow !== !!restored.gameState.pricingShadow) view.push(`g${g}.pricingShadow: present ${!!b.pricingShadow} !== ${!!restored.gameState.pricingShadow}`);
+    diff(JSON.parse(JSON.stringify(b.pricingShadow?.poolState ?? null)), JSON.parse(JSON.stringify(restored.gameState.pricingShadow?.poolState ?? null)), `g${g}.pricingShadow.poolState`, view);
     if (view.length > 0 || !restored.matches) fail(`g${g}: the reloaded game does not show what the game showed — ${view[0] ?? 'the replay did not match the saved rows'}`);
     else viewsSame++;
     if (g === 0) {
@@ -201,6 +220,24 @@ for (let g = 0; g < GAMES; g++) {
   diff(a.worlds, c.worlds, `g${g}.worlds`, out);
   if (a.currentYearNumber !== c.currentYearNumber) out.push(`g${g}.currentYearNumber: ${a.currentYearNumber} !== ${c.currentYearNumber}`);
   compared++;
+
+  // THE CONTROL FOR THE SHADOW (the shocks landing): continue from a reload
+  // that forgot the shock-free shadow. The rates after it are struck on a
+  // ledger the shocks have touched, so 3 must see a difference — in at least
+  // one game (one whose shock reached the experience, not only the assets).
+  if (restored.gameState.pricingShadow) {
+    let x: GameState = { ...restored.gameState, pricingShadow: undefined };
+    for (let y = SAVE_AT + 1; y <= YEARS; y++) x = advance(x, y);
+    const ctl: string[] = [];
+    diff(a.poolState, x.poolState, 'control', ctl);
+    diff(a.lockedResults, x.lockedResults, 'control', ctl);
+    if (ctl.length > 0) shadowDropCaught++;
+    // And the reload's shadow comparison (1) must see a shadow that is the
+    // game's own, shock-touched ledger in its place.
+    const swap: string[] = [];
+    diff(JSON.parse(JSON.stringify(b.pricingShadow!.poolState)), JSON.parse(JSON.stringify(restored.gameState.poolState)), 'control', swap);
+    if (swap.length > 0) shadowSwapCaught++;
+  }
   for (const d of out) fail(d);
   console.log(`  game ${g}  ${out.length === 0 ? 'MATCH' : `${out.length} DIFFERENCE(S)`}`);
 }
@@ -286,9 +323,15 @@ console.log(`  games whose reload shows exactly what the game showed: ${viewsSam
 console.log(`  saves holding the averages only: ${averagesOnly} of ${GAMES}; world 1 claim rows kept: ${claimRows}`);
 console.log(`  control — a replay on the default decisions: ${defaultsCaught ? 'caught' : 'MISSED'}`);
 console.log(`  control — a save whose world 1 claims were lost: ${claimsCaught ? 'caught' : 'MISSED'}`);
+console.log(`  games saved with a shock in force (the shadow running): ${shadowSaves} of ${GAMES}`);
+console.log(`  control — a reload that forgot the shock-free shadow: caught in ${shadowDropCaught} of ${shadowSaves}`);
+console.log(`  control — the game's own ledger standing in for the shadow: caught in ${shadowSwapCaught} of ${shadowSaves}`);
 if (!defaultsCaught) fail('control: a replay on the default decisions was not caught');
 if (!claimsCaught) fail('control: a save whose world 1 claims were lost was not caught');
 if (claimRows === 0) fail('no world 1 claim rows in any save — the claims comparison compared nothing');
+if (shadowSaves === 0) fail('no game was saved with a shock in force — the shadow\'s rebuild was never tested');
+if (shadowDropCaught === 0) fail('control: a reload that forgot the shock-free shadow was not caught');
+if (shadowSwapCaught === 0) fail('control: the game\'s own ledger standing in for the shadow was not caught');
 
 console.log('');
 console.log(RULE);

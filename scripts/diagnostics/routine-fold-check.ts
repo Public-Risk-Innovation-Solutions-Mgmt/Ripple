@@ -6,8 +6,15 @@
 // With ROUTINE_LARGE_LOSSES off and FLAT_PRE_GAME off:
 //
 //   1. COST-NEUTRAL: every line-year's expected loss equals what it was with
-//      routine large claims ON and no fold — ordinary x (1 + uplift) + shock
-//      large + routine — to float precision, years -10 to 15. ON THE LINES
+//      routine large claims ON and no fold, to float precision, years -10 to
+//      15. ⚠ RESTATED FOR THE SHOCKS LANDING (2ae5c1a; ROUTINE_FOLD_NET_OF_UPLIFT
+//      off): the fold is the routine claims' cost, NOT divided by (1 + the
+//      expected uplift), and the shocks land wholly on top of it. So: with the
+//      game's shocks off, the folded expectation is today's (ordinary +
+//      routine) exactly, whatever the shock catalogue; with them on, it is
+//      (today's ordinary + routine) x (1 + uplift) + today's shock large. (It
+//      was: the folded total with shocks on equals today's total, the fold
+//      giving the uplift back.) ON THE LINES
 //      STILL ON THEIR DERIVED COST (Property): since commit 2, WC and GL are
 //      priced on the pool's layered loss costs, and pool-loss-cost-check holds
 //      them.
@@ -15,24 +22,25 @@
 //      the fold as without it — scaled off the unfolded ordinary cost.
 //   3. NO ROUTINE CLAIM IS DRAWN: across played games, every large claim comes
 //      from a shock.
-//   4. A SIMULATED PRE-GAME: every pre-game year's year factor is the
-//      scenario's multiple (preGameLossMultiplier) x the factor drawn on the
-//      pre-game's own stream from the game's seed; it earns its allocation on
+//   4. A SIMULATED PRE-GAME AT TRUE COST: every pre-game year's year factor is
+//      the factor drawn on the pre-game's own stream from the game's seed, and
+//      nothing else (restated for the fixed-seed scenarios: it was the
+//      scenario's multiple x that draw; the multiple is retired); it earns its allocation on
 //      the average of PRE_GAME_MARKET_DRAWS markets, each on its own pre-game
 //      stream; and no shock fires. (It was flat — the multiple exactly, and
 //      PRE_GAME_INVESTMENT_RETURN.)
 //
-// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold without the uplift
-// divisor, T scaled off the folded cost, a routine claim slipped in, a flat
-// pre-game, a pre-game drawn on the played years' streams, and a pre-game on
-// one market draw.
+// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold divided by the uplift
+// (the retired design), a fold that moves with the shock catalogue in a
+// shocks-off game, T scaled off the folded cost, a routine claim slipped in, a flat
+// pre-game, a pre-game drawn on the played years' streams, a pre-game on
+// one market draw, and the retired scenario multiple put back on the draw.
 // ============================================================================
 
-import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, PRE_GAME_MARKET_DRAWS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_FOLD_NET_OF_UPLIFT, PRE_GAME_MARKET_DRAWS, ROUTINE_LARGE_LOSSES, SCENARIO_COUNT, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_RATIO_RANGE } from '../../src/data/pricingParameters';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
 import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
 import { deriveSubRng } from '../../src/utils/random';
-import { scenarioOf } from '../../src/utils/scenarios';
 import { baseOrdinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, routineFoldPer100, upliftMoments } from '../../src/utils/shockExpectation';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -41,10 +49,10 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import type { CoverageLine, GameSetupSettings, GameState, LineResultSet, ResultSet } from '../../src/types/simulation';
 import { SOLO_SHOCKS } from '../../src/data/pricingParameters';
-// ⚠ SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS, pending the data scientist),
-// and this gate tests how fired shocks are handled — which hosted games still
-// do — through solo games. Their schedule is switched on here so it has
-// shocks to test, rather than passing on none.
+// ⚠ SHOCKS WERE OFF IN SINGLE-PLAYER (SOLO_SHOCKS), and this gate tests how
+// fired shocks are handled through solo games, so it switched them on. Since
+// the shocks landing SOLO_SHOCKS ships on (the catalogue draw); this stays as
+// a guard should it be switched off again.
 SOLO_SHOCKS.enabled = true;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -66,19 +74,20 @@ if (ROUTINE_LARGE_LOSSES.enabled || FLAT_PRE_GAME.enabled) {
 
 // "Today": routine claims ON and no fold — read with the switch flipped, which
 // zeroes the fold (routineFoldPer100) and restores the routine claims.
-interface Today { total: number; shockLarge: number }
+interface Today { total: number; ordinary: number; routine: number; shockLarge: number; offTotal: number }
 const today = new Map<string, Today>();
 ROUTINE_LARGE_LOSSES.enabled = true;
 for (const l of FOLDED) for (const y of YEARS) {
   const b = expectedLossBreakdown(l, E, y);
-  today.set(`${l}|${y}`, { total: b.total, shockLarge: b.shockLarge });
+  const off = expectedLossBreakdown(l, E, y, true, 1, false);
+  today.set(`${l}|${y}`, { total: b.total, ordinary: b.ordinary, routine: b.routineLarge, shockLarge: b.shockLarge, offTotal: off.total });
 }
 ROUTINE_LARGE_LOSSES.enabled = false;
 
 // ---------------------------------------------------------------- 1 & 2
 type Fold = (l: CoverageLine, y: number) => number;
 function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
-  let worstTotal = 0, worstT = 0;
+  let worstTotal = 0, worstOff = 0, worstT = 0;
   for (const l of FOLDED) for (const y of YEARS) {
     const b = expectedLossBreakdown(l, E, y);
     // Rebuilt from its parts with the fold under test, so a wrong fold shows.
@@ -89,15 +98,22 @@ function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
       : b.shockLarge;
     const total = ordinary * (1 + u) + shockLarge;
     const t = today.get(`${l}|${y}`)!;
-    worstTotal = Math.max(worstTotal, rel(total, t.total));
+    // Shocks on: the routine claims' cost, folded, takes the uplift with the
+    // ordinary losses (it is normal loss now), and the shocks land on top.
+    worstTotal = Math.max(worstTotal, rel(total, (t.ordinary + t.routine) * (1 + u) + t.shockLarge));
+    // Shocks off (the shocks landing): the folded normal losses are today's
+    // shocks-off expectation exactly — nothing in them moves with the catalogue.
+    worstOff = Math.max(worstOff, rel(ordinary, t.offTotal));
     worstT = Math.max(worstT, rel(shockLarge, t.shockLarge));
   }
-  check(worstTotal < 1e-12, `${tag}1. every line-year's expected loss is today's, years -10 to 15 (${FOLDED.join(', ')})`, `worst relative ${worstTotal.toExponential(2)}`);
+  check(worstTotal < 1e-12 && worstOff < 1e-12,
+    `${tag}1. every line-year's expected loss is today's, the fold the routine claims' cost with the shocks on top, years -10 to 15 (${FOLDED.join(', ')})`,
+    `worst relative ${worstTotal.toExponential(2)} shocks on, ${worstOff.toExponential(2)} shocks off`);
   check(worstT < 1e-12, `${tag}2. the shocks' large losses do not grow with the fold`, `worst relative ${worstT.toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 3 & 4
-interface Played { pre: ResultSet[]; game: ResultSet[]; seed: number; scenario: number }
+interface Played { pre: ResultSet[]; game: ResultSet[]; seed: number }
 function play(id: string, years: number): Played {
   const { setup, instance } = openSoloInstance({ poolName: 'F', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
@@ -108,7 +124,7 @@ function play(id: string, years: number): Played {
     game.push(p.result);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
-  return { pre: [...(earlyPreGameHistory ?? []), ...priorHistory], game, seed: instance.seed, scenario: scenarioOf(instance) };
+  return { pre: [...(earlyPreGameHistory ?? []), ...priorHistory], game, seed: instance.seed };
 }
 const games = ['RFC1', 'RFC2', 'RFC3', 'RFC4'].map(id => play(id, 10));
 type Claims = (r: LineResultSet) => { shock: boolean }[];
@@ -124,14 +140,14 @@ function gradeGames(claims: Claims, drawOf: DrawOf, marketOf: MarketOf, tag: str
     const x = r.byLine[l]!;
     const n = x.newLossEngine!;
     years++;
-    const want = preGameLossMultiplier(g.scenario, l) * drawOf(g.seed, r.yearNumber, l);
+    const want = drawOf(g.seed, r.yearNumber, l);
     worstFactor = Math.max(worstFactor, Math.abs(x.commonLossFactor / want - 1));
     const rate = blendInvestmentReturn(1, x.assetAllocation, marketOf(g.seed, r.yearNumber)).returnRate;
     worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - rate));
     shocks += n.shockLargeClaims + (n.uplift !== 0 ? 1 : 0);
   }
   check(worstFactor < 1e-12 && worstReturn < 1e-12 && shocks === 0,
-    `${tag}4. a simulated pre-game: the scenario's multiple x its draw, the market drawn, on the pre-game's own streams; no shock`,
+    `${tag}4. a simulated pre-game at true cost: its own draw and nothing else, the market drawn, on the pre-game's own streams; no shock`,
     `${years} pre-game line-years; worst factor off ${worstFactor.toExponential(2)}, worst return off ${worstReturn.toExponential(2)}, ${shocks} shocks`);
 }
 
@@ -157,7 +173,13 @@ const controlFails = (name: string, run: () => void, expect: string) => {
   const caught = failures.splice(before).filter(f => f.startsWith(expect));
   check(caught.length > 0, `control: ${name} is caught by ${expect}`);
 };
-controlFails('a fold without the uplift divisor', () => gradeExpected((l, y) => routineFoldPer100(l, y) * (1 + upliftMoments(l, y).mean), false, ''), '1.');
+// The retired design (ROUTINE_FOLD_NET_OF_UPLIFT on): the fold divided by (1 + the uplift).
+controlFails('a fold divided by the uplift (the retired design)', () => gradeExpected((l, y) => routineFoldPer100(l, y) / (1 + upliftMoments(l, y).mean), false, ''), '1.');
+// And through the engine: the switch flipped on at runtime, the shipped fold read again.
+controlFails('the engine\'s fold with ROUTINE_FOLD_NET_OF_UPLIFT switched on', () => {
+  ROUTINE_FOLD_NET_OF_UPLIFT.enabled = true;
+  try { gradeExpected(routineFoldPer100, false, ''); } finally { ROUTINE_FOLD_NET_OF_UPLIFT.enabled = false; }
+}, '1.');
 controlFails('T scaled off the folded cost', () => gradeExpected(shipped, true, ''), '2.');
 controlFails('a routine claim slipped in', () => gradeGames(r => [...claimsOf(r), { shock: false }], drawOf, marketOf, ''), '3.');
 controlFails('a flat pre-game (no draw)', () => gradeGames(claimsOf, () => 1, marketOf, ''), '4.');
@@ -165,6 +187,14 @@ controlFails('a pre-game drawn on the played years\' streams', () => gradeGames(
   (seed, y, l) => drawOrdinaryFactor(deriveSubRng(seed, y, `ordinary_${l}`), ordinaryYearCv(l)),
   (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'invest')), ''), '4.');
 controlFails('a pre-game on one market draw', () => gradeGames(claimsOf, drawOf, avgOf(['pregame_invest_0']), ''), '4.');
+// The retired scenario multiple, rebuilt here: 1 + (1 - the line's midpoint /
+// the target) x 0.3, on the scenario a bare id used to fall on (seed % 20 + 1).
+const retiredMultiple = (seed: number, l: CoverageLine) => {
+  const mid = (SCENARIO_RATIO_RANGE[l].thinnest + SCENARIO_RATIO_RANGE[l].richest) / 2;
+  return 1 + (1 - mid / SCENARIO_PREMIUM_TO_SURPLUS[l][(seed % SCENARIO_COUNT) + 1]) * 0.3;
+};
+controlFails('the retired scenario multiple put back on the draw', () => gradeGames(claimsOf,
+  (seed, y, l) => retiredMultiple(seed, l) * drawOf(seed, y, l), marketOf, ''), '4.');
 
 console.log('');
 if (failures.length) {

@@ -123,30 +123,45 @@ import { unmarshall } from '@aws-sdk/util-dynamodb';
 import type {
   AdvanceRequest, AdvanceResponse,
   CallerRole,
+  CreateHandoffRequest, CreateHandoffResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
   ListEventsResponse, LobbyEvent,
-  PriorDevelopment,
+  PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
+  ReclaimTeamRequest, ReclaimTeamResponse,
+  SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
+  EditGameRequest, EditGameResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
+  UndoLockRequest, UndoLockResponse,
+  MarketLockInput, StoredMarketYear,
 } from '../contract';
-import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
+import {
+  SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
+  normalizeRecoveryCode, eventStatusOf, mayCreateTeam,
+} from '../contract';
 import { Faults } from '../faults';
+import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
+import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
+import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, validMarketLockInput } from '../market';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
-  createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, pinPk, resultPrefix, resultSk, roomPk,
-  tokenSk, viewerSk,
+  attemptSk, createPk, decisionPrefix, decisionSk, draftSk, handoffSk, lobbyEventPath, nameSk, pinPk,
+  resultPrefix, resultSk, roomPk, tokenSk, viewerSk,
+  MARKET_YEAR_PREFIX, marketTeamPrefix, marketTeamSk, marketYearSk,
 } from './keys';
+import { standingsYear } from '../standings';
 import {
-  dynamoFromEnv, hashToken, newRoomCode, newTeamId, newViewerPin, type Dynamo, type DynamoConfig,
+  dynamoFromEnv, hashesMatch, hashToken, newRecoveryCode, newRoomCode, newTeamId, newViewerPin,
+  type Dynamo, type DynamoConfig,
 } from './dynamo';
 import {
-  buildCallerView, buildRoomView, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
+  buildCallerView, buildRoomView, orderedRoster, rosterNumbers, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
 } from './views';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -161,6 +176,31 @@ const MAX_YEAR_COUNT = 998;
 
 /** How many times a mutation re-reads and re-decides after losing a race. */
 const MAX_ATTEMPTS = 5;
+
+/** reclaimTeam's attempt limiter — keys.ts's attemptSk, a fixed window from
+ *  the first failure, not a sliding one. */
+const ATTEMPT_WINDOW_SEC = 15 * 60;
+const MAX_RECLAIM_ATTEMPTS = 5;
+
+/** A hand-off link's whole life, start to end — keys.ts's handoffSk. */
+const HANDOFF_WINDOW_SEC = 10 * 60;
+
+// A fixed, never-matching stand-in for a team with no recoveryHash (one made
+// before this feature existed) — sha256 is 64 hex chars. Reclaiming such a
+// team still runs the SAME compare-and-count path as any other wrong guess,
+// rather than a branch that would both leak, by timing, whether a team has a
+// recovery code at all, and dodge the rate limiter on exactly the path that
+// invites probing for teams without one.
+const PLACEHOLDER_RECOVERY_HASH = '0'.repeat(64);
+
+/**
+ * ⚠ HOW MANY TIMES A JOIN MAY LOSE THE RACE FOR A TEAM NUMBER, ON TOP OF
+ * MAX_ATTEMPTS. A class joining at once all claim the room's one counter, and
+ * each loser re-reads and tries the next number — so the last of N teams joining
+ * together can lose N - 1 times. Counted apart from MAX_ATTEMPTS so a room of
+ * twenty is not refused for having twenty people in it.
+ */
+const MAX_NUMBER_RACES = 60;
 
 // sameLines is gone with LINES_LOCKED: a join carries no lines, so there are
 // never two sets to compare.
@@ -312,6 +352,24 @@ export class DynamoSessionTransport implements SessionTransport {
     return { code: item.code, teamId: item.teamId };
   }
 
+  /** Items by key, strongly consistent, in chunks of 100 with BatchGetItem's retries; a missing key is absent. */
+  private async getItems(all: Array<Record<string, string>>): Promise<Record<string, unknown>[]> {
+    const found: Record<string, unknown>[] = [];
+    for (let c = 0; c < all.length; c += 100) {
+      let keys = all.slice(c, c + 100);
+      for (let i = 0; keys.length > 0; i++) {
+        if (i > 0) await sleep(Math.min(200, 10 * 2 ** i));
+        const res = await this.db.doc.send(new BatchGetCommand({
+          RequestItems: { [this.db.table]: { Keys: keys, ConsistentRead: true } },
+        }));
+        found.push(...(res.Responses?.[this.db.table] ?? []));
+        keys = (res.UnprocessedKeys?.[this.db.table]?.Keys ?? []) as Array<Record<string, string>>;
+        if (i > 8 && keys.length > 0) throw new Error('BatchGetItem left keys unprocessed.');
+      }
+    }
+    return found;
+  }
+
   private async queryPrefix(pk: string, prefix: string): Promise<YearItem[]> {
     const out: YearItem[] = [];
     let start: Record<string, unknown> | undefined;
@@ -360,7 +418,9 @@ export class DynamoSessionTransport implements SessionTransport {
    *
    *   host       every team's results     (begins_with R#)
    *   player     its own decisions        (begins_with D#<teamId>#)
-   *              and its own results      (begins_with R#<teamId>#)
+   *              and every team's results (begins_with R#) — its own for its
+   *              team row, every team's for the standings alone (the Market
+   *              Survey tab: the host's table's figures, no decisions)
    *   viewer     as the player it watches
    *   anonymous  the header alone
    *
@@ -379,15 +439,59 @@ export class DynamoSessionTransport implements SessionTransport {
     const pk = roomPk(header.code);
     const fetched: Fetched = { results: new Map(), decisions: new Map() };
     const resultItems: YearItem[] = [];
+    const marketOn = marketLevelOf(header.market) !== 'off';
     if (role === 'host') {
       resultItems.push(...await this.queryPrefix(pk, RESULT_PREFIX));
+      // MARKET COMPETITION: every year's whole step — the host's columns, chart and flags.
+      if (marketOn) {
+        fetched.marketYears = {};
+        for (const item of await this.queryPrefix(pk, MARKET_YEAR_PREFIX)) {
+          fetched.marketYears[String(item.year)] = JSON.parse(item.body) as StoredMarketYear;
+        }
+      }
     } else if ((role === 'player' || role === 'viewer') && teamId) {
+      // MARKET COMPETITION: the team's own slice of each year's step, for its game to play and replay.
+      if (marketOn) {
+        fetched.marketTeam = {};
+        for (const item of await this.queryPrefix(pk, marketTeamPrefix(teamId))) {
+          fetched.marketTeam[String(item.year)] = JSON.parse(item.body);
+        }
+      }
       for (const item of await this.queryPrefix(pk, decisionPrefix(teamId))) {
         const held = fetched.decisions.get(item.teamId) ?? {};
         held[String(item.year)] = JSON.parse(item.body) as JsonValue;
         fetched.decisions.set(item.teamId, held);
       }
       resultItems.push(...await this.queryPrefix(pk, resultPrefix(teamId)));
+      // ⚠ EVERY TEAM'S RESULT FOR THE YEAR THE STANDINGS SHOW, AND ONLY THAT
+      // YEAR (the Market Survey tab; keys.ts READ, point 4). The table shows the
+      // latest known year alone — the year just played, currentYear - 1, as the
+      // host's — so one item per team is fetched by key, not every team's
+      // history: a read that grows with the teams, not the teams x the years.
+      // They reach the view only through buildStandings, which keeps the host's
+      // table's figures and drops the rest — decisions above all.
+      const shown = standingsYear(header.currentYear);
+      fetched.standings = new Map();
+      if (shown !== null) {
+        const keys = Object.keys(header.roster ?? {}).map(id => ({ pk, sk: resultSk(id, shown) }));
+        for (const item of await this.getItems(keys) as unknown as YearItem[]) {
+          fetched.standings.set(item.teamId, { [String(item.year)]: JSON.parse(item.body) as TeamYearSummary });
+        }
+      }
+    }
+    // ⚠ PLAYER ONLY, NOT VIEWER — device switching's third feature. A viewer
+    // has no form to restore a draft into; it always shows the team's last
+    // locked set, never a live one. One GetItem by key, same as the handoff
+    // lookup in reclaimTeam, not a Query — there is at most one draft, for the
+    // room's current year.
+    if (role === 'player' && teamId) {
+      const res = await this.db.doc.send(new GetCommand({
+        TableName: this.db.table, Key: { pk, sk: draftSk(teamId, header.currentYear) }, ConsistentRead: true,
+      }));
+      const item = res.Item as { body?: string; savedAt?: number } | undefined;
+      if (item?.body !== undefined && item.savedAt !== undefined) {
+        fetched.draft = { yearNumber: header.currentYear, decisions: JSON.parse(item.body) as JsonValue, savedAt: item.savedAt };
+      }
     }
     for (const item of resultItems) {
       const held = fetched.results.get(item.teamId) ?? {};
@@ -397,7 +501,7 @@ export class DynamoSessionTransport implements SessionTransport {
     const entry = teamId ? header.roster?.[teamId] ?? null : null;
     return {
       room: buildRoomView(header, fetched, role),
-      you: buildCallerView(role, teamId, entry, fetched),
+      you: buildCallerView(role, teamId, entry, fetched, shownShares(header, header.marketSharesByYear)),
     };
   }
 
@@ -469,6 +573,26 @@ export class DynamoSessionTransport implements SessionTransport {
         const v = req.priorDevelopment?.[l];
         if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
       }
+      // Adverse development levels (wip/adverse-development): a real level, or
+      // None ('Off'), per played line is kept; anything else is dropped, and
+      // reads the default.
+      const roomDevLevels: DevelopmentLevels = {};
+      for (const l of roomLines) {
+        const v = req.developmentLevels?.[l];
+        if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
+      }
+      // THE ADVANCED SETUP (pr/advanced-development): levels by year, checked by
+      // the rules Edit game shares; absent on a simple setup, which stores none.
+      let startByYear: Record<string, DevelopmentLevels> | undefined;
+      try {
+        startByYear = startingLevelsByYear(req.developmentLevelsByYear, req.yearCount, roomLines);
+      } catch (e) {
+        if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+        throw e;
+      }
+      // Market competition: absent reads 'off' (the form always sends the host's choice).
+      const market = requestedMarketLevel(req.market);
+      if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
       if (!Array.isArray(req.shocks)) throw new SessionError('INVALID_REQUEST', 'shocks must be a list.');
       const shocks = req.shocks.map(s => ({
         shockId: requireString(s?.shockId, 'shockId'),
@@ -521,10 +645,14 @@ export class DynamoSessionTransport implements SessionTransport {
           expectedTeams: req.expectedTeams,
           lines: roomLines,
           priorDevelopment: roomPriorDev,
+          developmentLevels: roomDevLevels,
+          ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
+          ...(market !== 'off' ? { market } : {}),
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
           roster: {},
+          nextTeamNumber: 1,
           createdAt: now,
           updatedAt: now,
           rev: 0,
@@ -629,6 +757,7 @@ export class DynamoSessionTransport implements SessionTransport {
       // what changed and may well decide differently — a rejoin rather than
       // TEAM_TAKEN. See the file header, point 2.
       let lastFailure: SessionError | null = null;
+      let numberRaces = 0;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const header = await this.getHeader(code);
         const name = rawName !== undefined ? rawName.trim() : undefined;
@@ -739,6 +868,12 @@ export class DynamoSessionTransport implements SessionTransport {
         // attempt; a collision below (vanishingly unlikely at 10^6 PINs) just
         // retries with a new one, the room-code collision's own shape.
         const pin = newViewerPin();
+        // A recovery code for getting this team back from a new device if this
+        // one is lost — see contract.ts's JoinResponse.recoveryCode. Only its
+        // hash is ever stored; the plaintext is returned once, below, and
+        // nowhere else.
+        const recoveryCode = newRecoveryCode();
+        const recoveryHash = hashToken(normalizeRecoveryCode(recoveryCode));
         const entry: RosterEntry = {
           name: teamName,
           // The room's set, already canonical — copied onto the roster entry so
@@ -748,9 +883,20 @@ export class DynamoSessionTransport implements SessionTransport {
           lockedYear: null,
           tokenHash: h,
           pin,
+          recoveryHash,
           posted: {},
+          lockedYears: {},
           joinedAt: Date.now(),
         };
+        // ⚠ THE TEAM'S NUMBER IS THE ROOM'S NEXT ONE, CLAIMED UNDER A CONDITION
+        // (contract teamNumbers). The update below sets the room's counter one
+        // past it only if the counter is still what this pass read, so two teams
+        // joining at once cannot take one number: the second's condition fails
+        // and its next pass reads the new counter. An older room's teams without
+        // a number are given theirs, by join order, in the same write.
+        const numbering = rosterNumbers(header);
+        entry.teamNumber = numbering.next;
+        const backfill = numbering.missing.map((id, i) => ({ id, i, n: numbering.byTeam.get(id)! }));
         const tx = await this.transact([
           // 0 — the name is claimed once.
           { Put: {
@@ -774,10 +920,18 @@ export class DynamoSessionTransport implements SessionTransport {
           { Update: {
             TableName: this.db.table,
             Key: { pk, sk: ROOM_HEADER_SK },
-            UpdateExpression: 'SET roster.#tid = :entry, updatedAt = :now ADD rev :one',
-            ConditionExpression: 'attribute_exists(pk)',
-            ExpressionAttributeNames: { '#tid': newId },
-            ExpressionAttributeValues: { ':entry': entry, ':now': Date.now(), ':one': 1 },
+            UpdateExpression: 'SET roster.#tid = :entry, nextTeamNumber = :next, updatedAt = :now'
+              + backfill.map(b => `, roster.#m${b.i}.teamNumber = :m${b.i}`).join('')
+              + ' ADD rev :one',
+            ConditionExpression: header.nextTeamNumber === undefined
+              ? 'attribute_exists(pk) AND attribute_not_exists(nextTeamNumber)'
+              : 'attribute_exists(pk) AND nextTeamNumber = :read',
+            ExpressionAttributeNames: { '#tid': newId, ...Object.fromEntries(backfill.map(b => [`#m${b.i}`, b.id])) },
+            ExpressionAttributeValues: {
+              ':entry': entry, ':now': Date.now(), ':one': 1, ':next': numbering.next + 1,
+              ...(header.nextTeamNumber === undefined ? {} : { ':read': header.nextTeamNumber }),
+              ...Object.fromEntries(backfill.map(b => [`:m${b.i}`, b.n])),
+            },
           } },
           // 4 — the PIN is claimed once, globally (outside this room's
           // partition — keys.ts's pinPk).
@@ -793,6 +947,17 @@ export class DynamoSessionTransport implements SessionTransport {
           // it is not reported if the OTHERS also failed; it just means this
           // attempt's PIN was already in use somewhere, and the next attempt
           // mints a fresh one.
+          // ⚠ THE TEAM NUMBER TAKEN BY A JOIN THAT LANDED FIRST, ALONE: the
+          // roster write's condition failed and nothing else did. Re-read and
+          // take the next number, without spending an attempt (MAX_NUMBER_RACES)
+          // and after a short random wait, so a class joining together spreads
+          // out. A room that has gone is caught by the re-read.
+          if (tx.failed.length === 1 && tx.failed[0] === 3 && numberRaces < MAX_NUMBER_RACES) {
+            numberRaces++;
+            attempt--;
+            await sleep(Math.random() * Math.min(200, 10 * 2 ** Math.min(numberRaces, 5)));
+            continue;
+          }
           if (tx.failed.length === 1 && tx.failed[0] === 4) {
             lastFailure = new SessionError('TRANSPORT_FAILURE', 'Could not allocate a viewer PIN.', true);
             continue;
@@ -805,11 +970,335 @@ export class DynamoSessionTransport implements SessionTransport {
           continue;
         }
         const view = await this.freshView(code, 'player', newId);
-        return { teamToken: token, teamName: entry.name, lines: [...entry.lines], pin, role: 'player' as const, rejoined: false, room: view.room };
+        return {
+          teamToken: token, teamName: entry.name, lines: [...entry.lines], pin, recoveryCode,
+          role: 'player' as const, rejoined: false, room: view.room,
+        };
       }
       // Lost the race MAX_ATTEMPTS times in a row and the re-read never settled
       // it. Only reachable under sustained contention on one name or token.
       throw lastFailure ?? new SessionError('TRANSPORT_FAILURE', 'The room kept changing under this join.', true);
+    });
+  }
+
+  // ---- reclaimTeam -------------------------------------------------------
+
+  /**
+   * Record one wrong recovery-code guess against a team. Unconditional: it
+   * creates the item on the first failure and every later failure within the
+   * window just adds to the count. `if_not_exists` on expiresAtSec is the
+   * whole of "fixed window, never extended by a later failure" — the first
+   * failure sets the deadline, and every subsequent write's own `:exp` is
+   * computed but discarded because the attribute already exists.
+   */
+  private async recordAttemptFailure(code: string, teamId: string): Promise<void> {
+    await this.db.doc.send(new UpdateCommand({
+      TableName: this.db.table,
+      Key: { pk: roomPk(code), sk: attemptSk(teamId) },
+      // #cnt, not `count`: COUNT is a DynamoDB reserved word.
+      UpdateExpression: 'ADD #cnt :one SET expiresAtSec = if_not_exists(expiresAtSec, :exp)',
+      ExpressionAttributeNames: { '#cnt': 'count' },
+      ExpressionAttributeValues: { ':one': 1, ':exp': nowSec(Date.now()) + ATTEMPT_WINDOW_SEC },
+    }));
+  }
+
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      if (!SESSION_TOKEN_PATTERN.test(token)) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs a valid new device token.');
+      }
+      // ⚠ EXACTLY ONE SECRET. See contract.ts's ReclaimTeamRequest.
+      const hasRecoveryCode = req.recoveryCode !== undefined;
+      const hasHandoffToken = req.handoffToken !== undefined;
+      if (hasRecoveryCode === hasHandoffToken) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs exactly one of recoveryCode or handoffToken.');
+      }
+
+      const header = await this.getHeader(code);
+      const pk = roomPk(code);
+      const newHash = hashToken(token);
+
+      // ⚠ IDEMPOTENCY, CHECKED FIRST, BY TOKEN ALONE — covers BOTH secrets. If
+      // any team already holds this exact token, this call (or an identical
+      // retry of it) already succeeded: either the response was lost and the
+      // client resent the same minted token, or this is a legitimate
+      // re-presentation. For a handoff reclaim specifically this is the ONLY
+      // way to recognise a retry: the HANDOFF# item a successful attempt
+      // consumed is gone by the second call, so there is nothing left to
+      // resolve the team BY that path a second time — but it can always be
+      // found by the token it already holds.
+      const alreadyRotated = Object.entries(header.roster ?? {}).find(([, t]) => t.tokenHash === newHash);
+      if (alreadyRotated) {
+        const [teamId, team] = alreadyRotated;
+        const view = await this.viewFor(header, 'player', teamId);
+        return { teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
+      }
+
+      let teamId: string;
+      let team: RosterEntry;
+      // Set only on the handoff path — see contract.ts's ReclaimTeamResponse.
+      let reissuedRecoveryCode: string | undefined;
+      // Set only on the handoff path, so the rotation transaction knows to
+      // consume it too.
+      let handoffHash: string | undefined;
+
+      if (hasHandoffToken) {
+        const handoffToken = requireString(req.handoffToken, 'handoffToken');
+        handoffHash = hashToken(handoffToken);
+        const res = await this.db.doc.send(new GetCommand({
+          TableName: this.db.table,
+          Key: { pk, sk: handoffSk(handoffHash) },
+          ConsistentRead: true,
+        }));
+        const item = res.Item as { teamId?: string; expiresAtSec?: number } | undefined;
+        // ⚠ CHECKED IN CODE, NOT LEFT TO TTL — same reasoning the PIN index
+        // already documents: TTL deletion can lag behind the stamp, so a
+        // reader that trusted "the item is gone" would honour an expired
+        // link for a while after it should have stopped working.
+        if (!item?.teamId || (item.expiresAtSec ?? 0) <= nowSec(Date.now())) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link is invalid or has expired.');
+        }
+        const entry = header.roster?.[item.teamId];
+        if (!entry) throw new SessionError('TEAM_NOT_FOUND', 'That team no longer exists in this room.');
+        // ⚠ A DEFENSIVE CROSS-CHECK, NOT THE NORMAL PATH — see contract.ts.
+        // The real `/claim/<code>/<handoffToken>` link carries no teamName at
+        // all; this only matters for a caller that supplied one anyway.
+        if (req.teamName !== undefined && req.teamName.trim() !== entry.name) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link does not match the team named.');
+        }
+        teamId = item.teamId;
+        team = entry;
+        reissuedRecoveryCode = newRecoveryCode();
+        // ⚠ NO ATTEMPT-LIMITER TOUCH, NO HASH COMPARE, ON THIS PATH.
+        // Resolving the real HANDOFF# item already IS the authentication — 32
+        // random characters, found or not. Routing a wrong/stale handoff
+        // token through the 4-digit-code rate limiter would spend that
+        // budget on something it was never meant to guard (a double-opened
+        // link, say) and could lock out an unrelated, legitimate
+        // recovery-code attempt for the very same team.
+      } else {
+        const name = requireString(req.teamName, 'teamName').trim();
+        // Exact, case-sensitive match — the same lookup join() uses for a
+        // name-based join. A looser rule here only for reclaim would let two
+        // names distinct under join collide under reclaim.
+        const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+        if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+        [teamId, team] = found;
+
+        const attempt = await this.db.doc.send(new GetCommand({
+          TableName: this.db.table,
+          Key: { pk, sk: attemptSk(teamId) },
+          ConsistentRead: true,
+        }));
+        const attemptItem = attempt.Item as { count?: number; expiresAtSec?: number } | undefined;
+        const blocked = !!attemptItem
+          && (attemptItem.count ?? 0) >= MAX_RECLAIM_ATTEMPTS
+          && (attemptItem.expiresAtSec ?? 0) > nowSec(Date.now());
+        if (blocked) {
+          throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
+        }
+
+        const recoveryCode = requireString(req.recoveryCode, 'recoveryCode');
+        const presented = hashToken(normalizeRecoveryCode(recoveryCode));
+        if (!hashesMatch(presented, team.recoveryHash ?? PLACEHOLDER_RECOVERY_HASH)) {
+          await this.recordAttemptFailure(code, teamId);
+          throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+        }
+      }
+
+      await this.assertTokenFree(header, token);
+      const oldHash = team.tokenHash;
+      const freshRecoveryHash = reissuedRecoveryCode
+        ? hashToken(normalizeRecoveryCode(reissuedRecoveryCode))
+        : undefined;
+
+      // ⚠ recoveryHash RIDES THE SAME SET AS tokenHash, ONLY WHEN REISSUING —
+      // one write, same atomicity, rather than a second update nobody asked
+      // for. The recoveryCode path never touches it: that team still holds
+      // its existing code.
+      const setClauses = ['roster.#tid.tokenHash = :new', 'updatedAt = :now'];
+      if (freshRecoveryHash) setClauses.push('roster.#tid.recoveryHash = :recoveryHash');
+
+      const tx = await this.transact([
+        // 0 — the rotation itself, conditioned on the hash just read: this is
+        // the lock that makes two simultaneous reclaims resolve to exactly
+        // one winner.
+        { Update: {
+          TableName: this.db.table,
+          Key: { pk, sk: ROOM_HEADER_SK },
+          UpdateExpression: `SET ${setClauses.join(', ')} ADD rev :one`,
+          ConditionExpression: 'roster.#tid.tokenHash = :old',
+          ExpressionAttributeNames: { '#tid': teamId },
+          ExpressionAttributeValues: {
+            ':new': newHash, ':old': oldHash, ':now': Date.now(), ':one': 1,
+            ...(freshRecoveryHash ? { ':recoveryHash': freshRecoveryHash } : {}),
+          },
+        } },
+        // 1 — the new token's claim, same TOKEN CLAIM reasoning as join()'s.
+        { Put: {
+          TableName: this.db.table,
+          Item: { pk, sk: tokenSk(newHash), teamId, expiresAtSec: header.expiresAtSec },
+          ConditionExpression: 'attribute_not_exists(sk)',
+        } },
+        // 2 — the old token stops working the instant this commits.
+        { Delete: { TableName: this.db.table, Key: { pk, sk: tokenSk(oldHash) } } },
+        // 3 — HANDOFF PATH ONLY: consuming the link is what makes it
+        // single-use. A second reclaim attempt against it loses this
+        // condition and the whole rotation fails with it.
+        ...(handoffHash
+          ? [{ Delete: {
+              TableName: this.db.table,
+              Key: { pk, sk: handoffSk(handoffHash) },
+              ConditionExpression: 'attribute_exists(sk)',
+            } }]
+          : []),
+      ]);
+      if (!tx.ok) {
+        // Index 0 failing means another reclaim already rotated this team's
+        // token between our read and our write — a genuine race between two
+        // different devices, not a self-race to absorb silently (unlike
+        // join()'s MAX_ATTEMPTS loop — see the note below). The right secret
+        // was presented, so this is not a limiter hit; the loser can simply
+        // retry, which the client's existing wrong-code UI already supports.
+        if (tx.failed.includes(0)) {
+          throw new SessionError(
+            'BAD_RECOVERY_CODE',
+            'This team was just reclaimed from another device. Try again.',
+          );
+        }
+        // Index 3 only exists on the handoff path: the link was consumed by
+        // someone else between our read and our write — a double-open.
+        if (handoffHash && tx.failed.includes(3)) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link was already used.');
+        }
+        // Index 1 alone: the brand-new device token collided with something
+        // else in the room — assertTokenFree's transactional backstop.
+        throw new SessionError('BAD_TOKEN', 'That token is already in use in this room.');
+      }
+      // Single success path, no retry: unlike join()'s new-team branch, a
+      // rotation-condition failure here is contention between two DIFFERENT
+      // devices rather than a caller's own idempotent retry — there is no
+      // "re-read and it turns out fine" case, since exactly one device can
+      // hold the token afterward by construction. Silently retrying would
+      // mask a real event that should surface instead.
+      //
+      // ⚠ ONLY ON THE recoveryCode PATH — the handoff path never created or
+      // touched this team's attempt counter, so there is nothing to clear.
+      if (!handoffHash) {
+        await this.db.doc.send(new DeleteCommand({ TableName: this.db.table, Key: { pk, sk: attemptSk(teamId) } }));
+      }
+      const view = await this.freshView(code, 'player', teamId);
+      return {
+        teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin,
+        ...(reissuedRecoveryCode ? { recoveryCode: reissuedRecoveryCode } : {}),
+        role: 'player' as const, rejoined: true, room: view.room,
+      };
+    });
+  }
+
+  // ---- createHandoff ------------------------------------------------------
+
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      const rawName = requireString(req.teamName, 'teamName');
+
+      const header = await this.getHeader(code);
+      // ⚠ READ-THEN-COMPARE, NOT A WRITE CONDITION — unlike setEventHidden's
+      // single conditioned Update. This write's target is a BRAND NEW
+      // HANDOFF# item, which has no hostTokenHash field of its own to
+      // condition against; the authority check has to happen before the
+      // write, the same shape assertTokenFree already is elsewhere in this
+      // file.
+      if (hashToken(token) !== header.hostTokenHash) {
+        throw new SessionError('NOT_HOST', 'Only the host may hand off a team.');
+      }
+      const name = rawName.trim();
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+      if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      const [teamId] = found;
+
+      const handoffToken = newSessionToken();
+      const expiresAtSec = nowSec(Date.now()) + HANDOFF_WINDOW_SEC;
+      await this.db.doc.send(new PutCommand({
+        TableName: this.db.table,
+        Item: { pk: roomPk(code), sk: handoffSk(hashToken(handoffToken)), teamId, expiresAtSec },
+        // Same-partition item (keys.ts's handoffSk): attribute_not_exists(sk),
+        // not (pk) — every item in this room shares pk, so only sk names this
+        // one. A collision at 32 random characters is not worth a retry loop.
+        ConditionExpression: 'attribute_not_exists(sk)',
+      }));
+      return { handoffToken, expiresAtSec };
+    });
+  }
+
+  /**
+   * ⚠ A HOST ACTION, NOT A TEAM ONE — see contract.ts's UndoLockRequest.
+   * Reopens a team's CURRENT year, which a team locked by submitting
+   * decisions; the decisions themselves are left untouched, so the team's
+   * form reopens on exactly what it last submitted rather than resetting.
+   *
+   * ⚠ READ-THEN-COMPARE FOR NOT_HOST, LIKE createHandoff — safe here because,
+   * unlike currentYear, a room's hostTokenHash never changes after creation,
+   * so there is no race for a condition to close. currentYear DOES race (the
+   * host's own advance, from another tab), which is what the Update's
+   * ConditionExpression guards.
+   */
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      const rawName = requireString(req.teamName, 'teamName');
+      const y = requireInteger(req.yearNumber, 'yearNumber');
+
+      const header = await this.getHeader(code);
+      if (hashToken(token) !== header.hostTokenHash) {
+        throw new SessionError('NOT_HOST', 'Only the host may undo a lock.');
+      }
+      const name = rawName.trim();
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+      if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      const [teamId, team] = found;
+
+      if (y !== header.currentYear) {
+        throw new SessionError('WRONG_YEAR', `The room is on year ${header.currentYear}; that lock is for year ${y}.`);
+      }
+      if (team.lockedYear !== header.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is not locked, so there is nothing to undo.');
+      }
+
+      const names: Record<string, string> = { '#tid': teamId };
+      const values: Record<string, unknown> = { ':null': null, ':now': Date.now(), ':one': 1, ':y': y };
+      const sets = ['roster.#tid.lockedYear = :null', 'updatedAt = :now'];
+      // The per-year map submit() also sets — only present on a room written
+      // with it from the start (see the same `if` there).
+      if (header.roster[teamId]?.lockedYears) {
+        sets.push('roster.#tid.lockedYears.#ly = :false');
+        names['#ly'] = String(y);
+        values[':false'] = false;
+      }
+      try {
+        await this.db.doc.send(new UpdateCommand({
+          TableName: this.db.table,
+          Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
+          UpdateExpression: `SET ${sets.join(', ')} ADD rev :one`,
+          ConditionExpression: 'attribute_exists(roster.#tid) AND currentYear = :y',
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }));
+      } catch (e) {
+        if (!(e instanceof ConditionalCheckFailedException)) throw e;
+        // The only thing this condition guards is currentYear (NOT_HOST and
+        // TEAM_NOT_FOUND were already settled above, against a consistent
+        // read) — a failed condition here always means the room's year moved
+        // under this request, which is correct on a retry too.
+        throw new SessionError('WRONG_YEAR', 'The room moved to another year before this could be undone.');
+      }
+      const view = await this.freshView(code, 'host', null);
+      return { room: view.room };
     });
   }
 
@@ -837,6 +1326,32 @@ export class DynamoSessionTransport implements SessionTransport {
             `The room is on year ${header.currentYear}; those decisions are for year ${y}.`,
           );
         }
+        // MARKET COMPETITION: a lock carries the year's rates and book (MarketLockInput).
+        const market = req.decisions !== undefined && marketLevelOf(header.market) !== 'off'
+          ? validMarketLockInput(req.market, header.lines ?? LINE_ORDER) : undefined;
+        if (market === null) {
+          throw new SessionError('INVALID_REQUEST', 'A lock in a room with market competition needs its rates and book.');
+        }
+        // ⚠ REAL LOCKING (pr/market-competition), as localTransport: a team locked
+        // for the year may not send a different set until the host unlocks it; the
+        // SAME set again is a retry of a lost response and succeeds unchanged.
+        let decisions = req.decisions;
+        const entry = header.roster[teamId];
+        const lockedNow = entry?.lockedYears ? entry.lockedYears[String(y)] === true : entry?.lockedYear === y;
+        if (decisions !== undefined && lockedNow) {
+          const held = await this.db.doc.send(new GetCommand({
+            TableName: this.db.table, Key: { pk: roomPk(code), sk: decisionSk(teamId, y) }, ConsistentRead: true,
+          }));
+          const item = held.Item as { body?: string; market?: string } | undefined;
+          const same = item?.body === JSON.stringify(decisions)
+            && (item?.market ?? undefined) === (market ? JSON.stringify(market) : undefined);
+          if (!same) {
+            throw new SessionError('ALREADY_LOCKED', `${entry?.name ?? 'That team'} has already locked year ${y}; the host must unlock it first.`);
+          }
+          // The retry: nothing to write for the decisions.
+          decisions = undefined;
+          if (req.result === undefined) return this.freshView(code, 'player', teamId);
+        }
         if (req.result !== undefined) {
           if (y > header.currentYear) {
             throw new SessionError(
@@ -857,15 +1372,30 @@ export class DynamoSessionTransport implements SessionTransport {
         const names: Record<string, string> = { '#tid': teamId };
         const values: Record<string, unknown> = { ':now': Date.now(), ':one': 1, ':y': y };
         const items: TransactItem[] = [];
-        if (req.decisions !== undefined) {
+        if (decisions !== undefined) {
           sets.push('roster.#tid.lockedYear = :y');
+          // The per-year record the room market share reads. An entry written
+          // before it existed has no map to set into; it keeps lockedYear alone.
+          if (header.roster[teamId]?.lockedYears) {
+            sets.push('roster.#tid.lockedYears.#ly = :true');
+            names['#ly'] = String(y);
+            values[':true'] = true;
+          }
           items.push({ Put: {
             TableName: this.db.table,
             Item: {
               pk, sk: decisionSk(teamId, y), teamId, year: y,
-              body: JSON.stringify(req.decisions), expiresAtSec: header.expiresAtSec,
+              body: JSON.stringify(decisions), expiresAtSec: header.expiresAtSec,
+              ...(market ? { market: JSON.stringify(market) } : {}),
             },
           } });
+          // ⚠ THE DRAFT DIES WITH THE LOCK, ATOMICALLY. A locked year always
+          // wins over its draft (contract.ts's CallerView.draft) because this
+          // Delete lands in the SAME transaction as the lock — no read between
+          // the two writes can ever see a stale draft for a year that is
+          // already locked. Unconditioned: deleting an item that may not exist
+          // is already a no-op.
+          items.push({ Delete: { TableName: this.db.table, Key: { pk, sk: draftSk(teamId, y) } } });
         }
         if (req.result !== undefined) {
           sets.push('roster.#tid.posted.#y = :true');
@@ -884,8 +1414,10 @@ export class DynamoSessionTransport implements SessionTransport {
         // above was against a room that no longer exists. Decisions need the
         // year to be EXACTLY this one (keys.ts: a year-3 decision landing after
         // year 3 was processed is the slot-history bug by another door).
-        let condition = 'attribute_exists(roster.#tid) AND currentYear = :y';
-        if (req.decisions === undefined) {
+        // ⚠ AND NOT ALREADY LOCKED FOR IT (real locking): a second lock racing the
+        // first fails here, re-reads, and is refused above unless it is the same set.
+        let condition = 'attribute_exists(roster.#tid) AND currentYear = :y AND roster.#tid.lockedYear <> :y';
+        if (decisions === undefined) {
           condition = 'attribute_exists(roster.#tid) AND currentYear >= :y AND :y >= :zero';
           values[':zero'] = 0;
         }
@@ -899,7 +1431,10 @@ export class DynamoSessionTransport implements SessionTransport {
         } });
 
         const tx = await this.transact(items);
-        if (tx.ok) return this.freshView(code, 'player', teamId);
+        if (tx.ok) {
+          if (req.result !== undefined) await this.storeSharesIfComplete(code, y);
+          return this.freshView(code, 'player', teamId);
+        }
         // The year moved under us. Re-read and decide again: the checks above
         // then raise WRONG_YEAR against the room as it now is.
         if (attempt >= MAX_ATTEMPTS - 1) {
@@ -907,6 +1442,96 @@ export class DynamoSessionTransport implements SessionTransport {
         }
       }
     });
+  }
+
+  /**
+   * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. NOT submit: this never
+   * locks a year, never writes the header, and never touches `rev` — a team's
+   * auto-save every few seconds must not contend with the header the way a
+   * lock does. A plain check-then-write, not a transaction: Mike's guide asks
+   * for an application-level guard here (year = current year, team not locked
+   * for it), not a DynamoDB condition, and a 3-second auto-save racing a lock
+   * is not worth closing with one.
+   */
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      const y = requireInteger(req.yearNumber, 'yearNumber');
+      const header = await this.getHeader(code);
+      const h = hashToken(token);
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.tokenHash === h);
+      if (!found) throw new SessionError('BAD_TOKEN', 'Only a team player may save a draft.');
+      const [teamId, team] = found;
+      if (y !== header.currentYear) {
+        throw new SessionError('WRONG_YEAR', `The room is on year ${header.currentYear}; that draft is for year ${y}.`);
+      }
+      if (team.lockedYear === header.currentYear) {
+        throw new SessionError('INVALID_REQUEST', 'This year is already locked in — a draft cannot replace it.');
+      }
+      const savedAt = Date.now();
+      await this.db.doc.send(new PutCommand({
+        TableName: this.db.table,
+        Item: { pk: roomPk(code), sk: draftSk(teamId, y), teamId, year: y, body: JSON.stringify(req.decisions), savedAt, expiresAtSec: header.expiresAtSec },
+      }));
+      return { savedAt };
+    });
+  }
+
+  /**
+   * ⚠ THE ROOM MARKET SHARE, IN THE SUBMIT THAT COMPLETES THE YEAR — the same
+   * rule as localTransport's storeSharesIfComplete, through the same
+   * roomSharesFor. Reads every team's results (the host's Query), and writes
+   * that year's set into the header's marketSharesByYear under a condition, so
+   * two last posts racing each other write a played year once; year 0's is
+   * rewritten as opening posts arrive, never by a smaller set. Readers show
+   * the latest known year's (shownShares in views.ts).
+   */
+  private async storeSharesIfComplete(code: string, year: number): Promise<void> {
+    const header = await this.getHeader(code);
+    if (header.marketSharesByYear?.[String(year)] && year !== 0) return;
+    const results = new Map<string, Record<string, TeamYearSummary>>();
+    for (const item of await this.queryPrefix(roomPk(code), RESULT_PREFIX)) {
+      const held = results.get(item.teamId) ?? {};
+      held[String(item.year)] = JSON.parse(item.body) as TeamYearSummary;
+      results.set(item.teamId, held);
+    }
+    const set = roomSharesFor(year, orderedRoster(header).filter(([, e]) => e.joined).map(([teamId, e]) => ({
+      name: e.name,
+      lockedYear: e.lockedYears ? e.lockedYears[String(year)] === true : e.lockedYear === year,
+      results: results.get(teamId) ?? {},
+    })), header.lines ?? LINE_ORDER);
+    const teams = set ? Object.keys(set.byTeam).length : 0;
+    if (!set || !mayStoreShares(header.marketSharesByYear, year, teams)) return;
+    const key = { pk: roomPk(code), sk: ROOM_HEADER_SK };
+    // A header written before the store existed has no map to set into.
+    if (!header.marketSharesByYear) {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table, Key: key,
+        UpdateExpression: 'SET marketSharesByYear = if_not_exists(marketSharesByYear, :empty)',
+        ExpressionAttributeValues: { ':empty': {} },
+      }));
+    }
+    try {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table, Key: key,
+        UpdateExpression: 'SET marketSharesByYear.#y = :m, updatedAt = :now ADD rev :one',
+        // ⚠ ONCE PER PLAYED YEAR, AND YEAR 0 NEVER BY A SMALLER SET. Two last
+        // posts racing each other write a played year once; opening posts
+        // arrive together, and one that read the results before a neighbour's
+        // landed computes fewer teams — it must not replace a fuller set.
+        ConditionExpression: year === 0
+          ? 'attribute_not_exists(marketSharesByYear.#y) OR size(marketSharesByYear.#y) <= :n'
+          : 'attribute_not_exists(marketSharesByYear.#y)',
+        ExpressionAttributeNames: { '#y': String(year) },
+        ExpressionAttributeValues: {
+          ':m': set.byTeam, ':now': Date.now(), ':one': 1,
+          ...(year === 0 ? { ':n': teams } : {}),
+        },
+      }));
+    } catch (e) {
+      if (!(e instanceof ConditionalCheckFailedException)) throw e;
+    }
   }
 
   // ---- advance ---------------------------------------------------------
@@ -1119,6 +1744,68 @@ export class DynamoSessionTransport implements SessionTransport {
     });
   }
 
+  editGame(req: EditGameRequest): Promise<EditGameResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      if (!req.years || typeof req.years !== 'object') {
+        throw new SessionError('INVALID_REQUEST', 'years must be an object of year settings.');
+      }
+      const h = hashToken(req.token);
+      // ⚠ READ, DECIDE, THEN WRITE CONDITIONED ON WHAT WAS READ — the host's
+      // hash, the room's rev and its current year — so an edit cannot land on a
+      // room that advanced (or was edited) between the read and the write and
+      // change a year that has since been played. A lost race re-reads and
+      // decides again, as join does.
+      let lastFailure: SessionError | null = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const header = await this.getHeader(code);
+        if (header.hostTokenHash !== h) throw new SessionError('NOT_HOST', 'Only the host may change the game.');
+        if (header.currentYear > header.yearCount) throw new SessionError('GAME_COMPLETE', 'The game is over: no year is left to change.');
+        const lines = header.lines ?? ['WC', 'GL', 'Property'] as CoverageLine[];
+        let out;
+        try {
+          out = applyGameEdit(
+            { developmentLevels: header.developmentLevels ?? {}, developmentLevelsByYear: header.developmentLevelsByYear, shocks: header.shocks ?? [] },
+            req.years,
+            { firstEditable: header.currentYear, yearCount: header.yearCount, lines, by: 'Host', now: Date.now() },
+          );
+        } catch (e) {
+          if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+          throw e;
+        }
+        const lockedTeams = Object.values(header.roster).filter(t => t.lockedYear === header.currentYear).map(t => t.name);
+        if (out.edits.length === 0) {
+          const view = await this.viewFor(header, 'host', null);
+          return { room: view.room, edits: [], lockedTeams };
+        }
+        try {
+          await this.db.doc.send(new UpdateCommand({
+            TableName: this.db.table,
+            Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
+            UpdateExpression: 'SET shocks = :s, developmentLevelsByYear = :d, shocksOn = :on, editHistory = :hist, updatedAt = :now ADD rev :one',
+            ConditionExpression: 'attribute_exists(sk) AND hostTokenHash = :h AND rev = :rev AND currentYear = :cy',
+            ExpressionAttributeValues: {
+              ':s': out.settings.shocks,
+              ':d': out.settings.developmentLevelsByYear ?? {},
+              // Pinned from the schedule as it stood before the first edit.
+              ':on': header.shocksOn ?? (header.shocks ?? []).length > 0,
+              ':hist': [...(header.editHistory ?? []), ...out.edits],
+              ':now': Date.now(), ':one': 1, ':h': h, ':rev': header.rev, ':cy': header.currentYear,
+            },
+          }));
+        } catch (err) {
+          if (!(err instanceof ConditionalCheckFailedException)) throw err;
+          lastFailure = new SessionError('TRANSPORT_FAILURE', 'The room changed while the edit was being made.', true);
+          continue;
+        }
+        const fresh = await this.getHeader(code);
+        const view = await this.viewFor(fresh, 'host', null);
+        return { room: view.room, edits: out.edits, lockedTeams };
+      }
+      throw lastFailure ?? new SessionError('TRANSPORT_FAILURE', 'The room kept changing under this edit.', true);
+    });
+  }
+
   advance(req: AdvanceRequest): Promise<AdvanceResponse> {
     return this.call(async () => {
       const code = requireString(req.code, 'code');
@@ -1132,6 +1819,36 @@ export class DynamoSessionTransport implements SessionTransport {
       }
       const e = req.expectedYear;
       const h = hashToken(req.token);
+
+      // ⚠ WHAT RIDES WITH THE YEAR CHANGE, in ONE transaction with it (so a team's
+      // browser, which plays the year the moment currentYear moves, always finds
+      // it): (1) real locking — a team unlocked for the year and never re-locked
+      // plays its previous locked decisions, so its unlocked set is deleted; (2)
+      // market competition — the year's market step, stored once.
+      const extra = header.currentYear === e && e <= header.yearCount ? await this.advanceExtras(header, e) : [];
+      if (extra.length > 0) {
+        const pk = roomPk(code);
+        const tx = await this.transact([{ Update: {
+          TableName: this.db.table,
+          Key: { pk, sk: ROOM_HEADER_SK },
+          UpdateExpression: 'SET currentYear = :next, updatedAt = :now ADD rev :one',
+          ConditionExpression: 'currentYear = :e AND currentYear <= yearCount AND hostTokenHash = :h',
+          ExpressionAttributeValues: { ':e': e, ':next': e + 1, ':now': Date.now(), ':one': 1, ':h': h },
+        } }, ...extra]);
+        if (!tx.ok) {
+          const old = await this.getHeader(code);
+          if (old.hostTokenHash !== h) throw new SessionError('NOT_HOST', 'Only the host may advance the year.');
+          if (old.currentYear === e + 1) {
+            const view = await this.freshView(code, 'host', null);
+            return { room: view.room, currentYear: old.currentYear, advanced: false };
+          }
+          if (old.currentYear > old.yearCount) throw new SessionError('GAME_COMPLETE', 'The game is already complete.');
+          throw new SessionError('WRONG_YEAR', `The room is on year ${old.currentYear}; that request expected year ${e}.`);
+        }
+        await this.writeLobbyRow(await this.getHeader(code));
+        const view = await this.freshView(code, 'host', null);
+        return { room: view.room, currentYear: e + 1, advanced: true };
+      }
 
       try {
         await this.db.doc.send(new UpdateCommand({
@@ -1175,13 +1892,94 @@ export class DynamoSessionTransport implements SessionTransport {
     });
   }
 
+  /**
+   * The writes that ride with advancing past year `y` (see advance): the
+   * unlocked-and-not-relocked decision items to delete, and with the market on
+   * the year's market step — MKY#<y> whole and each team's MKT#<teamId>#<y> slice.
+   */
+  private async advanceExtras(header: RoomHeader, y: number): Promise<TransactItem[]> {
+    const pk = roomPk(header.code);
+    const items: TransactItem[] = [];
+    const roster = Object.entries(header.roster ?? {});
+    for (const [teamId, entry] of roster) {
+      if (entry.lockedYears?.[String(y)] === false) {
+        items.push({ Delete: { TableName: this.db.table, Key: { pk, sk: decisionSk(teamId, y) } } });
+      }
+    }
+    const level = marketLevelOf(header.market);
+    if (level === 'off') return items;
+    // Each joined team's latest LOCKED year at or before y, and its lock's market input.
+    const latestYear = (entry: RosterEntry): number | null => {
+      if (entry.lockedYears) {
+        const ys = Object.entries(entry.lockedYears).filter(([k, v]) => v === true && Number(k) <= y).map(([k]) => Number(k));
+        return ys.length ? Math.max(...ys) : null;
+      }
+      return entry.lockedYear !== null && entry.lockedYear <= y ? entry.lockedYear : null;
+    };
+    const wanted = roster.filter(([, e]) => e.joined).map(([teamId, e]) => ({ teamId, e, year: latestYear(e) }));
+    const got = await this.getItems(wanted.filter(w => w.year !== null).map(w => ({ pk, sk: decisionSk(w.teamId, w.year!) })));
+    const inputOf = new Map<string, MarketLockInput>();
+    for (const it of got as Array<{ teamId?: string; market?: string }>) {
+      if (it.teamId && it.market) inputOf.set(it.teamId, JSON.parse(it.market) as MarketLockInput);
+    }
+    const prevItem = y > 1 ? (await this.db.doc.send(new GetCommand({
+      TableName: this.db.table, Key: { pk, sk: marketYearSk(y - 1) }, ConsistentRead: true,
+    }))).Item as { body?: string } | undefined : undefined;
+    const { byTeam } = rosterNumbers(header);
+    const stored = marketYearForAdvance({
+      code: header.code, seed: header.seed, level, lines: header.lines ?? LINE_ORDER, year: y,
+      roster: wanted.map(w => ({
+        name: w.e.name, teamNumber: byTeam.get(w.teamId) ?? w.e.teamNumber ?? 0,
+        latest: w.year !== null && inputOf.has(w.teamId) ? { year: w.year, input: inputOf.get(w.teamId)! } : undefined,
+      })),
+      previous: prevItem?.body ? JSON.parse(prevItem.body) as StoredMarketYear : undefined,
+    });
+    items.push({ Put: { TableName: this.db.table, Item: {
+      pk, sk: marketYearSk(y), year: y, body: JSON.stringify(stored), expiresAtSec: header.expiresAtSec,
+    } } });
+    for (const w of wanted) {
+      const slice = stored.result[w.e.name];
+      if (!slice) continue;
+      items.push({ Put: { TableName: this.db.table, Item: {
+        pk, sk: marketTeamSk(w.teamId, y), teamId: w.teamId, year: y, body: JSON.stringify(slice), expiresAtSec: header.expiresAtSec,
+      } } });
+    }
+    return items;
+  }
+
   // ---- read ------------------------------------------------------------
+
+  /**
+   * ⚠ AN OLDER ROOM'S TEAM NUMBERS, SAVED THE FIRST TIME IT IS READ. A header
+   * written before numbers existed has no counter; its teams are numbered by
+   * join order (rosterNumbers) and saved, so they never change after. Written
+   * only while the counter is still absent — a join or another read that got
+   * there first wins, with the same numbers. NO rev BUMP: the view is the same
+   * before and after, since it numbers the same way.
+   */
+  private async saveTeamNumbers(header: RoomHeader): Promise<void> {
+    if (header.nextTeamNumber !== undefined) return;
+    const { byTeam, next, missing } = rosterNumbers(header);
+    try {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table,
+        Key: { pk: roomPk(header.code), sk: ROOM_HEADER_SK },
+        UpdateExpression: 'SET nextTeamNumber = :next' + missing.map((_, i) => `, roster.#m${i}.teamNumber = :m${i}`).join(''),
+        ConditionExpression: 'attribute_exists(pk) AND attribute_not_exists(nextTeamNumber)',
+        ...(missing.length ? { ExpressionAttributeNames: Object.fromEntries(missing.map((id, i) => [`#m${i}`, id])) } : {}),
+        ExpressionAttributeValues: { ':next': next, ...Object.fromEntries(missing.map((id, i) => [`:m${i}`, byTeam.get(id)!])) },
+      }));
+    } catch (e) {
+      if (!(e instanceof ConditionalCheckFailedException)) throw e;
+    }
+  }
 
   read(req: ReadRequest): Promise<ReadResponse> {
     return this.call(async () => {
       const code = requireString(req.code, 'code');
       const token = req.token ? requireString(req.token, 'token') : undefined;
       const { header, viewerTeamId } = await this.getHeaderAndViewer(code, token ? hashToken(token) : null);
+      await this.saveTeamNumbers(header);
       const { role, teamId } = await this.resolve(header, token, viewerTeamId);
       return this.viewFor(header, role, teamId);
     });

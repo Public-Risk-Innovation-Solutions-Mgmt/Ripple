@@ -9,17 +9,20 @@
 // reads. A line whose losses wobble at one CV and are funded off a table built
 // at another is priced for a risk it does not run. On every line:
 //
-//   1. THE TABLE IN FORCE IS THE ONE FILED UNDER THE LINE'S BASELINE_CV —
-//      STATIC_CLF_TABLE[line] is BASELINE_CV_TABLES[BaselineCV][line], the
-//      same object.
-//   2. AND ITS CONTENTS ARE THAT CV'S: every stop from 30% to 90%, and where
+//   1. THE TABLE IN FORCE IS THE ONE FILED UNDER THE LINE'S BASELINE_CV,
+//      STRETCHED — STATIC_CLF_TABLE[line] is BASELINE_CV_TABLES[BaselineCV][line]
+//      stretched to the line's CLF_STRETCH_95 (stretchClfTable), value for
+//      value. RESTATED at wip/clf-stretch: it was the same object, unstretched.
+//      The stretch itself is clf-stretch-check's.
+//   2. AND ITS CONTENTS ARE THAT CV'S: the in-force table with its stretch
+//      taken back off (by the filed table's own k) — every stop from 30% to 90%, and where
 //      Expected sits, against the closed form — ordinary loss / expected is a
 //      mean-1 lognormal with CV sqrt((1 + B^2)(1 + M^2 H) − 1), H at the
 //      market's typical book. Within 0.003 on a stop and 1 point on Expected;
 //      neighbouring tables differ by 0.009 or more at the 70% stop and 0.025 or
 //      more at 90% (the 6% and 8% tables), so a table filed under the wrong
 //      CV cannot pass.
-//   3. THE ENGINE DRAWS THE YEAR FACTOR AT THE SAME VALUE: ordinaryLossFromUnits'
+//   3. THE ENGINE DRAWS THE YEAR FACTOR AT THE SAME VALUE: ordinaryLossFromMembers'
 //      year factor, recovered from its units, is exactly the draw on the line's
 //      labelled stream at BASELINE_CV — on many seeds and years, bit for bit.
 //   4. AND THE SLIDER AND REQUIRED CAPITAL READ THAT TABLE: staticClf at each
@@ -28,26 +31,27 @@
 //      stable-scenarios commit 2.
 //
 // ⚠ AND IT FAILS WHEN BROKEN — the CONTROLS feed the same predicates a table
-// filed under the wrong CV (each line given its neighbour's) and an engine
+// filed under the wrong CV (each line given its neighbour's — caught by 1:
+// stretched to a common 95% stop, GL's and Property's neighbours differ by
+// less than 2's tolerance) and an engine
 // drawing its year factor at the old 2%. Each must be caught.
 //
 // AND WITH THE SOURCE BROKEN BY HAND, MEASURED: BASELINE_CV.WC moved to 0.07,
 // which has no table — exit 1, tableAtBaselineCv throws at load. WC's
 // STATIC_CLF_TABLE pointed at GL's — exit 1, WC fails 1 and 2 (0.0518 off at
-// 90%). ordinaryLossFromUnits drawing its year factor at 0.02 — exit 1, all
+// 90%). ordinaryLossFromMembers drawing its year factor at 0.02 — exit 1, all
 // three lines fail 3 (14-35% off).
 // ============================================================================
 
-import { BASELINE_CV, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV } from '../../src/data/pricingParameters';
+import { BASELINE_CV, CLF_STRETCH_95, MEMBER_LUCK_CV, UNDERWRITING_MEMBERS } from '../../src/data/pricingParameters';
 import {
-  BASELINE_CV_TABLES, baselineCvKey, crossingOf, RESERVE_MARGIN_CONFIDENCE, staticClf, STATIC_CLF_TABLE, type ClfTable,
+  BASELINE_CV_TABLES, baselineCvKey, crossingOf, RESERVE_MARGIN_CONFIDENCE, staticClf, STATIC_CLF_TABLE, stretchClfTable, type ClfTable,
   type StaticClfLine,
 } from '../../src/data/clfTables';
 import {
-  drawOrdinaryFactor, ordinaryLossFromUnits, ordinaryLossRng, ordinaryYearCv, unitOrdinaryRng,
+  drawOrdinaryFactor, ordinaryLossFromMembers, ordinaryLossRng, ordinaryYearCv,
 } from '../../src/utils/ordinaryLoss';
 import { requiredCapital } from '../../src/utils/openingReserves';
-import { openingBookUnits, unitsOf } from '../../src/utils/bookUnits';
 import { normalCdf, normalInvCdf } from '../../src/utils/claimMath';
 
 const LINES: StaticClfLine[] = ['WC', 'GL', 'Property'];
@@ -62,10 +66,10 @@ function check(ok: boolean, what: string, detail = ''): void {
   if (!ok) failures.push(what);
 }
 
-// The closed form. H at the market's typical book, from the parameters alone.
-const H = (1 + UNIT_SIZE_CV ** 2) * (1 + UNIT_RISK_CV ** 2) / (UNIT_POOL_SHARE * UNIT_MARKET_COUNT);
+// The closed form. H over the book's equal members, from the parameters alone.
+const H = 1 / UNDERWRITING_MEMBERS;
 function analytic(b: number) {
-  const cv = Math.sqrt((1 + b * b) * (1 + UNIT_ORDINARY_OWN_CV ** 2 * H) - 1);
+  const cv = Math.sqrt((1 + b * b) * (1 + MEMBER_LUCK_CV ** 2 * H) - 1);
   const s = Math.sqrt(Math.log(1 + cv * cv));
   return {
     at: (p: number) => Math.exp(-s * s / 2 + s * normalInvCdf(p)),
@@ -73,15 +77,12 @@ function analytic(b: number) {
   };
 }
 
-// The engine's year factor for one line-year, recovered from its units: each
-// unit's realised / expected is the year factor x that unit's own factor.
+// The engine's year factor for one line-year, from its own draw on the
+// book's members: realised / expected is the year factor x the members' mean
+// of risk score x luck.
 function engineYearFactor(line: StaticClfLine, seed: number, year: number): number {
-  const units = unitsOf(4_242_424, line, openingBookUnits(4_242_424, line));
-  const o = ordinaryLossFromUnits(line, units, 100, year, seed);
-  const own = unitOrdinaryRng(seed, year, line);
-  const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
-  const u = o.byUnit[0];
-  return u.realised / u.expected / ownFactors[u.index];
+  const o = ordinaryLossFromMembers(line, 100, year, seed);
+  return o.realised / o.expected / (o.luck.reduce((a, f, i) => a + f * o.risk[i], 0) / o.luck.length);
 }
 
 type TableOf = (line: StaticClfLine) => ClfTable;
@@ -94,21 +95,27 @@ function grade(tableOf: TableOf, yearFactorOf: YearFactorOf, tag: string): void 
 
     // 1. Filed under its own CV.
     const filed = BASELINE_CV_TABLES[baselineCvKey(b)]?.[line];
-    check(filed !== undefined && tableOf(line) === filed, `1. ${line}: the table in force is the one filed under ${baselineCvKey(b)}`);
-
-    // 2. Its contents are that CV's.
     const t = tableOf(line);
+    const want = filed && stretchClfTable(filed, CLF_STRETCH_95[line]);
+    check(want !== undefined && t.stops.length === want.stops.length && t.clf.every((c, i) => c === want.clf[i] && t.stops[i] === want.stops[i]),
+      `1. ${line}: the table in force is the one filed under ${baselineCvKey(b)}, stretched to ${CLF_STRETCH_95[line]}`);
+
+    // 2. Its contents are that CV's, its stretch taken back off.
+    const k = filed ? (CLF_STRETCH_95[line] - 1) / (filed.clf[filed.stops.indexOf(95)] - 1) : NaN;
+    const base: ClfTable = { ...t, clf: t.clf.map(c => 1 + (c - 1) / k) };
     const a = analytic(b);
     let worst = 0, worstAt = 0;
     for (const p of STOPS) {
       const i = t.stops.indexOf(p);
-      const got = i >= 0 ? t.clf[i] : NaN;
+      const got = i >= 0 ? base.clf[i] : NaN;
       const d = Math.abs(got - a.at(p / 100));
       if (!(d <= worst)) { worst = d; worstAt = p; }
     }
     check(worst <= STOP_TOL, `2. ${line}: every stop 30-90% is the closed form at CV ${b}`,
       `worst ${worst.toFixed(4)} at ${worstAt}% (tolerance ${STOP_TOL})`);
-    const e = crossingOf(t);
+    const e = crossingOf(base);
+    check(crossingOf(t) === e || Math.abs(crossingOf(t) - e) < 1e-12, `2. ${line}: the stretch leaves Expected where it was`,
+      `${(100 * crossingOf(t)).toFixed(2)}% stretched, ${(100 * e).toFixed(2)}% unstretched`);
     check(Math.abs(e - a.expected) <= EXPECTED_TOL, `2. ${line}: Expected sits where CV ${b} puts it`,
       `${(100 * e).toFixed(1)}% against ${(100 * a.expected).toFixed(1)}%`);
 
@@ -152,7 +159,7 @@ const controlFails = (name: string, tableOf: TableOf, yearFactorOf: YearFactorOf
   check(caught.length >= LINES.length, `control: ${name} is caught by ${expect} on every line`, `${caught.length} caught`);
 };
 const NEIGHBOUR: Record<StaticClfLine, StaticClfLine> = { WC: 'Property', Property: 'GL', GL: 'WC' };
-controlFails('each line funded off its neighbour\'s table', l => STATIC_CLF_TABLE[NEIGHBOUR[l]], engineYearFactor, '2.');
+controlFails('each line funded off its neighbour\'s table', l => STATIC_CLF_TABLE[NEIGHBOUR[l]], engineYearFactor, '1.');
 controlFails('the engine drawing its year factor at the old 2%',
   l => STATIC_CLF_TABLE[l], (l, seed, y) => drawOrdinaryFactor(ordinaryLossRng(seed, y, l), 0.02), '3.');
 

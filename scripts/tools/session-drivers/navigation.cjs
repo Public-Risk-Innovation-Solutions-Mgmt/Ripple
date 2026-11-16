@@ -7,15 +7,21 @@
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/navigation.cjs
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
-const SOLO = ['Introduction', 'Rate Indication', 'Model', 'Annual Statement', 'Decisions', 'Decision History',
-  'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
-const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
-  'Result Spreadsheet'];
+// ⚠ SINCE THE TAB CLEANUP the two bars are the same: Results, Result
+// Spreadsheet, Financial Statements and Model are hidden in solo (Single player
+// and Test player) and multiplayer alike (tabs.tsx HIDDEN_TABS).
+const SOLO = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History', 'Year Walkthrough'];
+// The Year Walkthrough (the slot the Calculation Audit held) is on the solo bar
+// only: a hosted session hides it (tabs.tsx MULTIPLAYER_HIDDEN_TABS) — where the
+// figures come from is not shown to a team. year-walkthrough.cjs checks both.
+// The Market Survey (every team's standing, MarketSurveyTab) is on the hosted
+// bar only, after Decision History (tabs.tsx SOLO_HIDDEN_TABS).
+const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History', 'Market Survey'];
 // Investments is hidden too: its memorandum is in the Introduction tab (introduction.cjs).
-const HIDDEN = ['Game Setup', 'Investments', 'Dashboard', 'Departments'];
-const MULTI_HIDDEN = [...HIDDEN, 'Financial Statements', 'Results', 'Calculation Audit'];
+const HIDDEN = ['Game Setup', 'Investments', 'Dashboard', 'Departments', 'Results', 'Result Spreadsheet', 'Financial Statements', 'Model'];
+const MULTI_HIDDEN = [...HIDDEN, 'Year Walkthrough'];
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -39,7 +45,7 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
   await solo.reload();
   await solo.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
   ok(true, 'solo: a game still starts from the Game Setup page');
-  await solo.getByRole('button', { name: 'Start Simulation' }).click();
+  await solo.getByRole('button', { name: 'Single player', exact: true }).click();
   await solo.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = await bar(solo);
   ok(JSON.stringify(s) === JSON.stringify(SOLO), 'solo: the top bar, in order', s.join(' | '));
@@ -50,9 +56,14 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
   ok(/^Actuarial Rate Indication for Program Year \d{4}$/.test((await solo.locator('[data-testid="rate-indication"] h1').innerText()).trim()),
     'solo: Rate Indication opens on its own page, titled for the program year');
 
-  // A restored save asks for the hidden Dashboard; the first listed tab shows.
-  await solo.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  // A locked year lands on the Annual Statement (App's commit; Results, where it
+  // used to land, is hidden since the tab cleanup).
+  await lockAndConfirm(solo);
   await solo.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
+  await solo.waitForTimeout(500);
+  ok(await active(solo) === 'Annual Statement', 'solo: a locked year lands on the Annual Statement', await active(solo));
+
+  // A restored save asks for the hidden Dashboard; the first listed tab shows.
   await solo.reload();
   await solo.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
   await solo.waitForTimeout(800);

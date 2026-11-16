@@ -127,3 +127,22 @@ export function drawShockSchedule(seed: string, yearCount: number, stream: strin
 
   return chosenYears.map((yearNumber, i) => ({ shockId: chosen[i].id, yearNumber }));
 }
+
+/**
+ * SINGLE-PLAYER'S DRAW AT THE CATALOGUE'S ODDS (SOLO_SHOCK_DRAW 'catalogue',
+ * wip/shocks test build): each year from year 2, each of the twelve events
+ * fires with its scaled catalogue probability, independently — so a year can
+ * hold none, one, or more. Year 1 is shock-free. One stream, from the game
+ * seed, drawn once; a pure function of the seed string, the year count and
+ * the label, like drawShockSchedule.
+ */
+export function drawCatalogueSchedule(seed: string, yearCount: number, stream: string): ScheduledShock[] {
+  const rng = deriveSubRng(seedFromInstanceId(seed), yearCount, stream);
+  const events = drawableShocks();
+  const out: ScheduledShock[] = [];
+  // Every draw is taken, fired or not, so one event's firing cannot move another's.
+  for (let yearNumber = 2; yearNumber <= yearCount; yearNumber++) {
+    for (const e of events) if (rng.next() < e.probability) out.push({ shockId: e.id, yearNumber });
+  }
+  return out;
+}

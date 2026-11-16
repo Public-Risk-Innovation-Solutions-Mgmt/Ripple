@@ -2,26 +2,49 @@
 // to play a solo game as the app does.
 //
 // ⚠ THE SHOCK SCHEDULE IS DRAWN HERE, ONCE (utils/shockSchedule, on the solo
-// stream), by the same rule as the host's Randomise, and it rides on the
+// stream), by SOLO_SHOCK_DRAW — since wip/shocks each event at its catalogue
+// probability each year from year 2 (drawCatalogueSchedule) — and it rides on the
 // instance — so the save carries it and every world reads the same list. Each
-// world's instance is this one with its own seed (worlds.worldInstance), so the
-// events and their years are shared and only each firing's severity is drawn per
-// world. Before this, a solo game drew its timing per world, per year, by the
+// world's instance is this one with its own seed (worlds.worldInstance), and the
+// shocks are keyed on the game seed (shockLosses.shockSeedOf), so the events,
+// their years and their sizes are shared by every world. Before this, a solo game drew its timing per world, per year, by the
 // catalogue's probabilities ('nle_fire'); the engine keeps that path for
 // harnesses that build a bare instance, and no game the app makes takes it.
 //
 // ⚠ WITH SOLO_SHOCKS OFF (pending the data scientist) NO SCHEDULE IS DRAWN: the
 // instance carries none, its timing is still 'solo', and so nothing fires.
-import { SOLO_SHOCKS } from '../data/pricingParameters';
-import { generateGameInstance } from './instanceGenerator';
-import { drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
-import { seedFromInstanceId } from '../seedHash';
+import { SOLO_ADVERSE_DEVELOPMENT, SOLO_SHOCK_DRAW, SOLO_SHOCKS } from '../data/pricingParameters';
+import { scenarioInstance } from './instanceGenerator';
+import { gameIdentity } from './scenarios';
+import { drawCatalogueSchedule, drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
 import type { GameInstance, GameSetupSettings } from '../types/simulation';
+import type { ScheduledShock } from '../types/shocks';
+import { drawDevelopmentLevels, NO_DEVELOPMENT } from './adverseDevelopment';
 
-export function openSoloInstance(settings: GameSetupSettings): { setup: GameSetupSettings; instance: GameInstance } {
-  const schedule = SOLO_SHOCKS.enabled ? drawShockSchedule(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+export function openSoloInstance(
+  settings: GameSetupSettings,
+  // TEST PLAYER (wip/adverse-development): the host's setup, played solo — its
+  // own shock schedule, fixed or randomised on the host screen, in place of the
+  // draw. Its development levels ride on `settings.developmentLevels`. The save
+  // carries setup and instance, so a reload rebuilds the same game.
+  test?: { schedule: ScheduledShock[] },
+): { setup: GameSetupSettings; instance: GameInstance } {
+  const draw = SOLO_SHOCK_DRAW === 'catalogue' ? drawCatalogueSchedule : drawShockSchedule;
+  // ⚠ DRAWN ON THE GAME'S IDENTITY — a scenario's fixed seed (scenarios.ts),
+  // never the number the player picked — like everything else in the game.
+  const { gameId } = gameIdentity(settings.instanceId);
+  const schedule = test
+    ? test.schedule
+    : SOLO_SHOCKS.enabled ? draw(gameId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+  // THE DEVELOPMENT LEVELS, stored on the setup so the save carries them. Test
+  // player brings the ones chosen on the host's screen. SINGLE PLAYER HAS NONE
+  // (SOLO_ADVERSE_DEVELOPMENT off): every line Off and no level drawn — single
+  // player is for learning the game, development a tool for hosted and test
+  // games. Switched on, it would draw each line's level from the seed.
+  const developmentLevels = settings.developmentLevels
+    ?? (SOLO_ADVERSE_DEVELOPMENT.enabled ? drawDevelopmentLevels(gameId) : { ...NO_DEVELOPMENT });
   return {
-    setup: { ...settings, shockTiming: 'solo' },
-    instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),
+    setup: { ...settings, shockTiming: 'solo', developmentLevels, ...(test ? { testPlayer: true } : {}) },
+    instance: scenarioInstance(settings.instanceId, schedule),
   };
 }

@@ -6,6 +6,7 @@
 import * as XLSX from 'xlsx';
 import type { CoverageLine, LineResultSet, ResultSet } from '../types/simulation';
 import { formatNumber, formatPct } from './formatters';
+import { SHOCK_EVENT_LABELS } from './shockLosses';
 
 // SpreadsheetMetric functions are typed against LineResultSet (the smaller
 // shape) so the SAME metric list works for both the Pool tab (ResultSet[],
@@ -372,9 +373,8 @@ function sheetFor(results: LineResultSet[], metrics: SpreadsheetMetric[]): XLSX.
  * A result year's label, played or pre-game — the Financial Statements'
  * convention: "Year 2 / 2028" for a played year, "Year 0 / 2026 (Opening)" for
  * the last pre-game year, "2025 (History)" before it. Pre-game years are listed
- * because results run one year behind (utils/knownYears): after the first lock
- * the newest known year is 2026, the opening, and a page of played years only
- * would show nothing.
+ * because before the first lock the newest known year is 2026, the opening
+ * (utils/knownYears), and a page of played years only would show nothing.
  */
 export function resultYearLabel(r: { yearNumber: number; calendarYear: number }): string {
   return r.yearNumber > 0 ? `Year ${r.yearNumber} / ${r.calendarYear}`
@@ -395,7 +395,10 @@ export function buildAoaRows(results: LineResultSet[], metrics: SpreadsheetMetri
 export function buildResultsWorkbook(
   lockedResults: ResultSet[],
   activeLines: CoverageLine[],
-  baseMetrics: SpreadsheetMetric[]
+  baseMetrics: SpreadsheetMetric[],
+  // The Year Walkthrough sheet's rows (utils/yearWalkthrough), when the caller
+  // has a game to walk through; none, or none played, writes no sheet.
+  walkthroughRows?: (string | number)[][],
 ): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
   const orderedLines = FIXED_LINE_ORDER.filter(l => activeLines.includes(l));
@@ -449,6 +452,12 @@ export function buildResultsWorkbook(
     XLSX.utils.book_append_sheet(wb, ws, 'Shock Events');
   }
 
+  // THE YEAR WALKTHROUGH — last, so every sheet before it is as it was. The
+  // seed is in it only where the caller's header carried it (Test player).
+  if (walkthroughRows && walkthroughRows.length > 0) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(walkthroughRows), 'Year Walkthrough');
+  }
+
   return wb;
 }
 
@@ -465,7 +474,7 @@ function buildShockRows(lockedResults: ResultSet[]): (string | number)[][] {
   for (const r of lockedResults) {
     for (const s of r.shockEvents ?? []) {
       rows.push([
-        r.yearNumber, r.calendarYear, s.shockId, s.name, s.band, s.horizon, s.yearFired,
+        r.yearNumber, r.calendarYear, s.shockId, SHOCK_EVENT_LABELS[s.shockId]?.name ?? s.name, s.band, s.horizon, s.yearFired,
         s.linesAffected.join(' + '),
         Math.round(s.attributableGrossLoss),
         Number.isInteger(s.attributableClaims) ? s.attributableClaims : Number(s.attributableClaims.toFixed(2)),

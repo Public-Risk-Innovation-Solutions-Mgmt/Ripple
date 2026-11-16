@@ -7,7 +7,11 @@
 // record. Where they differ, the difference is named at the function and is
 // deliberate.
 //
-// ⚠ ONE DIFFERENCE IS THE POINT: OTHER TEAMS' RESULTS ARE NOT SENT TO PLAYERS.
+// ⚠ ONE DIFFERENCE IS THE POINT: OTHER TEAMS' RESULTS ARE NOT SENT TO PLAYERS
+// — not as resultsByYear. ⚠ Since the Market Survey tab a player or viewer gets
+// every team's STANDING (RoomView.standings): the host's Teams table's figures
+// for the year it shows and nothing else, built by session/standings, which
+// both transports call.
 // localTransport.ts's teamView fills resultsByYear for EVERY caller and says so
 // as a live over-send and privacy gap. keys.ts's READ section designs it closed:
 // the host's query fetches every team's R# range and nobody else's does. So here
@@ -22,10 +26,15 @@
 // ============================================================================
 
 import type {
-  CallerRole, CallerView, JsonValue, PriorDevelopment, RoomStatus, RoomView,
+  CallerRole, CallerView, GameEdit, JsonValue, PriorDevelopment, DevelopmentLevels, RoomMarketShares, RoomStatus, RoomView,
   ScheduledShockSpec, TeamView, TeamYearSummary,
 } from '../contract';
+import { teamNumbers } from '../contract';
+import type { MarketLevel, MarketTeamLineResult, StoredMarketYear } from '../contract';
+import { marketLevelOf } from '../market';
 import type { CoverageLine } from '../../types/simulation';
+import { shownShares, type RoomSharesByYear } from '../marketShares';
+import { buildStandings } from '../standings';
 
 /** Canonical order, and the fallback for a header written before the host
  *  picked the lines. Mirrors rooms.ts's own copy. */
@@ -48,8 +57,28 @@ export interface RosterEntry {
    * it; JoinResponse.pin is the only place this ever leaves the header.
    */
   pin?: string;
+  /**
+   * ⚠ HASHED, NOT PLAIN — unlike `pin` above. A recovery code is the one
+   * secret a device hands to a PERSON rather than to a wire: writing it in
+   * the clear here would mean anyone who ever reads this header (the host
+   * screen, a DynamoDB console, a support engineer) could reclaim the team
+   * themselves. Checked with server/dynamo.ts's hashesMatch — the caller's
+   * candidate is hashed and compared, never the other way round — and never
+   * returned anywhere except JoinResponse.recoveryCode, once, at creation.
+   * Absent on a team created before this feature existed; reclaimTeam treats
+   * that the same as any other wrong guess (server/rooms.ts's
+   * PLACEHOLDER_RECOVERY_HASH) rather than branching on it.
+   */
+  recoveryHash?: string;
   /** Year (as a string) -> true, for every year this team has a result posted. */
   posted: Record<string, boolean>;
+  /**
+   * Year (as a string) -> true, for every year this team locked decisions for.
+   * lockedYear holds only the newest, and the room market share needs to know
+   * whether a team locked a PARTICULAR year (a team that did not is stopped).
+   * Absent on an entry written before it existed; read as lockedYear alone.
+   */
+  lockedYears?: Record<string, boolean>;
   /**
    * Epoch millis of the join that created the team.
    *
@@ -60,6 +89,12 @@ export interface RosterEntry {
    * teamId breaks a same-millisecond tie so the order is at least stable.
    */
   joinedAt: number;
+  /**
+   * The team's number in the room (contract teamNumbers): given at join, never
+   * changed. ⚠ OPTIONAL ON THE ITEM: a team written before numbers existed has
+   * none, and rosterNumbers gives it one by join order.
+   */
+  teamNumber?: number;
 }
 
 /** The ROOM item, as stored. Every secret in it is a hash. */
@@ -79,11 +114,22 @@ export interface RoomHeader {
   // buildRoomView defaults them rather than returning a room with no game.
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
+  developmentLevels?: DevelopmentLevels;
+  /** Mid-game edits (EditGameRequest). Absent on a header never edited. */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
+  shocksOn?: boolean;
+  editHistory?: GameEdit[];
   /** Taken off the lobby by the host. Absent reads as false. */
   hidden?: boolean;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   roster: Record<string, RosterEntry>;
+  /** The number the room gives its next team. ⚠ Absent on a room written before numbers existed. */
+  nextTeamNumber?: number;
+  /** Every year's room market shares, as each year completed — see RoomMarketShares. */
+  marketSharesByYear?: RoomSharesByYear;
+  /** Market competition's level. ⚠ Absent on a header written before it existed: reads 'off'. */
+  market?: MarketLevel;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -105,6 +151,25 @@ export interface YearItem {
 export interface Fetched {
   results: Map<string, Record<string, TeamYearSummary>>;
   decisions: Map<string, Record<string, JsonValue>>;
+  /**
+   * EVERY TEAM'S RESULTS, fetched for a player's or a viewer's STANDINGS only
+   * (the Market Survey tab) and read by nothing else: TeamView.resultsByYear
+   * still carries the caller's own team alone. Absent for the host and an
+   * anonymous caller.
+   */
+  standings?: Map<string, Record<string, TeamYearSummary>>;
+  /**
+   * DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. A PLAYER'S OWN draft for
+   * the room's current year, fetched by key (keys.ts's draftSk) and ONLY for a
+   * player — never a viewer, matching CallerView.draft's own restriction.
+   * Absent when nothing was fetched (every other role) or the team has no
+   * draft saved.
+   */
+  draft?: { yearNumber: number; decisions: JsonValue; savedAt: number };
+  /** MARKET COMPETITION, HOST ONLY: every year's whole step (MKY# items). */
+  marketYears?: Record<string, StoredMarketYear>;
+  /** MARKET COMPETITION, A PLAYER'S OR VIEWER'S: its own team's slice by year (MKT#<teamId># items). */
+  marketTeam?: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>>;
 }
 
 export function statusOf(header: RoomHeader): RoomStatus {
@@ -133,6 +198,22 @@ export function orderedRoster(header: RoomHeader): Array<[string, RosterEntry]> 
     a.joinedAt - b.joinedAt || (ia < ib ? -1 : ia > ib ? 1 : 0));
 }
 
+/**
+ * Every team's number, by teamId, and the room's next number (contract
+ * teamNumbers) — a team without one (an older room) numbered by join order.
+ * `missing` lists the teams numbered here rather than read off the item, which
+ * rooms.ts then saves.
+ */
+export function rosterNumbers(header: RoomHeader): { byTeam: Map<string, number>; next: number; missing: string[] } {
+  const ordered = orderedRoster(header);
+  const { numbers, next } = teamNumbers(ordered.map(([, e]) => e), header.nextTeamNumber);
+  return {
+    byTeam: new Map(ordered.map(([id], i) => [id, numbers[i]])),
+    next,
+    missing: ordered.filter(([, e]) => e.teamNumber === undefined).map(([id]) => id),
+  };
+}
+
 // ⚠ DECISIONS ARE HOST-ONLY, AND THE STRIP IS HERE RATHER THAN IN THE QUERY.
 // The role-keyed Query already decides WHICH teams' R# rows a caller gets —
 // every team for the host, its own for a player or viewer, none for anonymous.
@@ -156,9 +237,11 @@ export function buildTeamView(
   currentYear: number,
   results: Record<string, TeamYearSummary> | undefined,
   role: CallerRole = 'anonymous',
+  teamNumber: number = entry.teamNumber ?? 0,
 ): TeamView {
   return {
     name: entry.name,
+    teamNumber,
     lines: [...entry.lines],
     joined: entry.joined,
     lockedYear: entry.lockedYear ?? null,
@@ -184,11 +267,37 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     expectedTeams: header.expectedTeams,
     lines: [...(header.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(header.priorDevelopment ?? {}) },
+    ...(header.developmentLevels ? { developmentLevels: { ...header.developmentLevels } } : {}),
+    ...(header.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(header.developmentLevelsByYear)) } : {}),
+    ...(header.shocksOn !== undefined ? { shocksOn: header.shocksOn } : {}),
+    ...(role === 'host' && header.editHistory ? { editHistory: header.editHistory.map(e => ({ ...e })) } : {}),
+    market: marketLevelOf(header.market),
+    ...(role === 'host' && fetched.marketYears && Object.keys(fetched.marketYears).length > 0 ? { marketByYear: fetched.marketYears } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
-    teams: orderedRoster(header).map(([teamId, entry]) =>
-      buildTeamView(entry, header.currentYear, fetched.results.get(teamId), role)),
+    teams: (() => {
+      const { byTeam } = rosterNumbers(header);
+      return orderedRoster(header).map(([teamId, entry]) =>
+        buildTeamView(entry, header.currentYear, fetched.results.get(teamId), role, byTeam.get(teamId)));
+    })(),
+    // Host only, the latest known year's, as in localTransport: a player gets its own on CallerView.
+    ...(role === 'host' && shownShares(header, header.marketSharesByYear)
+      ? { marketShares: shownShares(header, header.marketSharesByYear) } : {}),
+    // EVERY TEAM'S STANDING, a player's or a viewer's (the Market Survey tab):
+    // the host's table's figures alone (session/standings), as localTransport.
+    ...((role === 'player' || role === 'viewer') && fetched.standings
+      ? { standings: (() => {
+        const { byTeam } = rosterNumbers(header);
+        return buildStandings(
+          orderedRoster(header).map(([teamId, entry]) => ({
+            name: entry.name, teamNumber: byTeam.get(teamId) ?? entry.teamNumber ?? 0, lines: entry.lines,
+            results: fetched.standings!.get(teamId),
+          })),
+          header.currentYear,
+          shownShares(header, header.marketSharesByYear),
+        );
+      })() } : {}),
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
     rev: header.rev,
@@ -206,14 +315,24 @@ export function buildCallerView(
   teamId: string | null,
   entry: RosterEntry | null,
   fetched: Fetched,
+  shares?: RoomMarketShares,
 ): CallerView {
   const view: CallerView = { role };
   if (!teamId || !entry) return view;
+
+  const share = shares?.byTeam[entry.name];
+  if (share) view.marketShare = { year: shares!.year, pool: share.pool, byLine: { ...share.byLine } };
 
   view.teamName = entry.name;
   view.lines = [...entry.lines];
   const decisions = fetched.decisions.get(teamId);
   if (decisions && Object.keys(decisions).length > 0) view.decisionsByYear = { ...decisions };
+  // ⚠ PLAYER ONLY, ENFORCED BY THE FETCH NOT BY A CHECK HERE — rooms.ts's
+  // viewFor only ever populates fetched.draft when role === 'player', so a
+  // viewer's call (which reaches this same function, for the team it watches)
+  // never has one to attach.
+  if (fetched.draft) view.draft = { ...fetched.draft };
+  if (fetched.marketTeam && Object.keys(fetched.marketTeam).length > 0) view.marketByYear = fetched.marketTeam;
 
   const postedYears = Object.keys(entry.posted ?? {})
     .map(Number)

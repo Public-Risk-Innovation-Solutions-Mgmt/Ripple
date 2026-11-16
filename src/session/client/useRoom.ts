@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { sessionTransport } from '../index';
 import { SessionError, isSessionError, type CallerView, type RoomView } from '../contract';
 import { nextPollDelay, scheduleFor } from './pollSchedule';
+import { SESSION_POLL_INTERVAL_MS } from '../../data/pricingParameters';
 
 export interface UseRoomResult {
   room: RoomView | null;
@@ -41,7 +42,7 @@ export interface UseRoomResult {
   refresh: () => void;
 }
 
-export function useRoom(code: string, token: string | undefined, intervalMs = 3000): UseRoomResult {
+export function useRoom(code: string, token: string | undefined, intervalMs = SESSION_POLL_INTERVAL_MS): UseRoomResult {
   const [room, setRoom] = useState<RoomView | null>(null);
   const [you, setYou] = useState<CallerView | null>(null);
   const [error, setError] = useState<SessionError | null>(null);

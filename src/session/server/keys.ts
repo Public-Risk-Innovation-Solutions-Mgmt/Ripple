@@ -90,7 +90,10 @@
 //                               expiresAtSec (the room's, set once),
 //                               hostTokenHash, and the ROSTER:
 //                                 { [teamId]: { name, lines, joined, lockedYear,
-//                                               tokenHash, posted: { [year]: true } } }
+//                                               tokenHash, recoveryHash,
+//                                               posted: { [year]: true } } }
+//                               recoveryHash is HASHED, like tokenHash — unlike
+//                               pin, which is plain — see views.ts's RosterEntry.
 //
 // ⚠ WHAT THE LINES AND PRIOR DEVELOPMENT COST THE HEADER ITEM: NOTHING THAT
 // MATTERS. `lines` is at most three short strings and `priorDevelopment` at most
@@ -211,6 +214,19 @@
 // ROOM#<code>. See pinPk below for the key, item shape and why a PIN is not
 // treated as a secret the way a bearer token is.
 //
+// ⚠ AND ONE MORE ITEM THAT IS IN A ROOM'S PARTITION, UNLIKE THE THREE ABOVE —
+// THE RECLAIM ATTEMPT COUNTER. A reclaimTeam call is already scoped to one
+// team of one room (the header read resolves teamName first), so there is no
+// "before a code is known" problem to solve — see attemptSk below for the key
+// and its one deliberate exception to "every item carries the room's own
+// expiresAtSec."
+//
+// ⚠ AND A FIFTH, ALSO IN THE ROOM'S PARTITION — THE HOST HAND-OFF TOKEN. Same
+// reasoning as the attempt counter: createHandoff already has the room and
+// the team in hand (the host supplies the code, names the team), so this
+// needs no global resolution either. See handoffSk below for the key and its
+// own fixed-window expiresAtSec.
+//
 // WHY THIS SHAPE, point by point:
 //
 //   * THE ROSTER IS IN THE HEADER because every `read` fetches the header
@@ -317,10 +333,50 @@
 //   join, viewer        Transact: Put VIEW#, ConditionCheck     VIEW# not exists; TOKEN#
 //                       TOKEN#. No rev bump — viewers are not   not exists (the token
 //                       in RoomView                             claim, above)
+//   reclaimTeam, rejoin none (the caller's token already         team.tokenHash already
+//                       matches the roster — short-circuits      equals hash(token): a read,
+//                       before the limiter or the hash compare)  not a write
+//   reclaimTeam, wrong  Update ATTEMPT#<teamId>: ADD #cnt :one,  none — unconditional; creates
+//                       SET expiresAtSec =                      the item if absent, and the
+//                       if_not_exists(expiresAtSec, :exp)        if_not_exists is what makes
+//                                                                the window FIXED rather than
+//                                                                extended by each failure
+//   reclaimTeam, right  Transact: Update ROOM                   roster.#tid.tokenHash = :old
+//                       (roster.#tid.tokenHash = :new, ADD      (the hash just read); TOKEN#
+//                       rev, + recoveryHash too if this was a   <newHash> not exists; HANDOFF#
+//                       handoff), Put TOKEN#<newHash>, Delete   <hash> exists (handoff path only)
+//                       TOKEN#<oldHash>, Delete HANDOFF#<hash>
+//                       (handoff path only) — then (outside the
+//                       transaction) Delete ATTEMPT#<teamId>
+//                       (recovery-code path only)
+//   createHandoff       Put HANDOFF#<hash>                      attribute_not_exists(pk) — a
+//                                                                collision at 32 random
+//                                                                characters is not worth a
+//                                                                retry loop over
 //   submit, decisions   Transact: Update ROOM (lockedYear,      currentYear = :y
-//                       ADD rev), Put D#
+//                       ADD rev), Put D#, Delete                (the Delete is
+//                       DRAFT#<teamId>#<yyy>                    unconditioned —
+//                                                                a maybe-absent
+//                                                                item's delete
+//                                                                is already a
+//                                                                no-op)
 //   submit, result      Transact: Update ROOM (posted.<y>,      currentYear >= :y AND
 //                       ADD rev), Put R#                        :y >= 0
+//   saveDraft           Put DRAFT#<teamId>#<yyy>                none — an
+//                                                                application
+//                                                                guard (year =
+//                                                                current year,
+//                                                                team not
+//                                                                locked for
+//                                                                it), checked
+//                                                                before the
+//                                                                write rather
+//                                                                than
+//                                                                conditioned —
+//                                                                Mike's guide
+//                                                                asks for no
+//                                                                transaction
+//                                                                here
 //   advance             Update ROOM only: currentYear = :e+1,   currentYear = :e AND
 //                       ADD rev                                 currentYear <= yearCount
 //                                                               AND hostTokenHash = :h
@@ -414,6 +470,12 @@
 //                                                     played year and the harness
 //                                                     reads a player's OWN
 //                                                     resultsByYear back. ~9 KB.
+//                   AND BatchGetItem R#<every teamId>#<currentYear - 1>
+//                                                     — THE STANDINGS (the Market
+//                                                     Survey tab): one item per
+//                                                     team, the year the table
+//                                                     shows, slimmed to its
+//                                                     figures (session/standings).
 //        viewer     as the player it watches
 //        anonymous  the header alone, token hashes stripped
 //
@@ -501,6 +563,12 @@
 //      players are ever shown other teams, every player's poll becomes
 //      host-sized — ~87 KB x every client x every change. That wants a small
 //      per-team "latest figures" entry in the header, not the full history.
+//      ⚠ NOW SHOWN (the Market Survey tab), AND BOUNDED, NOT HOST-SIZED: a
+//      player's read fetches ONE R# item per team — the year the table shows —
+//      by key, and the response carries only the table's figures for that year
+//      (session/standings.buildStandings). The read still grows with the
+//      teams (an R# item is the whole summary, ~9 KB); the per-team header
+//      entry above remains the way to shrink it if the event needs it.
 //   5. REMOVING A ROOM. It is ~220 items, not one. Every item needs its own
 //      expiresAtSec copied from the header's (see WHAT SETS THE EXPIRY), TTL
 //      removes them one by one rather than as a room, and an explicit delete is
@@ -594,7 +662,8 @@ export function nameSk(teamName: string): string {
 
 /**
  * One team's decisions for one year. ⚠ uw-hybrid: the per-line block carries
- * renewalsDeclined and newBusinessRejection in place of renewalCut and
+ * nonRenewal and newMembers (simple underwriting; uw-hybrid's renewalsDeclined
+ * and newBusinessRejection before them) in place of renewalCut and
  * intakeLevel — two scalars for two, so the item's size and every figure above
  * are unchanged. Stored whole; nothing here reads them.
  */
@@ -692,3 +761,96 @@ export function pinPk(pin: string): string {
 
 /** The PIN index item's sort-key VALUE. */
 export const PIN_SK = 'PIN';
+
+/**
+ * ⚠ SAME-PARTITION, NOT A GLOBAL INDEX — unlike pinPk/createPk. A reclaim
+ * attempt is already scoped to one team of one room by the time it is
+ * checked (the header read resolves teamName -> teamId first), so there is
+ * no "resolve before a code is in hand" problem the way CREATE#/PIN# have.
+ * Keyed by teamId, not by anything derived from the guessed code, so every
+ * wrong guess against this team — whatever string was typed — increments the
+ * SAME counter: the limiter rate-limits GUESSES AT THIS TEAM, not any one
+ * guessed string.
+ *
+ * ⚠ ITS expiresAtSec IS NOT THE ROOM'S, UNLIKE EVERY OTHER ITEM HERE. The
+ * item's whole purpose is a FIXED 15-minute window from the first failure,
+ * set with `SET expiresAtSec = if_not_exists(expiresAtSec, :exp)` on every
+ * failed attempt (rooms.ts's reclaimTeam) — tying it to the room's
+ * (potentially days-long) expiresAtSec would defeat that window. Nothing
+ * reads this item relying on TTL having fired: a reader always checks count
+ * AND expiresAtSec > now itself, the same "past its stamp is gone, whether or
+ * not TTL removed it yet" rule the header read already uses.
+ */
+export function attemptSk(teamId: string): string {
+  return checkSortKey(`ATTEMPT#${checkTeamId(teamId)}`);
+}
+
+/**
+ * ⚠ SAME-PARTITION, LIKE attemptSk — NOT A GLOBAL INDEX LIKE pinPk. createHandoff
+ * already has the room and the team in hand when it writes this (the host
+ * supplies the room's own code, and the team is resolved by name in the same
+ * call), so there is no "resolve before a code is known" problem the PIN
+ * index exists to solve.
+ *
+ * ⚠ ITS expiresAtSec IS NOT THE ROOM'S, same exception attemptSk already is —
+ * 10 minutes fixed from creation (server/rooms.ts's createHandoff), not the
+ * room's own, potentially days-long, expiry. A reader checks the stamp
+ * itself rather than trusting TTL to have swept an expired one away yet.
+ *
+ * ⚠ CONSUMED BY A CONDITIONAL DELETE, INSIDE THE SAME TRANSACTION THAT
+ * ROTATES THE TOKEN (server/rooms.ts's reclaimTeam) — that is what makes the
+ * link single-use. A second reclaim attempt against an already-consumed
+ * handoff loses that condition and the whole rotation fails with it.
+ */
+export function handoffSk(hash: string): string {
+  if (hash.length === 0) throw new RangeError('A handoff-token hash must be non-empty.');
+  return checkSortKey(`HANDOFF#${hash}`);
+}
+
+/**
+ * ⚠ DEVICE SWITCHING'S THIRD FEATURE — DRAFT SAVING. A team's unsubmitted
+ * decisions for ONE year, auto-saved every few seconds while the form is
+ * open. Same prefix shape as decisionSk/resultSk, not attemptSk/handoffSk: it
+ * carries the ROOM'S OWN expiresAtSec rather than a fixed short window — Mike's
+ * guide names no TTL exception for this item, and there is no reason to invent
+ * one a draft that simply outlives its own usefulness once the room expires.
+ *
+ * ⚠ OVERWRITTEN BY YEAR, NEVER ACCUMULATED. A team only ever has ONE live
+ * draft — for whichever year the room is currently deciding — so saveDraft
+ * always targets this same key for the room's current year, re-Put each time
+ * rather than building a history the way decisionSk's per-year keys do.
+ *
+ * ⚠ DELETED BY submit, IN THE SAME TRANSACTION THAT LOCKS THE YEAR. That is
+ * what makes "a locked year always wins over its draft" true: the item is
+ * gone atomically with the lock, so no read between those two writes can ever
+ * see a stale draft for a year that is already locked. See rooms.ts's submit.
+ */
+export function draftSk(teamId: string, year: number): string {
+  return `DRAFT#${checkTeamId(teamId)}#${padYear(year)}`;
+}
+
+/**
+ * MARKET COMPETITION — one year's whole market step (StoredMarketYear: the
+ * inputs used and every team's result), written ONCE in the advance's
+ * transaction. Read by the next advance (last year's book risk and untaken
+ * non-renewals), by the host's view (Teams columns, Charts line, stale flags),
+ * and by the gate. The body is a JSON string, as D#/R# bodies are.
+ */
+export function marketYearSk(year: number): string {
+  return `MKY#${padYear(year)}`;
+}
+/** Every year's market step — the host's read range. */
+export const MARKET_YEAR_PREFIX = 'MKY#';
+
+/**
+ * MARKET COMPETITION — one team's own slice of one year's step, written in the
+ * same transaction as marketYearSk. A player's (and its viewers') read range is
+ * marketTeamPrefix, so a team's poll reads its own small items, never the whole
+ * room's step.
+ */
+export function marketTeamSk(teamId: string, year: number): string {
+  return `MKT#${checkTeamId(teamId)}#${padYear(year)}`;
+}
+export function marketTeamPrefix(teamId: string): string {
+  return `MKT#${checkTeamId(teamId)}#`;
+}

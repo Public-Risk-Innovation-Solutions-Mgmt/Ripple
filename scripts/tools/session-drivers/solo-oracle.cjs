@@ -1,15 +1,18 @@
 // THE SOLO ORACLE. Walks every tab of the solo game and fingerprints what each
 // one renders. Run before and after the extraction: the derivation moving files
 // is not the derivation changing, so every fingerprint must match exactly.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
 // The top bar as src/game/tabs.tsx lists it (Dashboard, Departments and
-// Investments are hidden), plus Membership, which records TAB-ABSENT.
+// Investments are hidden), plus Membership, which records TAB-ABSENT. ⚠ SINCE
+// THE TAB CLEANUP Financial Statements, Results and Result Spreadsheet are
+// hidden too and record TAB-ABSENT the same way; they stay listed so a walk
+// before the cleanup and one after compare tab for tab.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-               'Calculation Audit', 'Membership'];
+               'Year Walkthrough', 'Membership'];
 const LINE_VIEWS = ['Pool', "Workers' Compensation"];
 
 const h = s => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -33,7 +36,7 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
   if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
   else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
-  await page.getByRole('button', { name: /Start/i }).last().click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 30000 });
 
   const fingerprints = {};
@@ -64,11 +67,14 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   // Advance two years through the real solo path and walk again — this exercises
   // lockedResults, the results pages and the audit cards with real data.
   for (let i = 0; i < 2; i++) {
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     // A loan prompt would block; resolve it by declining if it appears.
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+    // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
+    const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+    if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   }
   await walk('year3');
 

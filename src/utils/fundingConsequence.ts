@@ -31,6 +31,7 @@
 // the components bit-for-bit and MEASURES the post-movement residual instead of
 // pretending it is zero.
 
+import type { AggregateCoverQuote } from './aggregateCover';
 import { SLIDER_RANGES } from '../data/defaultAssumptions';
 import { lookupCLF, currentPurePremiumPer100, aggregateTermsRetainedPer100 } from './simulationEngine';
 import type { ExperienceBasis } from './experienceRating';
@@ -126,16 +127,23 @@ export interface FundingConsequence {
     clf: number;
     purePremiumGroundUp: number;
     purePremiumRetained: number;
+    /** ADMIN_SHARE_OF_PREMIUM: admin's share of the rate before reinsurance. */
+    adminShare: number;
+    /** Admin charged per $100: adminShare x the rate before reinsurance. */
     adminRatePer100: number;
-    riskControlAndContingencyPer100: number;
+    /** The Risk Control slider the quote was struck at (0 to 0.05). */
+    riskControlPct: number;
+    /** The Risk Control charge per $100: (pool premium + admin) x the slider. */
     riskControlPer100: number;
-    contingencyPer100: number;
+    /** The Indicated rate's own admin and risk control, per $100. */
+    indicatedAdminPer100: number;
     indicatedRiskControlPer100: number;
-    indicatedContingencyPer100: number;
     reinsRatePer100: number;
     firstIndicationPer100: number;
     finalRatePer100: number;
     expectedToSurplus: number;
+    /** The aggregate cover's quote, when one is bought — its price is in reinsRatePer100. */
+    aggregateCover?: AggregateCoverQuote;
   };
   // charge / expected loss — "the load"
   load: number;
@@ -199,6 +207,8 @@ export interface FundingConsequenceBook {
   newStackRiskControlPct?: number;
   /** The game's shock switch (shockLosses.gameShocksOn) — the cover's price follows it. Absent is on. */
   shocks?: boolean;
+  /** The aggregate cover on attritional losses (LineDecisionSet.aggregateCover); absent is None. */
+  aggregateCover?: string;
 }
 
 function ratesAt(
@@ -289,21 +299,23 @@ function ratesAt(
           aggregateStopLevel: book.aggregateStopLevel,
           reinsuranceOption: book.reinsuranceOption,
           shocks: book.shocks,
+          aggregateCover: book.aggregateCover,
         });
         return {
           clf: n.clf,
           purePremiumGroundUp: n.groundUpPurePremiumPer100,
           purePremiumRetained: n.retainedPurePremiumPer100,
+          adminShare: n.adminShare,
           adminRatePer100: n.adminRatePer100,
-          riskControlAndContingencyPer100: n.riskControlAndContingencyPer100,
+          riskControlPct: book.newStackRiskControlPct ?? 0,
           riskControlPer100: n.riskControlPer100,
-          contingencyPer100: n.contingencyPer100,
+          indicatedAdminPer100: n.indicatedAdminPer100,
           indicatedRiskControlPer100: n.indicatedRiskControlPer100,
-          indicatedContingencyPer100: n.indicatedContingencyPer100,
           reinsRatePer100: n.reinsRatePer100,
           firstIndicationPer100: n.firstIndicationPer100,
           finalRatePer100: n.finalRatePer100,
           expectedToSurplus: n.expectedToSurplus,
+          ...(n.aggregateCover ? { aggregateCover: n.aggregateCover } : {}),
         };
       })()
       : undefined,

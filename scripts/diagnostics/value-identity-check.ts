@@ -1378,7 +1378,213 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   paying inflation by the pattern whatever FORWARD_BOOKING says (the
 //   shipped game has the flag on) or the gate restatements. Exposure moves in
 //   none of them.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v83.json');
+// v84: THE SHOCKS PLAY-TEST LANDING, OWED (landed on multiplayer without the
+// full checks; recaptured with them, wip/shocks-owed-checks). The control is
+// multiplayer 19b6f17, captured here: against v83 it moves 21,101 of 39,600
+// values in 94 fields on all 24 configurations and every year; none added or
+// removed. All of it is the landing itself — the new loss engine's shocks
+// (catalogue firings, A on the whole line for one year, one T claim per
+// event-line), the T covers with None the default (tri Y1 pool reinsurance
+// cost $5.22M -> $0) and the shock-free pricing shadow (tri Y1 rates WC 3.632
+// -> 3.532, GL 5.665 -> 5.379, Property 0.3082 -> 0.2858 per $100). Head was
+// then captured at each owed-checks commit in turn: 3fdae5e (Property cat
+// cession capped at the ceiling, five gates restated) and a4a841b (shock
+// records per firing, the stop's samples grown, eleven gates restated) each
+// reproduce the control bit for bit — no baselined game repeats an event in
+// force, cedes Property cat or prices the dormant stop.
+// v85: THE SIMPLE UNDERWRITING LANDING (100 equal members, each with a yearly
+// risk score; non-renewal and new members (0-10% since the sliders widened; these games at 5%), one year each; every game on
+// the standard opening book; the audit's retained catastrophe). The control ran
+// first: multiplayer ee1ea6c, in its own worktree, reproduced v84 39,600 of
+// 39,600 (and export v92 24 of 24). 25,272 of 39,600 values differ at head,
+// across 91 fields; none added or removed. Attributed by a null test: with
+// MEMBER_RISK_CV set to 0 the head reproduces, bit for bit, its own capture
+// taken before member risk existed — so the two parts separate exactly:
+//   the book, 25,278 values across 91 fields against the control: every game
+//     opens on the standard opening book (OPENING_BOOK_EXPOSURE; WC-solo Y1
+//     exposure 968.74 -> 916.11) and the defaults no longer grow it
+//     (newBusinessExposure to 0 on all 300; Y5 1,177.51 -> 916.11), so
+//     exposure, written and billed exposure, market share, premium, the
+//     per-exposure admin, and every loss, reserve, rate, cash and capital
+//     field after them; ordinary losses drawn on 100 equal members at risk 1;
+//     the T claims landing on the line by region share.
+//   member risk, 22,246 values across 81 fields against that: the ordinary
+//     loss draw and what it feeds — ultimates, reserves, LAE, the rate as it
+//     learns, cash, surplus, capital. No exposure, admin or premium-at-opening
+//     field moves by it.
+//   The audit fix is display only and the two merges moved nothing. Float
+//   order only: investmentReturnRate, 23 values within 3.6e-16; the surplus
+//   tie-out stays within $5e-8.
+// v86: THE ADVERSE-DEVELOPMENT LANDING, on multiplayer ebc3b4a (simple
+// underwriting). The control ran first: ebc3b4a reproduces v85 here. Against
+// it 20,136 of 39,600 values move across 74 fields on all 300 instances; none
+// added or removed. With BOTH switches turned back in process — reserve
+// inflation restored at the severity trend, ADVERSE_DEVELOPMENT off — the
+// landing reproduces v85 exactly, so those two are the only movers:
+//   reserve inflation off (unbooked and unpriced), alone: 20,142 across 74 —
+//     every rate (the priced inflation gone), reserves, development, IBNR;
+//   adverse development, alone: 17,269 across 74. These games are built here,
+//     not as single player builds them, and set no level, so each line plays
+//     the harness default, Mid; and the host's lifetime percentages are
+//     retired, so the openings carry none.
+// Single player itself (SOLO_ADVERSE_DEVELOPMENT off) develops nothing — see
+// SOLO_EXPORT_GUARD_v94, whose games are built as the app builds them.
+// v87: ADVERSE DEVELOPMENT DEFAULTS TO LOW (was Mid). This harness's games set
+// no development level, so they play the default. The control ran first:
+// 4ac52b5 reproduced v86 exactly. Each commit against the one before: the
+// results-delay commits moved nothing (display only — byte-identical); the
+// default's commit moved 17,248 instances across 74 fields, every one
+// downstream of less development on the open prior years (1-5% a year where
+// Mid drew 5-15%): prior-year development, net incurred and paid losses, the
+// reserves, IBNR and case, the funding target and reserve risk margin, LAE,
+// and the income, surplus and capital that follow (first instance's
+// priorYearDevelopment -$5.17M -> -$1.47M, net incurred $27.34M -> $23.65M).
+// No field added or removed. No rate moved: the pure premium reads development
+// only as it emerges, and these are year-1 rows struck before any.
+// v89: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). v88 is skipped: it
+// was the reverted development-pricing build's. Admin is 20% of premium on every
+// line; profit and contingency, the fixed and per-exposure admin and the admin
+// trend are gone. The control ran first: multiplayer 8a4dae4 reproduced v87
+// exactly. The rework moved 12,937 instances across 49 fields, every one a
+// price, admin, or downstream of them: adminExpense, operatingExpense, the
+// member charge and grossPremium, the rates (ratePer100, firstIndication,
+// finalRate and their priors), poolPremium, expectedToSurplus (now the CLF
+// cushion alone: 0 at Expected), the loss, expense and combined ratios
+// (expectedLossRatio 0.8815 -> 0.8 and expectedExpenseRatio 0.1185 -> 0.2 on
+// the first instance — the permissible loss ratio and admin's share), and the
+// income, cash, investments, surplus and capital that follow (first instance's
+// adminExpense $3.67M -> $6.69M, member charge $30.99M -> $33.47M). marketShare
+// (36) and investmentReturnRate (22) move by an ulp — a premium-weighted share
+// and an income/assets ratio on the moved figures. NO LOSS, CLAIM, RESERVE OR
+// PURE PREMIUM FIELD MOVED, and no field was added or removed.
+// v90: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios), on multiplayer
+// 985f365. The control ran first: 985f365 reproduces v89 here. Each commit
+// against the one before, each captured in its own worktree:
+//   4effbc3  each scenario plays a fixed seed — moves nothing: this harness's
+//            games are bare ids (MAMC6EA4, 6KA6WGLJ, ZZTEST99), not scenarios.
+//   12e7c54  every run-time fitting removed — 19,963 of 39,600 across 76
+//            fields on all 24 instance-configurations, Y1 to Y5. A bare id used
+//            to fall on scenario seed % 20 + 1 (the retired fallback) and play
+//            that scenario's scaled pre-game at a solved margin; it now plays
+//            its own seed at true cost with the prior board at Expected and
+//            opens where that history ends. So the pre-game's losses, the
+//            opening balance sheet and everything priced or earned on them
+//            move: first instance's WC year-1 rate $3.6530 -> $3.6342, pool
+//            ending surplus $45.20M -> $34.48M, WC prior-year development
+//            -$1.473M -> -$1.466M. 69 fields do not move (counts, exposure,
+//            membership, the cover's terms). No field added or removed.
+//   854ed47, 083e5c0 (gates, save key) — nothing.
+// v91: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
+// e698c79, RE-TAKEN AFTER MERGING multiplayer ba409c1 (which reproduces v90
+// here): identical, value for value, to the capture before the merge. The control ran first: e698c79 reproduces v90 here, and this build
+// with LARGE_CLAIMS_BY_FREQUENCY switched off at run time reproduces v90
+// exactly. With the switch on, each line draws at most one large claim a year,
+// at Low 7.5% / Mid 5.25% / High 2.25%, sized by the existing ranges × the
+// year's growth factor; catalogue events no longer bring large claims. This
+// moves 10,932 of 39,600 values across 89 fields, on all 300 instance-years
+// (Y1 1,292 · Y2 2,048 · Y3 2,050 · Y4 2,635 · Y5 2,907). They are the losses,
+// reserves, LAE, income, surplus and capital that follow (first instance's WC
+// Y1 gross ultimate $22.18M -> $23.93M; tri Y5 pool ending surplus -$0.31M ->
+// -$6.19M). Exposure, membership, the covers' terms and recoveries do not move
+// (both arms buy no cover). No field is added or removed.
+// RATES: finalRatePer100 and the fields priced on it move in 36 line-years,
+// Y3 to Y5, by 0.03%–0.25%. This is the harness, not a leak. It calls
+// processYear alone, without the shock-free pricing shadow that playWorldsYear
+// keeps, so its rates read the game's own ledger. That ledger carried the
+// catalogue's large claims in v90 just as it carries these now (with the
+// frequencies zeroed, 16 Property line-years move instead). On the game's own
+// path the rate is struck from the shadow, which draws no large claims.
+// large-claim-frequency-check proves that, with a control that fails when the
+// shadow is bypassed.
+// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS),
+// captured into this same v91 before landing. Against the capture without it,
+// 300 values move, all on GL: expectedLoss and clfAdjustedExpectedLoss (GL and
+// pool rows) and lossPurePremiumPer100, in every GL-solo and tri instance-year,
+// carrying NV's claim at its catalogue odds (first instance's GL Y1 $21.79M ->
+// $22.20M). No Nuclear Verdict fires in these games, so no loss or rate moves.
+// LARGE CLAIMS IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME) moves nothing here:
+// every game in this harness has its shocks on.
+// BACK TO v90: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-
+// from-events), on multiplayer e93c7ea, which reproduces v91 here. The
+// separate draw is gone, so every v91 move above is undone: against v91, the
+// same 10,932 of 39,600 values across 89 fields move back, and the result is
+// v90 value for value (0 of 39,600 differ). Every game here has its shocks
+// on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
+// prices reach nothing. v91 is retired.
+// v94: PRICING'S ALAE LOAD IS FIXED PER LINE (pr/alae-load, from aws a7d480d):
+// ⚠ REBASED onto aws 6941ade (team numbers, #73), which reproduces its
+// predecessor exactly; this baseline holds unchanged there, nothing re-captured.
+// PRICING_ALAE_LOAD (WC 11%, GL 15%, Property 3.5%) in place of the window's
+// mean drawn ratio. (Numbered past every value baseline on multiplayer and on
+// pr/clf-stretch, so no two pull requests share one.) The control ran first:
+// aws a7d480d reproduced v90 exactly. 13,338 instances move across 54 fields,
+// every one the load or downstream of it: pricingAlaeRatio (180, e.g. 0.0987 ->
+// 0.11), the pure premium it is part of (newPurePremiumPer100,
+// netPurePremiumPer100, purePremium(Per100)), the rates (ratePer100, first
+// indication, final rate and their priors), the premium and admin at 20% of it,
+// the loss, LAE and combined ratios over the new premium, and the opening's
+// surplus — the pre-game's rates moved, so every opening did (beginingSurplus
+// $8.59M -> $10.91M on the first instance) — with the cash, investments,
+// income, capital and funding that follow. expectedLossRatio,
+// expectedExpenseRatio, expectedCombinedRatio, actual/expenseRatio,
+// marketShare and investmentReturnRate move by an ulp. NO CLAIM, LOSS,
+// RESERVE, DRAWN-ALAE OR BOOKED-ALAE FIELD MOVED, and no field was added or
+// removed.
+// v95: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25), rebased onto aws 7fc44f9 and again onto aws ef009cb
+// (the market in; its k for the stretched tables set here, which this
+// harness's single-player games never reach), each of which reproduces v94
+// here first; v95 is byte-identical on both. Against v94, 8,130 of 39,600 values move, every one the stretched
+// table's: the default arm (Expected, a factor of 1.0) moves only the seven
+// fields that read required capital — reserveRiskMarginNeeded,
+// fundingMarginNeeded, fundingGap, capitalFundingGap, excessAvailableSurplus,
+// excessCapitalRatio, capitalAdequacyRatio — 1,050 values (first instance's
+// WC Y1 margin $3.40M -> $9.75M: the 80% stop 1.0513 -> 1.1473); no premium,
+// loss, surplus or rate. The squeezed arm (each line at its lowest stop, the
+// table's 30% column, now lower) moves 7,080 across 54 fields: selectedFundingCLF
+// and the premium it sets, admin, the ratios on that premium, income,
+// surplus, assets, the next years' rates and the capital fields. No claim,
+// loss, reserve, development or ALAE field moves in either arm. (The same
+// change measured 8,113 on aws a7d480d as v92, before the ALAE load and the
+// seed switch.)
+// v96: THE PRIOR BOARD AT 65% WITH ITS COVERS AND DRAWN GROWTH, NEW PAID-IN
+// CAPITAL, PLAY DEFAULTS AT 65% WITH THE COVERS, NEW SCENARIO SEEDS
+// (pr/pregame-65, on aws 80da701). The control ran first: aws 80da701
+// reproduced v95 exactly, and so did this branch with each part switched back
+// at run time (all four together). Against v95, 22,389 of 39,600 values move
+// across 90 fields; each part measured alone, the other three switched back:
+//   CAPITAL (WC $0, GL $8.06M, Property $8.53M): 5,142 values in 20 fields —
+//     surplus, assets, cash, investments and their income, and the capital
+//     adequacy fields that read surplus (first instance's opening surplus
+//     moves; no premium, rate, loss, reserve or claim field).
+//   THE HISTORY (the prior board at 65% with $19M xs $1M and the 125/50
+//     aggregate cover, New Members drawn around 5%, the book ending on the
+//     opening): 19,954 values in 76 fields — the pre-game's smaller, growing
+//     books and penalised new business change the experience the rate reads
+//     (newPurePremiumPer100 2.9361 -> 2.9498 on the first instance), so the
+//     rates, premium, admin, the opening reserves and LAE they leave, and the
+//     surplus, income and ratios that follow. Fifteen fields move only here:
+//     the pure premiums and first indications, gross case and IBNR reserves,
+//     and ALAE / ULAE / LAE incurred, paid and reserved.
+//   THE PLAY DEFAULTS (65% on each line's table, $19M xs $1M, aggregate
+//     125/50): 14,945 values in 75 fields — the funding CLF (1 -> 1.0637 on
+//     WC), the premium and charge it sets, the covers' cost (reinsuranceCost
+//     0 -> $0.98M) and their recoveries and ceded reserves, which move net
+//     losses and reserves, then surplus, income and the ratios. Fourteen
+//     fields move only here: the funding level and CLF, reinsurance cost,
+//     expected and actual recovery, ceded case, IBNR and development, net and
+//     booked net ultimate, current-year net reserve, the CLF-adjusted expected
+//     loss and Property's catastrophe capital (now behind a cover).
+//   THE SEEDS: nothing — this harness plays its own ids, not the scenarios.
+// The three parts' fields together are exactly the 90. Six baseline
+// identities (zero in v95) now leave zero because the default buys covers —
+// reinsuranceCost, expectedReinsuranceRecovery, reinsuranceRecovery,
+// caseReservesCeded, ibnrCeded, priorYearDevelopmentCeded — and the default
+// arm's fundingCLF / selectedFundingCLF leave 1, expectedToSurplus leaves 0 and
+// expectedCombinedRatio leaves 1 because it funds at 65%, not Expected: all
+// intended. No exposure, claim count or ground-up claim moves, and no field is
+// added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v96.json');
 
 function seedOf(id: string) {
   let h = 5381;

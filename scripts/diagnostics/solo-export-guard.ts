@@ -222,8 +222,26 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from 
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
+import { walkthroughHeader, walkthroughSheetRows } from '../../src/utils/yearWalkthrough';
+import { buildAnnualStatementXlsx } from '../../src/utils/annualStatementExport';
+import ExcelJS from 'exceljs';
+
+/** Every bordered cell of a statement file, sheet by sheet: "A1:LRTB" lines, in order. */
+async function readBorders(bytes: ArrayBuffer): Promise<string> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(bytes);
+  return wb.worksheets.map(ws => {
+    const cells: string[] = [];
+    ws.eachRow({ includeEmpty: true }, row => row.eachCell({ includeEmpty: true }, c => {
+      const b = c.border ?? {};
+      const s = (['left', 'right', 'top', 'bottom'] as const).filter(k => b[k]?.style).map(k => `${k[0].toUpperCase()}${b[k]!.style}`).join('');
+      if (s) cells.push(`${c.address}:${s}`);
+    }));
+    return `${ws.name} ${cells.join(' ')}`;
+  }).join('\n');
+}
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
-import type { DecisionSet, GameState, CoverageLine, ResultSet } from '../../src/types/simulation';
+import type { DecisionSet, GameState, CoverageLine } from '../../src/types/simulation';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -857,12 +875,367 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // opening, the credit off at 5%, the admin overrun, and the per-line profit
 // and contingency, priced years and capital each move all 24; the probes,
 // panel-driver, audit-row, inflation-routing and gate commits move none.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v91.json');
+// v92: THE SHOCKS PLAY-TEST LANDING, OWED (see VALUE_IDENTITY_v84). The control
+// is multiplayer 19b6f17, captured here: all 24 differ from v91, the landing's
+// own movement. No file added or removed. 3fdae5e and a4a841b (the owed-checks
+// fixes and restatements) each reproduce the control 24 of 24.
+// v93: THE SIMPLE UNDERWRITING LANDING (see VALUE_IDENTITY_v85). The control ran
+// first: multiplayer ee1ea6c reproduced v92 24 of 24. No file added or removed.
+// All 24 differ at head, and in every one only VALUES move: each export parsed
+// as CSV has the same rows, in the same order, under the same labels, with the
+// same number of columns as the control's (GUARD_TEXT_DIR on both sides). The
+// values move with exposure and member risk, attributed in VALUE_IDENTITY_v85.
+// v94: THE ADVERSE-DEVELOPMENT LANDING (see VALUE_IDENTITY_v86), on
+// multiplayer ebc3b4a, which reproduces v93 here 24 of 24. All 24 move; with
+// reserve inflation restored and ADVERSE_DEVELOPMENT off all 24 are
+// byte-identical to the control again. Each switch alone moves all 24. These
+// are single player games (openSoloInstance), so every line is Off and no
+// level is drawn: adverse development's whole effect here is that the host's
+// prior-development percentages, which single player played at their defaults
+// (WC 3%, GL 10%, Property -2%), are retired — single player's older years no
+// longer develop at all. No file added or removed.
+// v95: THE ANNUAL STATEMENT WORKBOOK JOINS THE GUARD. Its 24 exports are added
+// under `stmt|...` keys, the same arms, seeds and configurations, hashed the
+// same two ways; NONE of the 24 Results-workbook hashes moved — all 24 are
+// byte-identical to v94, so the template statement leaked nothing into the
+// Results export. No other key added or removed.
+// v96: THE STATEMENT'S BORDERS. The Annual Statement file is now written with
+// exceljs, with every cell's border copied from the template, and its hash now
+// carries those borders (readBorders). All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v95. Text-diffed (GUARD_TEXT_DIR
+// against multiplayer 38628e4): apart from the borders, both CSV renderings of
+// all 24 files are identical except for three things. The used range now starts
+// at B2, where the first cell is, rather than A1; every cell keeps its address.
+// The year-ends display as 12/31/26, not 12-31-26: "mm-dd-yy" is now written as
+// Excel's built-in format 14, which is what the template's own date cells carry.
+// And each sheet has one more row, 156: the template's last row (157), blank,
+// which carries the Net block's closing line. No key added or removed.
+// v97: THE STATEMENT'S BLANKS FILLED. All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v96, and every statement file's
+// borders are identical. Text-diffed row by row (GUARD_TEXT_DIR against
+// multiplayer cf8e9c1): the Contributions' Written Premium (each program year's
+// own), Reserve Changes and Net Reported in both claim groups (the newly arising
+// / previously reported split), and Underwriting — every row on the single-line
+// and WC+GL pools' sheets, and Retained % and the Prior column's change rows on
+// line sheets. As displayed, Payments, Change in IBNR and Total Net Incurred are
+// identical in all 24; in the full-precision rendering they differ by at most
+// 7.3e-11 (thousands of dollars) — the split is now summed accident year by
+// accident year rather than column by column, which reorders the additions.
+// v98: THE v2 TEMPLATE — ALL YEARS. All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v97. Text-diffed against the code at
+// 2107e9d (GUARD_TEXT_DIR), every moved line is one of three things. One blank
+// row fewer after each sheet's Contributions Written Premium (v2's spacing). Column
+// I added: 4,560 lines gain their All Years SUM (the dollar rows of the
+// Contributions, Program Year Totals, Gross, Ceded and Net blocks), and every
+// other line gains one empty field, as the sheet is now nine columns wide; the
+// ratio rows are blank there. And 4,380 bordered cells added, all in column I;
+// no border elsewhere moved once the rows below the dropped blank are aligned.
+// No key added or removed.
+// v99: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals". All 24 `stmt|...` keys move;
+// all 24 Results-workbook keys are byte-identical to v98. Text-diffed
+// (GUARD_TEXT_DIR): every statement file is v98's character for character once
+// those two headings are read back to the template's wording. No key added or
+// removed.
+// v100: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. All 24 `stmt|...` keys move; all 24 Results-workbook keys are
+// byte-identical to v99. Text-diffed against v99's own text (GUARD_TEXT_DIR,
+// shown and raw), every moved line is one of these, and none is unexplained:
+//   · Prior blank in the Net Income Statement, Balance Sheet and Underwriting —
+//     4,440 lines lose their C cell; 240 lose the first year's "Change from
+//     Prior" / "% Change Over Prior".
+//   · the labels: "Premium" → "Written Premium", "Additional Admin Expense (risk
+//     control)" → "Other Admin Expense", the three "% of Premium" indented, the
+//     Contributions and Program Year Totals "- Net of Reinsurance" (120 each,
+//     360 for the indents).
+//   · one row inserted, General Admin Expense's own "% of Premium" (120 lines),
+//     and the old admin "% of Premium" now Other Admin Expense's own (120).
+//   · the Contributions variance: Previously Reported and Newly Arising
+//     Payments and Reserve Changes, Previously Reported Net Reported and Change
+//     in IBNR (120 lines each); Newly Arising Net Reported in 30 raw lines, at
+//     the last digit — newly reported is the same amount, re-split. Written
+//     Premium and Total Net Incurred do not move.
+//   · borders: 3,660 bordered cells added — column I drawn as H above the
+//     Contributions, and the inserted row drawn as row 13; with rows below the
+//     inserted one aligned, no other border moved.
+// No key added or removed.
+// v101: THE SETTLEMENT DRAWS ON THE PROGRAM-YEAR BLOCKS. All 24 `stmt|...`
+// keys move; all 24 Results-workbook keys are byte-identical to v100.
+// Text-diffed against v100's own text (GUARD_TEXT_DIR, shown and raw): every
+// moved line is Case Reserves, IBNR Reserves or Reported Loss & LAE in Program
+// Year Totals or the Gross or Net block (120 lines each, nine rows) — each
+// accident year's draws to date moved from IBNR to case. Ceded, Paid, Total
+// Incurred, the Contributions and the borders do not move. No key added or removed.
+// v102: THE SETTLEMENT DRAW CAPPED AT THE IBNR LEFT. 12 `stmt|...` keys move —
+// the statements where the cap binds; the other 12 and all 24 Results keys are
+// byte-identical to v101. Text-diffed against v101's own text (GUARD_TEXT_DIR,
+// shown and raw): every moved line is Previously Reported Reserve Changes or
+// Net Reported, or Change in IBNR, in the Contributions, or Case Reserves, IBNR
+// Reserves or Reported Loss & LAE in Program Year Totals or the Gross or Net
+// block (48 lines each). Payments, Total Net Incurred, Ceded, Paid and Total
+// Incurred do not move. No key added or removed.
+// v103: THE DOWNLOADS FOLLOW THE VIEW (statementsForView). The guard builds the
+// Pool view's file; a team writing one line now gets the pool's statement alone
+// there, its pool statement being that line's. 18 `stmt|...` keys move —
+// exactly the one-line games' (WC-solo, GL-solo, PR-solo, both arms, three
+// instances) — and each file is v102's character for character with its line's
+// sheet taken out: the Pool sheet's shown and raw text and its borders are
+// v102's. The three-line files and all 24 Results keys are byte-identical. No
+// key added or removed.
+// v104: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). The control ran
+// first: multiplayer 3686296 reproduced v103 on all 48 keys. All 48 move — every
+// statement and Results workbook carries a rate and an admin figure. Text-diffed
+// against 3686296's own text (GUARD_TEXT_DIR, shown, raw and sheet): every moved
+// line is Written Premium, Current Rate and its change, General Admin Expense,
+// Net Underwriting / Operating Income, Investment Income, the Loss & LAE,
+// Combined, Operating, Premium-to-Surplus and Reserve-to-Surplus ratios, % of
+// Premium, or the balance sheet's Assets, Invested, Uninvested, Earned Surplus,
+// Paid in Capital and Net Worth (the pre-game's margin re-solves, so the opening
+// does). No loss, reserve, IBNR, case, paid, ceded, claim or exposure line moves
+// in any file, and no line was added or removed.
+// v105: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios), against
+// multiplayer 985f365, which reproduces v104 here. 4effbc3 (each scenario on a
+// fixed seed) moves none: these games are bare ids. 12e7c54 (every run-time
+// fitting removed) moves all 48: a bare id no longer falls on a scenario, so
+// its pre-game runs at true cost with the prior board at Expected and opens
+// where that history ends — every file's figures follow. The gates and the
+// save key move none. No file added or removed.
+// v106: THE YEAR WALKTHROUGH SHEET. The Results workbook gains one sheet, last,
+// "Year Walkthrough" (utils/yearWalkthrough), built as single player builds it:
+// the version and no seed. The 24 Results keys move for that sheet alone — with
+// the guard's call passing no sheet, all 48 reproduce v105 byte for byte, so no
+// other sheet and no figure moved — and the 24 `stmt|...` keys do not move.
+// v107: THE REINSURANCE LAYERS (wip/reinsurance-layers), on multiplayer
+// d0b3855, which reproduces v106 here 24 of 24. All 24 move, and in every one
+// the only change (both sides' text, GUARD_TEXT_DIR) is the export's Version
+// row: riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's save
+// key. The 24 statements match. The guard's games hold None,
+// so no cover, price or recovery reaches them. No file added or removed.
+// v108: THE YEAR WALKTHROUGH REWORKED (every stage the engine goes through,
+// each with how decisions reach it and its working), on multiplayer e698c79.
+// The Results workbook's Year Walkthrough sheet moves, so the 24 Results keys
+// move; with the walkthrough sheet left out, all 48 hash identically on
+// e698c79 and on this change (both run here), so no other sheet and no figure
+// moved, and the 24 `stmt|...` keys do not move.
+// v109: RISK CONTROL (wip/risk-control), on multiplayer f5149f8, which
+// reproduced v108 48 of 48 here first. The 24 Results keys move and nothing
+// else; each was text-diffed against the control (GUARD_TEXT_DIR both sides),
+// row by row, and every moved row is one of: the Results sheet's three new rows
+// — Decisions "Risk Control %" (line sheets), Expenses and Income "Risk Control
+// Cost" and "Risk Control: Losses + LAE Saved" (every sheet), all
+// 0 in the guard's games, which play at 0%; the Version row, riskpool_gamestate
+// _v36 -> _v37, this landing's save key; and the Year Walkthrough sheet's risk
+// control rows (the decision as a share of the rate, pricing's divisor now 1 -
+// admin with the same 0.8, "Rate before reinsurance and risk control" the same
+// figure, the charge per $100 0, premium's risk control charged 0, the draw z,
+// the losses' cut 0 and normal losses after it the same, the risk control
+// stage), their working text and the codes. No existing figure moved. The 24
+// `stmt|...` keys do not move.
+// v110: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba,
+// which reproduced v109 48 of 48 here first. The 24 Results keys move and
+// nothing else; each was text-diffed against the control (GUARD_TEXT_DIR both
+// sides), row by row, and the ONLY moved row is the Version row,
+// riskpool_gamestate_v37 -> _v38, this landing's save key — 48 lines, the shown
+// and raw renderings of each of the 24. The guard's games hold None, which adds
+// no row and moves no figure (value-identity-check holds on all 150 instances).
+// The 24 `stmt|...` keys do not move.
+// v111: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1, which reproduces
+// v110 here 48 of 48. With LARGE_CLAIMS_BY_FREQUENCY switched off at run time
+// the 24 Results files move by the Version row alone
+// (riskpool_gamestate_v38 -> v39, this landing's save key) and the 24
+// statements match. As built (both sides' text, GUARD_TEXT_DIR), 40 of 48 move:
+//   - every Results file: the Version row, and Expected Losses / its net row /
+//     the Pure Premium row beside them, which carry the expected large-claim
+//     cost at the new frequencies (first instance's WC 2026 $23.57M -> $24.31M),
+//     and on GL Nuclear Verdict's own claim at its catalogue odds;
+//   - on Property, the Reserve Risk Margin Needed and the Excess Available
+//     Surplus / Excess Capital Ratio it sets, which hold the large-claim capital
+//     at the new frequencies even in a game where none lands (ZZTEST99 PR-solo);
+//   - where a line draws a large claim: the year's "Events This Year" ("Large
+//     claim: 1.0 claims, $6,048,813") and its losses, LAE, reserves, ratios,
+//     income, investments, surplus and capital, in that year and the years after.
+// NO RATE OR PREMIUM ROW MOVES in any file: the rate per $100, gross premium
+// and member charge are bit-identical, because large claims stay out of the
+// rate (the shock-free pricing shadow). The 8 statements that match are for the
+// line-games where no large claim lands in either build (GL in 6KA6WGLJ and
+// MAMC6EA4; PR and WC in ZZTEST99; both arms). No Nuclear Verdict fires in
+// these games, and every one has its shocks on, so LARGE_CLAIMS_EVERY_GAME
+// moves nothing here. No file is added or removed.
+// v112: RISK CONTROL IN THE DIVISOR (wip/risk-control-divisor), on multiplayer
+// 2ec5d58, which reproduced v111 48 of 48 here first. The 24 Results keys move
+// and nothing else; text-diffed row by row against the control (GUARD_TEXT_DIR
+// both sides). Outside the Year Walkthrough sheet's Pricing stage and its year
+// codes, the only moved row is the Version row, riskpool_gamestate_v39 -> _v40
+// (shown and raw, 48). Inside the Pricing stage: four rows relabelled with their
+// values unchanged, 2,880 compared — "Admin share of the rate" -> "Admin",
+// "Divisor (1 − admin)" -> "Divisor (1 − admin − risk control)", "Rate before
+// reinsurance and risk control per $100" -> "Rate before reinsurance per $100",
+// "Risk control charge per $100 (that rate × the slider)" -> "(that rate × risk
+// control)"; rows added — Risk control 0, Total expense ratio 0.2, Permissible
+// loss ratio 0.8, and "Admin charge per $100 (that rate × admin)", 0.2 × the
+// rate before reinsurance on every row; the working text and the codes. The
+// Admin stage's own "Admin share of the rate" row does not move. No Results
+// figure moved. The 24 `stmt|...` keys do not move.
+// v113: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events), on multiplayer e93c7ea, which reproduces v112 here 48 of 48. The
+// separate large-claim draw is gone. Attributed exactly: against e93c7ea with
+// LARGE_CLAIMS_BY_FREQUENCY switched off at run time (both sides' text,
+// GUARD_TEXT_DIR), all 48 files match but for the 24 Results files' Version
+// row (riskpool_gamestate_v40 -> v41, this landing's save key). So every move
+// against v112 is the draw's removal: 40 of 48 move — the expected losses,
+// Pure Premium, the Property reserve margin and capital, the year-walkthrough
+// sheet's rows and every year a frequency large claim had landed in — all
+// back to what the catalogue's events give, as before v108. No rate or
+// premium row moves. These games' shocks are on and they hold None, so
+// COVERS_IN_EVERY_GAME moves nothing. No file is added or removed.
+// v114: THE RETIRED STOP'S ROW OFF THE YEAR WALKTHROUGH (wip/aggregate-cover),
+// on multiplayer 9ff6e4d, which reproduced v113 48 of 48 here first. The 24
+// Results keys move and nothing else; each was text-diffed against the control
+// (GUARD_TEXT_DIR both sides) and every moved line is on the Year Walkthrough
+// sheet: its "Aggregate cover recovery" rows gone — one per line and per line
+// on the pool, every year, the dormant stop's, always $0 — and the two codes
+// that fingerprint them, the reinsurance stage's and the year code. No figure
+// moved. The 24 `stmt|...` keys do not move.
+// v115: THE DIVIDEND AND THE ASSESSMENT IN DOLLARS (wip/dividends-in-dollars),
+// against multiplayer 15dc74b, which reproduces v114 here. The 24 Results keys
+// move and the 24 statements do not. Text-diffed (GUARD_TEXT_DIR both sides):
+// in the Results sheets the only rows that move are the two decision rows,
+// renamed "Dividend %" -> "Dividend chosen" and "Assessment %" -> "Assessment
+// chosen" and stated in dollars ($0 where 0.0%) — no row keeping its label
+// moved a value; in the Year Walkthrough sheet, the dividend stage's labels and
+// working, the decisions stage's two rows, the codes those move, and the
+// Version row (save key v41 -> v42). The guard's games choose no dividend or
+// assessment, so no figure moved.
+// v118: PRICING'S ALAE LOAD IS FIXED PER LINE (pr/alae-load, from aws a7d480d;
+// ⚠ REBASED onto aws 6941ade (team numbers, #73), which reproduces its
+// predecessor exactly; this baseline holds unchanged there, nothing re-captured.
+// numbered past every export baseline on multiplayer and pr/clf-stretch). The
+// control ran first: aws a7d480d reproduced v115 on all 48 keys. All 48 move.
+// Text-diffed against a7d480d's own text (GUARD_TEXT_DIR, shown, raw and
+// sheet): every moved line is the rate and premium (Current Rate and its
+// change, Pool Premium Rate and Pool Premium at Selected CLF, Written Premium),
+// General Admin Expense (20% of the new premium), Net Underwriting / Operating
+// Income, Investment Income, the Loss & LAE, Combined, Operating,
+// Premium-to-Surplus and Reserve-to-Surplus ratios, % of Premium, the balance
+// sheet's Assets, Invested, Uninvested, Earned Surplus, Paid in Capital and Net
+// Worth (the openings moved with the pre-game's rates), the Version line (save
+// key v42 -> v44), and the Year Walkthrough's Year code (a hash of its
+// figures). No loss, LAE incurred, reserve, IBNR, case, paid, ceded, claim or
+// exposure line moves, and no line was added or removed.
+// v119: FIFTEEN SCENARIOS' SEEDS RE-PICKED (pr/seed-switch, from aws 0b4f5a5;
+// numbered past every export baseline on multiplayer and pr/clf-stretch). The
+// control ran first: aws 0b4f5a5 reproduced v118 on all 48 keys. 24 of 48 move,
+// and only in one line: the Version row (save key v44 -> v45). Text-diffed
+// against 0b4f5a5's own text (GUARD_TEXT_DIR): no other line moves — the
+// guard's games are built on their own ids, not on a scenario number, so no
+// figure, label or row could.
+// v121: MID-GAME EDITS (pr/mid-game-edits, from aws 4b0683a; numbered past
+// every export baseline on any branch — v120 is taken). Games that never edit
+// play exactly as before. The control: the same tree with the save key put
+// back to v45 reproduces v119 on all 48 keys. With it at v47, 24 of 48 move,
+// and only in one line: the Version row (save key v45 -> v47; v46 is reserved
+// for pr/clf-stretch). Text-diffed (GUARD_TEXT_DIR) v45 against v47: 48 lines
+// differ, every one the Version row.
+// v124: MARKET COMPETITION (pr/market-competition, from aws 3bdb85a; numbered
+// past every export and render baseline on any branch — v123 is the highest
+// taken). Single player has no market and plays exactly as before:
+// VALUE_IDENTITY_v94 holds on every field. The control: aws 3bdb85a's own text
+// (GUARD_TEXT_DIR) against this branch's. 24 of 48 move, and only in one line:
+// the Version row (save key v47 -> v48; v46 is still pr/clf-stretch's). 48
+// lines differ (shown and raw), every one the Version row; the 24 statements
+// match.
+// v126: THE ANNUAL STATEMENT'S DECISIONS SECTION (pr/statement-decisions, from
+// aws ef009cb; numbered past every export baseline on any branch — v125 is
+// pr/clf-stretch's). The control ran first: aws ef009cb reproduced v124 on all
+// 48 keys. 24 of 48 move — exactly the 24 Annual Statement keys (stmt|…); no
+// other export moves. Text-diffed against ef009cb's own text (GUARD_TEXT_DIR):
+// 1,398 lines added, every one in a Decisions section below a sheet's template
+// rows (its title, header, and a row per decision); 42 lines changed, each a
+// sheet's border listing, and each keeps every border it had and adds only
+// borders at row 158 and below (the section's lines). No template row, figure,
+// label or border above the section moves; no line is removed.
+// v128: OUTSIDE MEMBERS BY THE WIDE TAPER (pr/market-l1, from aws f02bb15;
+// numbered past every export baseline on any branch — v127 is pr/clf-stretch's).
+// The control ran first: aws f02bb15 reproduced v126 on all 48 keys. 24 of 48
+// move — the 24 Results files, each only by its Version row (save key v48 ->
+// v50; v49 is pr/clf-stretch's). Text-diffed against f02bb15's own text
+// (GUARD_TEXT_DIR): 48 lines differ (shown and raw), every one the Version row;
+// the 24 statements match. The market step this changes runs only in hosted
+// rooms with the market on, which no export here plays.
+// v129: THE FUNDING TABLES STRETCHED (pr/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25; and the market's k set for them, which the guard's
+// single-player games never reach). First captured as v125 on aws ef009cb;
+// renumbered past aws's baselines and recaptured twice — as v127 with aws
+// f02bb15 (#88) merged in, and now as v129 with aws 371472b (#89, the wide
+// taper). aws 371472b reproduces v128 here 48 of 48 first. The same 36 of 48
+// keys move as at v125 and v127, each text-diffed against the control
+// (GUARD_TEXT_DIR both sides) — the same 46,148 changed lines as at v127 but
+// for the save version — and no line of the Decisions section moves:
+//   the 12 default Results files (Expected funding, a factor of 1.0): the save
+//   version (riskpool_gamestate_v50 -> v51), and only the rows that read
+//   required capital — Reserve Risk Margin Needed (WC MAMC6EA4 2026
+//   $3,412,297 -> $9,796,068), Excess Available Surplus, Excess Capital Ratio
+//   and Excess Capital Status — with the Year Walkthrough sheet's capital stage
+//   and the year codes; no premium, loss or surplus row;
+//   the 12 squeezed Results files and their 12 statements (each line at its
+//   lowest stop, the stretched table's lower 30% column): Selected CLF and the
+//   premium, rate, admin, ratio, income, surplus and asset rows built on it,
+//   the capital rows, and on the Year Walkthrough sheet the stages that quote
+//   them (pricing, premium billed, admin, investment income, capital, surplus,
+//   decisions, the dividend stage's surplus available, and the booking stage's
+//   working, which quotes the CLF — its booking bias stays 0.00%). No loss,
+//   claim, reserve or development figure moves. The 12 default statements do
+//   not move: no capital row is on them. (The same moves as at v120, on
+//   7fc44f9, before the market.)
+// v130: THE PRIOR BOARD AT 65% WITH ITS COVERS AND DRAWN GROWTH, NEW PAID-IN
+// CAPITAL, PLAY DEFAULTS AT 65% WITH THE COVERS, NEW SCENARIO SEEDS
+// (pr/pregame-65, on aws 80da701; see VALUE_IDENTITY_v96). aws 80da701
+// reproduces v129 here 48 of 48 first. All 48 keys move. Text-diffed
+// (GUARD_TEXT_DIR both sides), each part measured alone with the others
+// switched back at run time; with all four switched back only the save version
+// (v51 -> v52) and the Year Walkthrough's Decisions codes move — the default
+// decisions now carry an explicit aggregateCover key, which the code hashes.
+//   CAPITAL alone: surplus, cash, investments, investment income and return,
+//   net income, and the capital rows that read surplus (Excess Available
+//   Surplus, Excess Capital Ratio and Status); on the statements Paid in
+//   Capital, Earned Surplus, Net Worth, Assets, Invested / Uninvested,
+//   Investment and Net Operating Income, Operating Ratio and the two surplus
+//   ratios; the walkthrough's surplus, investment, dividend and capital stages.
+//   THE HISTORY alone: those, plus the rates, pure premiums and premium the
+//   pre-game's experience sets, admin, the reserves and LAE the history leaves
+//   (beginning / ending net reserve, paid, case and IBNR, loss expense
+//   reserves) and the ratios on them; on the statements every premium, loss,
+//   LAE, reserve and rate row; the walkthrough's pricing, premium, admin, LAE,
+//   reserves and development stages. No Decisions row moves.
+//   THE PLAY DEFAULTS alone: Funding Confidence Level (Expected -> 65%) and
+//   Selected CLF, the Reinsurance Program (None -> $19M xs $1M), Reinsurance
+//   Cost and Recovery, Expected Losses net of reinsurance, Net Ultimate and
+//   Net Incurred Loss, Current-Year Net Reserve, and everything downstream; on
+//   the statements the Decisions section's Funding Level, Per-Claim Cover and
+//   Aggregate Cover (every played year 65% / $19M xs $1M / 125% / 50%) and the
+//   reinsurance block; on the walkthrough the decisions and reinsurance
+//   stages, where the aggregate cover's rows (its attachment, exhaustion,
+//   limit, premium and recovery on attritional losses) now appear every year
+//   because the default holds it — rows added, none removed, 240 a file.
+//   THE SEEDS alone: nothing (the guard plays its own ids).
+// No row is removed. The New Members and Non-Renewal rows do not move: the
+// guard's games start in 2026 and show played years only, where the defaults
+// stay 0.
+//   THE YEAR WALKTHROUGH'S MEMBER CHARGE RATE (the src fix this branch carries;
+//   see year-walkthrough-check): on the 24 Results files' walkthrough sheet
+//   the pricing stage's "Rate per $100 (member charge rate)" is renamed "Rate
+//   per $100 as struck (on the book before it moves)" with its working line,
+//   and the premium stage gains "Reinsurance per $100 of the book billed" and
+//   "Rate per $100 (member charge rate)" with a working line; the stage and year
+//   codes follow. No figure moves here: the guard's games never move their
+//   books, so struck and billed are the same book.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v130.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
 function play(id: string, lines: CoverageLine[], years: number,
-              decisions: (y: number, l: CoverageLine[]) => DecisionSet = y => defaultDecisionSet(y)): ResultSet[] {
+              decisions: (y: number, l: CoverageLine[]) => DecisionSet = y => defaultDecisionSet(y)): GameState {
   // ⚠ BUILT AS THE APP BUILDS A SOLO GAME (utils/soloGame): the shock schedule
   // drawn once at the start, on the instance, fired in every world.
   const { setup, instance } = openSoloInstance(
@@ -876,7 +1249,7 @@ function play(id: string, lines: CoverageLine[], years: number,
     const settled = settleWorldsYear(gs, playWorldsYear(gs, decisions(y, lines)), []);
     gs = { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1 };
   }
-  return gs.lockedResults;
+  return gs;
 }
 
 const SEEDS = ['MAMC6EA4', '6KA6WGLJ', 'ZZTEST99'];
@@ -933,7 +1306,10 @@ const out: Record<string, string> = {};
 for (const arm of ARMS) {
 for (const id of SEEDS) {
   for (const { lines, name } of CONFIGS) {
-    const wb = buildResultsWorkbook(play(id, lines, 5, arm.decisions), lines, RESULT_METRICS);
+    const game = play(id, lines, 5, arm.decisions);
+    // The Year Walkthrough sheet as single player's download carries it (v106).
+    const wb = buildResultsWorkbook(game.lockedResults, lines, RESULT_METRICS,
+      walkthroughSheetRows(game, walkthroughHeader(game.instance, false)));
     // ============================================================================
     // ⚠ TWO RENDERINGS, HASHED TOGETHER, AND THE SECOND ONE IS NEW.
     //
@@ -962,6 +1338,18 @@ for (const id of SEEDS) {
       fs.mkdirSync(process.env.GUARD_TEXT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.GUARD_TEXT_DIR, `${arm.name}-${id}-${name}.txt`), `${shown}\n#RAW#\n${raw}`);
     }
+    // THE ANNUAL STATEMENT WORKBOOK (v95), the same game, hashed the same two
+    // ways under its own key — the template-laid-out statement, one sheet for the
+    // pool and one per line (annualStatementExport.ts). From v96 it is the FILE a
+    // player downloads (exceljs), read back: the two CSV renderings as above, and
+    // every cell's border, which no CSV carries (readBorders below).
+    const bytes = await buildAnnualStatementXlsx(game);
+    const swb = XLSX.read(new Uint8Array(bytes), { type: 'array' });
+    const sShown = swb.SheetNames.map(s => XLSX.utils.sheet_to_csv(swb.Sheets[s])).join('\n#SHEET#\n');
+    const sRaw = swb.SheetNames.map(s => XLSX.utils.sheet_to_csv(swb.Sheets[s], { rawNumbers: true })).join('\n#SHEET#\n');
+    const sLines = await readBorders(bytes);
+    out[`stmt|${arm.name}|${id}|${name}`] = sha(Buffer.from(`${sShown}\n#RAW#\n${sRaw}\n#BORDERS#\n${sLines}`, 'utf8'));
+    if (process.env.GUARD_TEXT_DIR) fs.writeFileSync(path.join(process.env.GUARD_TEXT_DIR, `stmt-${arm.name}-${id}-${name}.txt`), `${sShown}\n#RAW#\n${sRaw}\n#BORDERS#\n${sLines}`);
   }
 }
 }

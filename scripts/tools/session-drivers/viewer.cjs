@@ -1,6 +1,6 @@
 // THE VIEWER IS THE PLAYER'S SCREEN, READ-ONLY — and its numbers are the
 // driver's numbers because they are the same computation, not a copy.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, statementPdfDiffs, lockAndConfirm } = require('./_shared.cjs');
 const crypto = require('crypto');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley'];
 // Three played years, checked after each; the room runs one more so year 3 is not its last.
@@ -63,13 +63,15 @@ async function tabText(page, tab) {
 
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
   // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool in
-  // aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial Statements
-  // and Calculation Audit from players and viewers alike (GameShell's
-  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact. Dashboard and Departments
-  // are hidden in both (src/game/tabs.tsx), and Investments; Rate Indication joined.
+  // aggregate. ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND MODEL
+  // are hidden from players and viewers alike since the tab cleanup
+  // (src/game/tabs.tsx HIDDEN_TABS). The PAGES are intact. Dashboard and
+  // Departments are hidden in both, and Investments; Rate Indication joined. The
+  // Year Walkthrough (once the Calculation Audit) is hidden in a hosted session
+  // (tabs.tsx MULTIPLAYER_HIDDEN_TABS) — from players and viewers alike.
   const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                'Decision History', 'Result Spreadsheet'];
-  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments', 'Investments'];
+                'Decision History'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments', 'Year Walkthrough'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
   ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);
@@ -116,10 +118,12 @@ async function tabText(page, tab) {
   // every program year shown, to the statement's own thousand. The driver moves
   // its funding each year, so the replay is checked on decisions that differ.
   const room = () => host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
+  // The Net block of Reinsurance Information, laid out as the template: its
+  // header row ("Net", Prior, the five years) and its Total Incurred Loss & LAE —
+  // the builder's Net Ultimates, loss + LAE.
   const netUltimates = p => p.$eval('[data-testid="statement-net"]', el => ({
-    // The years are the header's only row: the "Current / Year n" row above them is gone.
-    heads: [...el.querySelectorAll('thead tr:last-child th')].map(t => t.textContent.trim()),
-    cells: [...el.querySelector('tr[data-row-label="Ultimates"]').querySelectorAll('td')].map(t => t.textContent.trim()),
+    heads: [...el.querySelectorAll('tr[data-row-kind="header"] th')].map(t => t.textContent.trim()),
+    cells: [...el.querySelector('tr[data-row-label="Total Incurred Loss & LAE"]').querySelectorAll('td')].map(t => t.textContent.trim()),
   }));
   const thousands = x => { const r = Math.round(x / 1000); return `${r < 0 ? '−' : ''}${Math.abs(r).toLocaleString('en-US')}`; };
 
@@ -137,11 +141,11 @@ async function tabText(page, tab) {
       await driver.waitForTimeout(300);
     }
 
-    await driver.getByRole('button', { name: /Lock Program Year/ }).first().click();
-    await driver.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await lockAndConfirm(driver);
+    await driver.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await host.waitForFunction(n => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === String(n), y + 1, { timeout: 30000 });
-    await driver.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
+    await driver.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
     await viewer.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result computed`), y, { timeout: 180000 });
     ok(true, `year ${y}: the viewer computed it on its own, from the watched team's decisions`);
 
@@ -162,22 +166,29 @@ async function tabText(page, tab) {
 
     // The host's figure: the developed column posted at the LATEST KNOWN year,
     // against the player's statement, every program year the statement shows by
-    // itself. ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): with year y just
-    // played the statement stands at year y - 1, so it is that year's post —
-    // valued then — that it must match, over accident years 0 to y - 1.
+    // itself. ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears):
+    // with year y just played the statement stands at year y, so it is that
+    // year's post — valued then — that it must match, over accident years 0 to
+    // y. (It was year y - 1's while results ran a year behind.)
     await tabText(driver, 'Annual Statement');
+    // The PDF download in a hosted game, after the last played year: the
+    // statement the team's screen shows, at the year it stands at.
+    if (y === PLAYED) {
+      const pdf = await statementPdfDiffs(driver);
+      ok(pdf.length === 0, `year ${y}: a hosted team's "Download Annual Statement (PDF)" gives the screen's statement, at the year it stands at${pdf.length ? ` — ${pdf.slice(0, 2).join(' · ')}` : ''}`);
+    }
     const st = await netUltimates(driver);
     const rec = await room();
-    const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y - 1)];
+    const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y)];
     const year0Calendar = rec.startingYear - 1;
     const compared = [];
     st.heads.forEach((head, i) => {
-      if (!/^\d{4}$/.test(head)) return;               // Prior and Total are not one year
+      if (!/^\d{4}$/.test(head)) return;               // the block's name and Prior are not one year
       const ay = Number(head) - year0Calendar;
       if (ay < 0) return;                               // pre-game years are off the session's axis
       compared.push({ ay, screen: st.cells[i], host: thousands(posted.developed.pool[String(ay)]) });
     });
-    ok(compared.length === y && compared.every(c => c.screen === c.host),
+    ok(compared.length === y + 1 && compared.every(c => c.screen === c.host),
       `year ${y}: the host's as-developed figure is the statement's Net Ultimates for every year — `
       + compared.map(c => `year ${c.ay} ${c.screen}${c.screen === c.host ? '' : ` vs host ${c.host}`}`).join(', '));
   }

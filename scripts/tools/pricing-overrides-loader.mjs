@@ -10,7 +10,7 @@
 // ⚠ WHY A LOADER AND NOT A MUTATION, AND WHY NOT A REQUIRE HOOK.
 //
 // Most of these parameters are exported consts holding NUMBERS —
-// PROFIT_AND_CONTINGENCY_OF_RATE, PRICING_WINDOW_YEARS_NEW, PRIOR_HISTORY_YEARS
+// REINSURANCE_LOAD, PRICING_WINDOW_YEARS_NEW, PRIOR_HISTORY_YEARS
 // — and a number cannot be reassigned from outside the module that declares
 // it. The gates that flip NEW_RATE_STACK.enabled get away with it only because
 // that one happens to be an object. So the value is replaced in the module's
@@ -28,7 +28,7 @@
 //
 // TWO SHAPES OF OVERRIDE, and the second is not a workaround for the first:
 //
-//   WHOLE EXPORT   `PROFIT_AND_CONTINGENCY_OF_RATE=0.07` rewrites the
+//   WHOLE EXPORT   `REINSURANCE_LOAD=0.2` rewrites the
 //                  declaration's initialiser. The only thing that works on a
 //                  scalar const.
 //   DOTTED MEMBER  `SEVERITY_TREND_PER_YEAR.WC=0.09` appends an assignment

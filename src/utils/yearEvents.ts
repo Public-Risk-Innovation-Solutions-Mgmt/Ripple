@@ -82,8 +82,11 @@ const RETIRED_CATALOGUE_REGION: Readonly<Record<string, Partial<Record<CoverageL
   '#3': { Property: 'North', WC: 'North' },
 };
 
+// ⚠ BY ID FIRST, THEN THE RECORD'S OWN: a record copies the name it was played
+// under, so a save or room from before a rename (#5, "WC Reform") would keep
+// the old one. The labels hold the current name for every id they know.
 function shockName(rec: { shockId: string; eventName?: string; name: string }): string {
-  return rec.eventName ?? SHOCK_EVENT_LABELS[rec.shockId]?.eventName ?? rec.name;
+  return SHOCK_EVENT_LABELS[rec.shockId]?.eventName ?? rec.eventName ?? rec.name;
 }
 
 function shockRegion(rec: { shockId: string; region?: Region }): Region | undefined {
@@ -212,4 +215,78 @@ export function eventSentence(ev: YearEvent): string {
     parts.push(`expected ${LINE_FULL_NAME[l.line]} losses up ${usd(l.expectedGrossLossAdded)}`);
   }
   return `${where}${since}: ${parts.join('; ')}.`;
+}
+
+// ============================================================================
+// THE NEWS — what a player is told the moment a year in which an event began
+// is played. The event's name and region, one plain line saying what it is,
+// and which of the team's own lines it touched: NOTHING ELSE. No size, no
+// level, no dollars, no claim count — those are in the year's results, which
+// show at the same time (utils/knownYears). The line list is the team's: a result carries only the
+// lines its team writes, so a hosted team never learns another's.
+//
+// ⚠ ONE LINE PER EVENT NAME, AND IT IS THE PLAYER'S NAME, so a scheduled
+// earthquake and a drawn one read identically (the rule at the head of this
+// file). Written to say what happened, never how bad: nothing here may hint at
+// a band or a level.
+// ============================================================================
+export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  'Earthquake': 'A major earthquake strikes, damaging buildings and injuring people at work.',
+  'Winterstorm': 'A severe winter storm brings heavy rain, snow and flooding.',
+  'Wildfire': 'A wildfire spreads through the area, burning buildings and land.',
+  'Legislation Change': 'A change in the law widens what claims can recover, old and new.',
+  'Workers Compensation Legislation: Increased Medical Fee Schedule':
+    "A new medical fee schedule raises what workers' compensation pays for injured workers' care, and WC claims cost more for a few years.",
+  'Economic Recession': 'A recession takes hold, and members and their workforces feel it.',
+  'Nuclear Verdict': 'A jury returns an exceptionally large award in a liability lawsuit.',
+  'Social Inflation': 'Juries and claimants push liability awards and settlements higher.',
+  'Pandemic': 'A pandemic spreads, and illness among workers rises.',
+  'Economic Inflation': 'Prices rise quickly, and the cost of settling claims rises with them.',
+  'Large Investment Loss': 'Financial markets fall sharply, and invested assets lose value.',
+  'Large Member Withdrawal': 'A large member leaves the pool.',
+  'Catastrophe': 'A natural catastrophe strikes the region.',
+};
+
+export interface EventNews {
+  /** Stable within the year. Not for display. */
+  key: string;
+  /** "Earthquake — Central region". */
+  label: string;
+  description: string;
+  /** The team's own lines the event touched, in the game's line order. */
+  lines: CoverageLine[];
+}
+
+const NEWS_LINE_ORDER: readonly CoverageLine[] = ['WC', 'GL', 'Property'];
+
+/**
+ * EACH EVENT AS NEWS, IN THE FIRST YEAR IT TOUCHES THE TEAM: played years
+ * (yearNumber >= 1) in order -> the events new that year. An event is its key
+ * and the year it began (`sinceYear`, or the year itself), so one that is still
+ * in force is not repeated, a second firing of the same event is news again,
+ * and one whose effect starts a year late is told the first year it has one.
+ * A line counts as touched when the event put a claim, a loss or an expected
+ * loss on it.
+ */
+export function eventNewsByYear(results: readonly AnyResult[]): Map<number, EventNews[]> {
+  const out = new Map<number, EventNews[]>();
+  const seen = new Set<string>();
+  for (const r of [...results].filter(x => x.yearNumber >= 1).sort((a, b) => a.yearNumber - b.yearNumber)) {
+    const news: EventNews[] = [];
+    for (const ev of yearEvents(r)) {
+      const id = `${ev.key}|${ev.sinceYear ?? r.yearNumber}`;
+      if (seen.has(id)) continue;
+      const lines = NEWS_LINE_ORDER.filter(l => ev.lines.some(x => x.line === l && (x.claims > 0 || x.grossLoss > 0 || x.expectedGrossLossAdded > 0)));
+      if (lines.length === 0) continue;
+      seen.add(id);
+      news.push({
+        key: ev.key,
+        label: eventLabel(ev.name, ev.region),
+        description: EVENT_DESCRIPTIONS[ev.name] ?? EVENT_DESCRIPTIONS['Catastrophe'],
+        lines,
+      });
+    }
+    out.set(r.yearNumber, news);
+  }
+  return out;
 }

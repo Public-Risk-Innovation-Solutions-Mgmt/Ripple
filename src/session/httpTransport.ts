@@ -130,8 +130,8 @@
 //    ⚠ DESIGNED: src/session/server/keys.ts — a header item plus one item per
 //    team-year for decisions and for results, with the sizes and which of them
 //    are measured. That file is authoritative; this item is the reason for it.
-//    (uw-hybrid swapped two decision scalars for two — renewalsDeclined and
-//    newBusinessRejection — so nothing here moved.)
+//    (uw-hybrid swapped two decision scalars for two, and simple underwriting
+//    swapped them again — nonRenewal and newMembers — so nothing here moved.)
 //
 // 7. POLLING IS METERED NOW. Every client reads the WHOLE room on every poll;
 //    the back-off in pollSchedule.ts cuts the request count by ~60% and does
@@ -161,14 +161,19 @@
 
 import type {
   AdvanceRequest, AdvanceResponse,
+  CreateHandoffRequest, CreateHandoffResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   ListEventsRequest, ListEventsResponse,
   ReadRequest, ReadResponse,
+  ReclaimTeamRequest, ReclaimTeamResponse,
+  SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
+  EditGameRequest, EditGameResponse,
   SessionErrorCode,
   SessionTransport,
   SubmitRequest, SubmitResponse,
+  UndoLockRequest, UndoLockResponse,
 } from './contract';
 import { SessionError } from './contract';
 import { Faults } from './faults';
@@ -223,7 +228,7 @@ interface ErrorBody {
 const ERROR_CODES: readonly string[] = [
   'ROOM_NOT_FOUND', 'TEAM_NOT_FOUND', 'TEAM_TAKEN', 'BAD_TOKEN', 'NOT_HOST',
   'WRONG_YEAR', 'GAME_COMPLETE', 'INVALID_REQUEST', 'EVENT_IN_PROGRESS',
-  'LINES_LOCKED', 'TRANSPORT_FAILURE',
+  'LINES_LOCKED', 'TRANSPORT_FAILURE', 'BAD_RECOVERY_CODE', 'TOO_MANY_ATTEMPTS', 'ALREADY_LOCKED',
 ];
 
 export class HttpSessionTransport implements SessionTransport {
@@ -246,8 +251,24 @@ export class HttpSessionTransport implements SessionTransport {
     return this.call('join', req);
   }
 
+  reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
+    return this.call('reclaimTeam', req);
+  }
+
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse> {
+    return this.call('createHandoff', req);
+  }
+
+  undoLock(req: UndoLockRequest): Promise<UndoLockResponse> {
+    return this.call('undoLock', req);
+  }
+
   submit(req: SubmitRequest): Promise<SubmitResponse> {
     return this.call('submit', req);
+  }
+
+  saveDraft(req: SaveDraftRequest): Promise<SaveDraftResponse> {
+    return this.call('saveDraft', req);
   }
 
   advance(req: AdvanceRequest): Promise<AdvanceResponse> {
@@ -268,6 +289,10 @@ export class HttpSessionTransport implements SessionTransport {
 
   setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse> {
     return this.call('setEventHidden', req);
+  }
+
+  editGame(req: EditGameRequest): Promise<EditGameResponse> {
+    return this.call('editGame', req);
   }
 
   // ---- the one place a request becomes a request ------------------------

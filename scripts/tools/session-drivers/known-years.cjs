@@ -1,41 +1,44 @@
 // ============================================================================
-// RESULTS RUN ONE YEAR BEHIND — what a player and a host can see, a driver.
+// RESULTS SHOW THROUGH THE YEAR JUST COMPLETED — what a player and a host can
+// see, a driver.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/known-years.cjs
 //
 // The pool sits in the current year while the board prices the next, and
-// results stop at the LATEST KNOWN YEAR — the current year less one
-// (utils/knownYears). A solo game of four years, scenario 7, from Program Year
-// 2027: at the start the pool is in 2026, pricing 2027, and the newest result
-// is 2025; each lock completes a year, which then shows — 2026 after the first
-// (the opening, a pre-game year), 2027 after the second, 2028 after the third;
-// at game end the final year, 2030, since it is complete.
+// results stop at the LATEST KNOWN YEAR — the year just completed, which is the
+// top bar's year (utils/knownYears). A solo game of four years, scenario 7,
+// from Program Year 2027: at the start the pool is in 2026, pricing 2027, and
+// the newest result is 2026 (the prior board's last year, the opening); each
+// lock completes a year, which shows at once — 2027 after the first, 2028
+// after the second, 2029 after the third; at game end the final year, 2030.
+// (Until this change results ran a year behind: 2025 at the start.)
 //
 // At each of those points, on every screen that shows results — the Annual
-// Statement, Financial Statements, Results, Result Spreadsheet, Calculation
-// Audit and the Model tab's expected-against-simulated section — the newest
-// year printed (counting year-ends "12/31/yy" and every option of the page's
-// year selector) IS the latest known year: nothing later, and the newly
-// completed year present, so a page that stops showing new years fails here
-// as surely as one that shows too many. The Annual Statement's newest column
-// and its selector's last option are that year; the Results workbook's newest
-// column is that year, and the Claims workbook stops there. The top bar shows
-// the CURRENT year — 2026 at the start, 2027 after the first lock — and its
-// surplus and combined ratio move with every lock.
+// Statement and the Year Walkthrough — the newest year printed (counting
+// year-ends "12/31/yy" and every option of the page's year selector) IS the
+// latest known year: nothing later, and the newly completed year present, so a
+// page that stops showing new years fails here as surely as one that shows too
+// many. The Annual Statement's newest column and its selector's last option are
+// that year. ⚠ SINCE THE TAB CLEANUP (src/game/tabs.tsx HIDDEN_TABS) Financial
+// Statements, Results, Result Spreadsheet and the Model tab are hidden
+// everywhere, and with the Result Spreadsheet went the Results and Claims
+// downloads — so this no longer reads them, and the T-claims game, which read
+// only the Claims workbook, is retired with it. The top bar shows
+// the CURRENT year — 2026 at the start, 2027 after the first lock — which is
+// the newest year shown, and its surplus and combined ratio move with every lock.
 //
 // Hosted (a room of four years, one team): the host's Teams tab names the
-// latest known year — nothing before the first advance, the opening (2026)
-// after it — and its Charts tab draws a point for every known year, one more at
-// every advance; the team's own top bar moves 2026 -> 2027 on the first.
+// latest known year — the opening (2026) from the start, then each year as it
+// is played — and its Charts tab draws a point for every known year, one more
+// at every advance; the team's own top bar moves 2026 -> 2027 on the first.
 //
-// The pages about pricing — Decisions, Decision History, the Rate Indication
-// and the Model tab's rate — are not read: they name the program year priced.
+// The pages about pricing — Decisions, Decision History and the Rate
+// Indication — are not read: they name the program year priced.
 // At the end it prints the table of what each screen showed at each point.
+//
 // ============================================================================
-const fs = require('node:fs');
-const XLSX = require('xlsx');
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const START = 2027, LENGTH = 4;
 let passed = 0, failed = 0;
@@ -53,11 +56,11 @@ function yearsIn(text) {
 }
 const newestOf = ys => (ys.length ? Math.max(...ys) : null);
 
-const RESULT_TABS = ['Annual Statement', 'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
+const RESULT_TABS = ['Annual Statement', 'Year Walkthrough'];
 const table = [];
 
 async function lockAndDecline(p) {
-  await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(p);
   await p.waitForTimeout(2500);
   const decline = p.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) {
@@ -80,43 +83,8 @@ async function solo(browser) {
   await page.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
   await page.locator('[data-testid="scenario"]').selectOption('7');
   await page.locator('input[type="range"]').first().fill(String(LENGTH));
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
-
-  async function readExports(known, knownNumber, name, row) {
-    for (const [label, kind] of [['Download Results (.xlsx)', 'results'], ['Download Claims (.xlsx)', 'claims']]) {
-      const btn = page.getByRole('button', { name: label, exact: false }).first();
-      if (await btn.count() === 0) { ok(false, `${name}: the ${kind} download is offered`); continue; }
-      const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }).catch(() => null), btn.click()]);
-      const path = dl ? await dl.path() : null;
-      if (!path || !fs.existsSync(path)) { ok(false, `${name}: the ${kind} workbook downloads`); continue; }
-      const wb = XLSX.readFile(path);
-      if (kind === 'results') {
-        const heads = wb.SheetNames.flatMap(s => XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1 })[0] ?? []).slice(2);
-        const newest = newestOf(heads.flatMap(h => yearsIn(String(h))));
-        row['Results download'] = newest;
-        ok(newest === known, `${name}: the Results workbook's newest column is ${known}`, `newest ${newest}`);
-      } else {
-        let worstAy = -Infinity, worstCal = -Infinity, worstVal = -Infinity;
-        for (const s of wb.SheetNames) {
-          const rows = XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1 });
-          const h = rows.findIndex(r => Array.isArray(r) && r.includes('Accident Year'));
-          if (h < 0) continue;
-          const head = rows[h];
-          const ay = head.indexOf('Accident Year'), cal = head.indexOf('Calendar Year');
-          head.forEach(c => { const m = /^Yr (-?\d+)$/.exec(String(c)); if (m) worstVal = Math.max(worstVal, Number(m[1])); });
-          for (const r of rows.slice(h + 1)) {
-            if (ay >= 0 && typeof r[ay] === 'number') worstAy = Math.max(worstAy, r[ay]);
-            if (cal >= 0 && typeof r[cal] === 'number') worstCal = Math.max(worstCal, r[cal]);
-          }
-        }
-        row['Claims download'] = worstAy === -Infinity ? null : START + worstAy - 1;
-        ok(worstAy <= knownNumber && worstVal <= knownNumber && worstCal <= known,
-          `${name}: the Claims workbook stops at ${known} (year ${knownNumber})`,
-          `newest accident year ${worstAy}, valuation Yr ${worstVal}, calendar year ${worstCal}`);
-      }
-    }
-  }
 
   let before = null;
   async function check(name, known, knownNumber, current, priced) {
@@ -124,7 +92,10 @@ async function solo(browser) {
     // The top bar: the current year, and figures that move with every lock.
     row['Top bar year'] = Number((await page.textContent('[data-testid="header-calendar"]')).trim());
     ok(row['Top bar year'] === current, `${name}: the top bar shows the current year ${current}`, String(row['Top bar year']));
-    const figures = (await page.locator('header').innerText()).match(/Surplus\s+(\S+)\s+Combined Ratio\s+(\S+)/)?.slice(1).join(' / ');
+    // The combined ratio is the newest known year's, labelled with it (wip/newest-year-combined-ratio).
+    const m = (await page.locator('header').innerText()).match(/Surplus\s+(\S+)\s+Combined ratio (\d{4})\s+(\S+)/);
+    const figures = m ? `${m[1]} / ${m[3]}` : undefined;
+    ok(m?.[2] === String(known), `${name}: the top bar's combined ratio is labelled with the newest known year ${known}`, `"Combined ratio ${m?.[2]}"`);
     row['Top bar figures'] = figures;
     if (before !== null) ok(figures && figures !== before, `${name}: the top bar's surplus and combined ratio moved with the lock`, `${before} -> ${figures}`);
     before = figures;
@@ -136,22 +107,19 @@ async function solo(browser) {
       const options = await main.locator('select option').allInnerTexts();
       const newest = newestOf([...yearsIn(text), ...options.flatMap(yearsIn)]);
       row[t] = newest;
-      ok(newest === known, `${name}, ${t}: the newest year shown is ${known} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
+      // ⚠ THE YEAR WALKTHROUGH WALKS PLAYED YEARS ONLY: before the first lock it
+      // shows none, and from then on the newest is the year just completed.
+      const want = t === 'Year Walkthrough' && knownNumber < 1 ? null : known;
+      ok(newest === want, `${name}, ${t}: the newest year shown is ${want ?? 'none (no played year yet)'} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
       if (t === 'Annual Statement') {
-        const cols = await page.locator('[data-testid="statement-operating"] thead th').allInnerTexts();
+        const cols = await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts();
         const yearCols = cols.map(c => c.trim()).filter(c => /^\d{4}$/.test(c)).map(Number);
         ok(yearCols.at(-1) === known, `${name}, Annual Statement: its newest column is ${known}`, yearCols.join(' '));
         const opts = await page.locator('[data-testid="statement-year"] option').allInnerTexts();
         const last = yearsIn(opts.at(-1) ?? '');
         ok(last.length > 0 && last[0] === known, `${name}, Annual Statement: the selector offers years up to ${known}`, opts.at(-1));
       }
-      if (t === 'Result Spreadsheet') await readExports(known, knownNumber, name, row);
     }
-    await tab('Model');
-    const ids = await page.$$eval('[data-testid^="model-b-"]', els => els.map(e => e.getAttribute('data-testid')));
-    const modelYears = ids.map(id => Number((/-(\d{4})-(?:exp|sim)$/.exec(id) ?? [])[1])).filter(Number.isFinite);
-    row['Model (section B)'] = newestOf(modelYears);
-    ok(row['Model (section B)'] === known, `${name}, Model: expected against simulated stops at ${known}`, `newest ${row['Model (section B)']}`);
     table.push(row);
   }
 
@@ -159,7 +127,7 @@ async function solo(browser) {
   for (let n = 1; n <= LENGTH; n++) {
     const locks = n - 1;
     const name = locks === 0 ? 'start' : `after ${locks} lock${locks > 1 ? 's' : ''}`;
-    await check(name, START + n - 3, n - 2, START + n - 2, START + n - 1);
+    await check(name, START + n - 2, n - 1, START + n - 2, START + n - 1);
     await lockAndDecline(page);
     if (n < LENGTH) await page.waitForSelector(`text=Lock Program Year ${START + n}`, { timeout: 120000 });
     else await page.waitForSelector('text=Game Complete', { timeout: 120000 });
@@ -221,13 +189,13 @@ async function hosted(browser) {
   for (let n = 1; n <= LENGTH; n++) {
     const locks = n - 1;
     const name = locks === 0 ? 'start' : `after ${locks} lock${locks > 1 ? 's' : ''}`;
-    await check(name, START + n - 3, START + n - 2);
-    await team.getByRole('button', { name: /Lock Program Year/ }).first().click();
-    await team.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await check(name, START + n - 2, START + n - 2);
+    await lockAndConfirm(team);
+    await team.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
     await host.click('[data-testid="host-tab-setup"]');
     await host.waitForTimeout(300);
     await host.click('[data-testid="advance"]');
-    await team.waitForFunction(y => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${y} result posted`), n, { timeout: 180000 });
+    await team.waitForFunction(y => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(y), n, { timeout: 180000 });
     await host.waitForFunction(([c, y]) => {
       const r = JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c) || 'null');
       return !!r && !!(r.teams[0].resultsByYear || {})[String(y)];
@@ -245,7 +213,7 @@ async function hosted(browser) {
   await hosted(browser);
   await browser.close();
 
-  const cols = ['point', 'Top bar year', 'Priced', ...RESULT_TABS, 'Model (section B)', 'Results download', 'Claims download', 'Host Teams tab', 'Host Charts tab', 'Top bar figures'];
+  const cols = ['point', 'Top bar year', 'Priced', ...RESULT_TABS, 'Host Teams tab', 'Host Charts tab', 'Top bar figures'];
   console.log('\n' + cols.join(' | '));
   for (const r of table) console.log(cols.map(c => r[c] ?? '—').join(' | '));
   console.log(`\nknown-years: ${passed}/${passed + failed} checks passed`);

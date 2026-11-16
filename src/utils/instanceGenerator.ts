@@ -2,7 +2,7 @@
 // Exposure = payroll in millions of dollars
 // Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import { scenarioOfId } from './scenarios';
+import { gameIdentity } from './scenarios';
 import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials } from '../types/simulation';
 import { SeededRandom, deriveSubRng } from './random';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
@@ -23,8 +23,7 @@ import {
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { SHOCK_EVENTS } from './shockLosses';
-import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, regionByShare } from '../data/pricingParameters';
-import { bookSizeOf, marketSeedOf, openingBookUnits } from './bookUnits';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE, regionByShare } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
@@ -110,6 +109,8 @@ export function generateGameInstance(
   instanceId: string,
   seed: number,
   scheduledShocks: readonly ScheduledShock[] = [],
+  // The scenario number, when the game is one of the twenty (scenarioInstance).
+  scenario?: number,
 ): GameInstance {
   for (const s of scheduledShocks) {
     if (!SHOCK_EVENTS.some(e => e.id === s.shockId)) {
@@ -119,11 +120,22 @@ export function generateGameInstance(
       throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' has fire year ${s.yearNumber}; it must be a game year, 1 or later`);
     }
   }
-  // The scenario rides on the instance, so every copy of it plays the same one.
-  const instance = { ...baseInstance(instanceId, seed), scenario: scenarioOfId(instanceId, seed) };
+  // The scenario number rides on the instance, so every copy of it carries it;
+  // a harness's bare instance has none (no id is mapped onto the twenty).
+  const instance = { ...baseInstance(instanceId, seed), ...(scenario !== undefined ? { scenario } : {}) };
   return scheduledShocks.length > 0
     ? { ...instance, scheduledShocks: withRegions(seed, scheduledShocks) }
     : instance;
+}
+
+/**
+ * THE GAME'S INSTANCE FOR A SETUP ID — the one path single player, Test player
+ * and a hosted room take. Scenario N is built on its fixed seed (gameIdentity,
+ * SCENARIO_SEEDS) and carries N as `scenario`; a harness's bare id plays itself.
+ */
+export function scenarioInstance(id: string, scheduledShocks: readonly ScheduledShock[] = []): GameInstance {
+  const { gameId, seed, scenario } = gameIdentity(id);
+  return generateGameInstance(gameId, seed, scheduledShocks, scenario);
 }
 
 // ⚠ A REGIONAL EVENT'S REGION IS PART OF THE SCHEDULE, RESOLVED HERE, ONCE.
@@ -136,6 +148,15 @@ export function generateGameInstance(
 // agree too, and the room record needs no new field. Each entry has its own
 // labelled stream (event, year, ordinal among the same event that year), so
 // one entry's region never moves another's. A region already given is kept.
+/**
+ * A schedule with every regional event's region resolved — the rule
+ * generateGameInstance applies, exported for a Test player game edited mid-way
+ * (utils/soloGameEdit.ts). An entry that already carries a region keeps it; a
+ * new one draws on its own (event, year, ordinal) stream, so adding or removing
+ * one event never moves another's region.
+ */
+export const scheduleWithRegions = (seed: number, schedule: readonly ScheduledShock[]): ScheduledShock[] => withRegions(seed, schedule);
+
 function withRegions(seed: number, schedule: readonly ScheduledShock[]): ScheduledShock[] {
   const ordinals = new Map<string, number>();
   return schedule.map(s => {
@@ -210,11 +231,10 @@ export function generateStartingPoolState(
   // skipping them moves nothing else.
   const bookMode = !MEMBER_LEVEL.enabled;
   const allMarketMembers = bookMode ? [] : getPredefinedMarketMembers();
-  // ⚠ A LINE OPENS ON ITS BOOK OF UNITS SINCE BOOK UNITS COMMIT 3: their sizes
-  // summed (about 30% of the market plus the last unit, different in every
-  // game), where it opened on OPENING_BOOK_EXPOSURE, one figure for all.
-  const openingExposure = (line: CoverageLine) =>
-    bookSizeOf(marketSeedOf(instance), line, openingBookUnits(marketSeedOf(instance), line));
+  // ⚠ A LINE OPENS ON OPENING_BOOK_EXPOSURE, ONE FIGURE FOR ALL, AGAIN since
+  // simple underwriting retired the book of units (which opened on its units'
+  // sizes summed, different in every game). The pre-game grows into it.
+  const openingExposure = (line: CoverageLine) => OPENING_BOOK_EXPOSURE[line];
 
   // Each active line draws its OWN starting roster (different but overlapping
   // sets) from its own derived stream — enrollment happens here, BEFORE the
@@ -474,11 +494,6 @@ export function generateStartingPoolState(
     // through processYear (see priorHistoryEngine), which is why members carry
     // history at Year 1 rather than starting blank.
     memberLossHistory: {},
-    // The opening book of units, from the game's seed (bookUnits.ts). On its
-    // own labelled streams: drawing it moves no other draw.
-    ...(bookMode ? {
-      bookUnits: Object.fromEntries(activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
-    } : {}),
   };
 
   const startingFinancials: StartingFinancials = {

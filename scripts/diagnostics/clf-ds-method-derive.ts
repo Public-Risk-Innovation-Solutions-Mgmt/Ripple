@@ -53,7 +53,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
-import { marketSeedOf, openingBookUnits, unitsOf } from '../../src/utils/bookUnits';
+import { UNDERWRITING_MEMBERS } from '../../src/data/pricingParameters';
 import { deriveSubRng } from '../../src/utils/random';
 import { normalCdf, normalInvCdf } from '../../src/utils/claimMath';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
@@ -79,21 +79,18 @@ function quantile(sorted: Float64Array, p: number): number {
 }
 
 // --- the books -------------------------------------------------------------
-function bookWeights(g: number, line: CoverageLine): { w: number[]; h: number; units: number } {
-  const instance = generateGameInstance(`CLFDS${g}`, 61_000_000 + g * 7_919);
-  const seed = marketSeedOf(instance);
-  const units = unitsOf(seed, line, openingBookUnits(seed, line));
-  const e = units.map(u => u.size * u.risk);
-  const total = e.reduce((a, b) => a + b, 0);
-  const w = e.map(x => x / total);
-  return { w, h: w.reduce((a, x) => a + x * x, 0), units: units.length };
+// Since simple underwriting every book is UNDERWRITING_MEMBERS equal members,
+// so every game's book weighs the same (the unit books differed by game).
+function bookWeights(): { w: number[]; h: number; units: number } {
+  const n = UNDERWRITING_MEMBERS;
+  return { w: Array.from({ length: n }, () => 1 / n), h: 1 / n, units: n };
 }
 
 // --- one book, every BaselineCV ----------------------------------------------
 interface BookResult { h: number; units: number; byCv: { pct: number[]; expected: number; analytic: number[]; analyticExpected: number }[] }
 
 function simulateBook(g: number, line: CoverageLine): BookResult {
-  const { w, h, units } = bookWeights(g, line);
+  const { w, h, units } = bookWeights();
   const rng = deriveSubRng(4_242_000 + g, 1, `clf_ds_${line}`);
   const sm = sigmaOf(MEMBER_LOSS_CV), mm = -sm * sm / 2;
   const S = new Float64Array(YEARS), Z = new Float64Array(YEARS);

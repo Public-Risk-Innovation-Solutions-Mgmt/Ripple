@@ -22,19 +22,19 @@
 // numbers the team never played — the decisions-history defect's class.
 // ============================================================================
 
-import { seedFromInstanceId } from '../../seedHash';
 import { openingRoster } from '../../game/openingRoster';
-import { generateGameInstance } from '../../utils/instanceGenerator';
+import { scenarioInstance } from '../../utils/instanceGenerator';
 import { runPriorHistory } from '../../utils/priorHistoryEngine';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, surplusRange, type SurplusRange } from '../../utils/worlds';
 import { defaultDecisionSet } from '../../utils/decisionDefaults';
-import type { CoverageLine, GameSetupSettings, GameState, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
+import type { CoverageLine, GameSetupSettings, GameState, MarketLineInput, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
 import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
-  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment'>;
+  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment' | 'developmentLevels'
+  | 'developmentLevelsByYear' | 'shocksOn'>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -60,6 +60,16 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     // longer stored-and-inert: the engine reads it per line, falling back to
     // PRIOR_DEVELOPMENT_DEFAULTS for any line the host did not set.
     priorDevelopment: r.priorDevelopment,
+    // The room's adverse development levels (wip/adverse-development): every
+    // team develops alike; a line absent reads the default.
+    ...(r.developmentLevels ? { developmentLevels: { ...r.developmentLevels } } : {}),
+    // ⚠ EACH YEAR'S OWN SETTINGS (wip/mid-game-edits): the levels the host set
+    // for a year mid-game, and the shock switch pinned at setup. Every rebuild —
+    // a reload, a rejoin on another device, a viewer — reads them, so a played
+    // year is replayed on what was in force in it. A room never edited has
+    // neither, and builds exactly as before.
+    ...(r.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(r.developmentLevelsByYear)) } : {}),
+    ...(r.shocksOn !== undefined ? { shocksOn: r.shocksOn } : {}),
     // ⚠ THE HOST SCHEDULES THE SHOCKS. On the new loss engine a session fires
     // only what the room scheduled and consults no probability; singleplayer
     // leaves this absent and draws from the catalogue. Read by nothing with
@@ -68,7 +78,9 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
   };
 
   // THE ROOM'S SCHEDULE, THROUGH THE CONSTRUCTOR. An empty one writes no field.
-  const instance = generateGameInstance(r.seed, seedFromInstanceId(r.seed), r.shocks);
+  // The room's seed is the scenario number; the instance plays its fixed seed
+  // (scenarioInstance), the same one single player and Test player build.
+  const instance = scenarioInstance(r.seed, r.shocks);
 
   const { poolState, startingFinancials, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, settings);
 
@@ -118,8 +130,12 @@ export function replayTeamYears(
   start: GameState,
   targetYear: number,
   decisionsByYear: Record<string, JsonValue> | undefined,
+  market?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>,
 ): { state: GameState; produced: ProducedYear[] } {
-  let state = start;
+  // MARKET COMPETITION: the team's stored market results, every year's, on the
+  // setup the engine reads (setup.marketByYear; bookUnderwriting.ts). Each year
+  // reads only its own entry, so the whole map is set once, whatever the year.
+  let state = market ? { ...start, setup: { ...start.setup, marketByYear: market } } : start;
   const produced: ProducedYear[] = [];
 
   // ⚠ EVERY YEAR THE LOOP PRODUCES, NOT THE LAST ONE, each with its own pool

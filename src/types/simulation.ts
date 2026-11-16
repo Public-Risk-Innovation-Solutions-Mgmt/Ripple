@@ -237,7 +237,7 @@ export interface MemberValueRow {
 export interface PoolValueRow {
   line: CoverageLine;
   pots: PotTotals;
-  /** poolPremium + adminExpense + reinsuranceCost. */
+  /** poolPremium + adminExpense + the risk control charge + reinsuranceCost. */
   totalMemberCharge: number;
   /** grossLoss / totalMemberCharge — what came back per dollar billed. */
   returnedPerDollar: number;
@@ -402,11 +402,6 @@ export interface Claim {
   // they show the event's name (see utils/yearEvents.ts), which reads the same
   // for a scheduled event and a drawn one.
   shockId?: string;
-  // THE BOOK UNIT the claim landed on (book units commit 5) — its index in the
-  // line's market (bookUnits.ts). Internal: NEVER SHOWN on any screen, export
-  // or workbook, which read the line. Absent on the member path and on
-  // claims from before book units.
-  unit?: number;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;
@@ -512,11 +507,11 @@ export interface GameInstance {
    */
   marketSeed?: number;
   /**
-   * THE SCENARIO, 1 TO 20, the game plays (stable-scenarios commit 9): its
-   * opening premium to surplus, its pre-game's experience and so its prior
-   * board's margin (pricingParameters' SCENARIO_PREMIUM_TO_SURPLUS). Set by
-   * generateGameInstance from the instance id (utils/scenarios.ts), and carried
-   * by every world's and every pre-game attempt's copy.
+   * THE SCENARIO, 1 TO 20, the game was set up as — the number players and
+   * hosts see. The game itself plays the scenario's fixed seed (the instance's
+   * id and seed, pricingParameters' SCENARIO_SEEDS); nothing reads this to
+   * scale or fit anything. Set by scenarioInstance (utils/instanceGenerator),
+   * absent on a harness's bare instance, and carried by every world's copy.
    */
   scenario?: number;
   lossEnvironment: {
@@ -551,6 +546,12 @@ export interface GameInstance {
   // instance and SAVE_STRIPPED_KEYS does not list this, so a reload keeps the
   // schedule; a session player keeps no save and rebuilds from the room.
   scheduledShocks?: ScheduledShock[];
+  /**
+   * A SHOCK-FREE SHADOW's instance (wip/shocks, SHOCK_FREE_PRICING): nothing
+   * fires, whatever the schedule or timing says, while the setup and schedule
+   * stay as the game's so every other reading of "are shocks on" is the same.
+   */
+  shockFree?: true;
 }
 
 // Coverage lines a pool can write. Selected once at game setup and locked for
@@ -563,6 +564,32 @@ export type CoverageLine = 'WC' | 'GL' | 'Property';
  * report read, so none of them has to reconstruct the year from the totals.
  * Every dollar figure is the POOL'S (GL net of its $25M limit).
  */
+export interface AttritionalCoverRecord {
+  optionId: string;
+  /** Expected normal losses the terms are struck on: the quoted book's exposure x the ordinary cost. */
+  expectedNormal: number;
+  /** The average surge in the terms, on the pricing basis. */
+  averageSurge: number;
+  /** expectedNormal x (1 + averageSurge). */
+  expectedAttritional: number;
+  attachment: number;
+  limit: number;
+  /** What the cover cost: its expected recovery x its load. In reinsuranceCost. */
+  price: number;
+  /** The expected recovery at the shock assumptions' odds (the price before load). */
+  expectedRecovery: number;
+  /** The year's normal losses as drawn and booked (after underwriting and the risk control cut). */
+  normalLoss: number;
+  /** The year's A surges on the line, as a share of the normal losses before the cut. */
+  surge: number;
+  /** The surges in dollars: the normal losses before the cut x surge. */
+  surgeLoss: number;
+  /** normalLoss + surgeLoss — the year's ordinary losses as booked, less any Economic Inflation uplift. */
+  attritional: number;
+  /** min(max(attritional - attachment, 0), limit). */
+  recovery: number;
+}
+
 export interface NewLossEngineRecord {
   /** Exposure x the ordinary cost, trended — the draw's own scale. */
   ordinaryExpected: number;
@@ -585,10 +612,24 @@ export interface NewLossEngineRecord {
   rDevelopment: number;
   /** Reserve inflation (RESERVE_INFLATION_PER_YEAR) booked on prior years' outstanding this year, in dollars. */
   reserveInflation: number;
+  /** Adverse development (ADVERSE_DEVELOPMENT) booked on prior years' outstanding this year, in dollars. */
+  adverseDevelopment?: number;
   /** Exposure that left with a Member Withdrawal at this renewal. */
   withdrawnExposure: number;
   /** Events in force on this line: catalogue id, name, the year it fired, region. */
   events: { id: string; name: string; firedYear: number; region?: Region; uplift: number; rRate: number }[];
+}
+
+/**
+ * ONE LINE OF A TEAM'S MARKET RESULT FOR A YEAR, as the engine reads it
+ * (hosted market competition; bookUnderwriting.ts moveBook, which documents each
+ * field). A subset of the server's stored result (utils/market/marketStep.ts).
+ */
+export interface MarketLineInput {
+  readonly leftShare: number;
+  readonly intake: number;
+  readonly engineNonRenewal: number;
+  readonly bookRisk: number;
 }
 
 export interface GameSetupSettings {
@@ -607,6 +648,48 @@ export interface GameSetupSettings {
    * before this field existed means the defaults throughout.
    */
   priorDevelopment?: Partial<Record<CoverageLine, number>>;
+  /**
+   * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
+   * ADVERSE_DEVELOPMENT). A room sets it from the host; Test player takes the
+   * chosen levels; single player stores every line 'Off' (SOLO_ADVERSE_DEVELOPMENT),
+   * which develops nothing. A room or Test player carries 'Off' on a line the
+   * host set to None — the same setting, so the same play. A line absent reads
+   * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL.
+   */
+  developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
+  /**
+   * THE LEVELS IN FORCE BY YEAR, where an edit made mid-game changed them
+   * (wip/mid-game-edits; utils/gameEdits.ts): year (a string, as JSON keys
+   * are) -> each line's level. A year with no entry, or a line absent from its
+   * entry, reads `developmentLevels`. Absent on every game never edited.
+   */
+  developmentLevelsByYear?: Record<string, Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>>;
+  /**
+   * THIS TEAM'S MARKET RESULT BY YEAR (hosted games with market competition,
+   * pr/market-competition): year (a string) -> each line's MarketLineInput, as
+   * the server stored it when the host advanced past the year. Read by moveBook
+   * (bookUnderwriting.ts) in place of the sliders. Absent everywhere else —
+   * single player, Test player, a room with the market Off — and nothing moves
+   * differently.
+   */
+  marketByYear?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>;
+  /**
+   * THE SHOCK SWITCH, PINNED AS IT STOOD AT SETUP (wip/mid-game-edits): read by
+   * gameShocksOn in place of "is the schedule non-empty", so adding a shock to a
+   * game set up without any — or removing the last — cannot flip pricing for
+   * every year on replay. Set the first time a game is edited; absent on every
+   * game never edited, which reads the schedule as before.
+   */
+  shocksOn?: boolean;
+  /** A Test player game's change history (utils/gameEdits.ts GameEdit). Absent until it is edited. */
+  gameEdits?: { at: number; by: string; yearNumber: number; kind: 'shock-added' | 'shock-removed' | 'development' | 'start'; shockId?: string; line?: CoverageLine; from?: 'Low' | 'Mid' | 'High' | 'Off'; to?: 'Low' | 'Mid' | 'High' | 'Off'; levels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>> }[];
+  /**
+   * A TEST PLAYER GAME (the host's setup played solo). Read by the display
+   * alone — the Year Walkthrough shows the scenario's fixed seed in a Test
+   * player game and never in single player. Nothing in the engine reads it;
+   * absent in single player, a hosted team and every save written before it.
+   */
+  testPlayer?: boolean;
   /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
    * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
@@ -657,26 +740,45 @@ export interface LineDecisionSet {
    * decisions set it (PRE_GAME_FUNDING_CUSHION); absent everywhere else.
    */
   fundingCushion?: number;
-  dividendPct: number;            // 0.00 to 0.15 of premium
-  assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * "RENEWALS DECLINED": the share of this line's renewing exposure the pool
-   * declines this year, worst loss ratio first (bookUnderwriting.ts). 0–0.10
-   * in 0.01 steps, default 0 (RENEWALS_DECLINED_SLIDER). Absent reads as 0.
-   *
-   * ⚠ REPLACES renewalCut (0–5%, on a noisy view of true risk). The save key
-   * moved with it, so no save carries the old field.
+   * THE DIVIDEND, IN DOLLARS — $0 to $15M in $1M steps (DIVIDEND_ASSESSMENT_RANGE).
+   * Paid out of the line's surplus, so limited to its OPENING surplus (none when
+   * that is zero or below, and none when the line carried a negative surplus in);
+   * see dividendAssessment.ts. Was dividendPct, a share of surplus.
    */
-  renewalsDeclined?: number;
+  dividendAmount: number;
   /**
-   * "NEW BUSINESS, REJECTION RATE": the share of this year's applicants turned
-   * away, at random. 0–0.15 in 0.01 steps, default 0
-   * (NEW_BUSINESS_REJECTION_SLIDER). Absent reads as 0. Buys down the
-   * first-year new-business penalty.
-   *
-   * ⚠ REPLACES intakeLevel and the four intake positions, retired.
+   * THE ASSESSMENT, IN DOLLARS — $0 to $15M in $1M steps. Charged to the members,
+   * so charged in full whatever the surplus: a pool with none can still assess.
+   * Was assessmentPct, a share of surplus (nothing at zero surplus).
    */
-  newBusinessRejection?: number;
+  assessmentAmount: number;
+  /**
+   * "NON-RENEWAL": the share of this line's book at the start of the year the
+   * pool does not renew (bookUnderwriting.ts) — exposure falls by it, and this
+   * year's ordinary loss per unit falls by NON_RENEWAL_LOSS_RELIEF x it. 0–0.10
+   * in 0.01 steps, default 0 (NON_RENEWAL_SLIDER). Absent reads as 0.
+   *
+   * ⚠ REPLACES renewalsDeclined (0–10%, worst loss ratio first on units).
+   */
+  nonRenewal?: number;
+  /**
+   * "NEW MEMBERS": the share of the book at the start of the year added as new
+   * members — exposure rises by it, and that exposure's ordinary losses carry
+   * NEW_BUSINESS_PENALTY this year. 0–0.10 in 0.01 steps, default 0
+   * (NEW_MEMBERS_SLIDER). Absent reads as 0.
+   *
+   * ⚠ REPLACES newBusinessRejection: there is no rejection rate, and no
+   * applicants arrive unless the team adds them.
+   *
+   * ⚠ IN A HOSTED ROOM WITH MARKET COMPETITION IT IS THE TEAM'S APPETITE: the
+   * most it takes in this year, from pricier teams' leavers, the outside supply
+   * and (if accepted) other teams' non-renewed members — the server's market
+   * step decides how much actually comes (src/session/market.ts). The engine
+   * grows nothing from it there, and the newcomers bring their own quality, no
+   * NEW_BUSINESS_PENALTY.
+   */
+  newMembers?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See
@@ -718,6 +820,14 @@ export interface LineDecisionSet {
   // (aggregateStopLevel), which is no longer offered. The engine reads the
   // tower placement through reinsuranceOptions.placementFor.
   reinsuranceOption: string;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES this line buys, beside the
+   * per-claim layer — one id from AGGREGATE_COVER_OPTIONS (wip/aggregate-cover).
+   * ⚠ OPTIONAL, AND ABSENT READS AS 'none' (aggregateCover.aggregateCoverOf):
+   * the defaults never write it, so a game that never buys the cover — and
+   * every save, session row and harness written before it — is the game it was.
+   */
+  aggregateCover?: string;
   assetAllocation: AssetAllocation;    // projected from DecisionSet.assetAllocation
   loanRepaymentAggressiveness: number; // 0.00 to 1.00 — share of positive net income used to
                                        // repay an outstanding inter-line loan first; only
@@ -1463,7 +1573,7 @@ interface ResultRowFields {
   finalRatePer100?: number;
   priorFirstIndicationPer100?: number;
   priorFinalRatePer100?: number;
-  /** Underwriting only: the CLF cushion plus the contingency provision, in dollars. */
+  /** Underwriting only: the CLF cushion, in dollars. */
   expectedToSurplus?: number;
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
@@ -1765,6 +1875,16 @@ interface ResultRowFields {
    * exactly as it did. See NewLossEngineRecord.
    */
   newLossEngine?: NewLossEngineRecord;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES the year was written with
+   * (wip/aggregate-cover; utils/aggregateCover.ts) — its terms and price as
+   * quoted, the year's attritional losses and what the cover paid on them.
+   * ABSENT when the line held None, so a year without the cover serialises
+   * exactly as it did. The recovery is IN reinsuranceRecovery (and so in
+   * netUltimateLoss), never in aggregateRecovery, which is the dormant stop's.
+   * Averaged across worlds field by field (worlds.averageLineResults).
+   */
+  attritionalCover?: AttritionalCoverRecord;
   // WC aggregate stop-loss on total annual retained loss. 0 when not purchased.
   aggregateRecovery: number;
   aggregatePremium: number;
@@ -1774,7 +1894,30 @@ interface ResultRowFields {
 
   // Expenses
   operatingExpense: number;
+  /**
+   * Risk control spent this year — Other Admin Expense on the Annual Statement.
+   * Since wip/risk-control it is the Risk Control slider's charge (the same
+   * dollars the rate collected for it); the old pool-wide spend adds nothing
+   * while RISK_CONTROL is off.
+   */
   riskControlInvestment: number;
+  /**
+   * THE RISK CONTROL CUT (riskControl.ts), present only in a year the line's
+   * slider is above 0% — absent reads as no risk control, so a year without it
+   * is byte-identical to before the slider existed. Averaged across the worlds
+   * like any other figure; the mean cut, the draw and the cut are the same in
+   * every world.
+   */
+  /** m: the mean cut, sized so the expected losses + LAE saved equal the charge. */
+  riskControlMeanCut?: number;
+  /** z: the year's standard normal draw — the scenario's, shared by every world and player. */
+  riskControlDraw?: number;
+  /** The share taken off this year's normal losses: max(0, m x (1 + 0.5 z)). */
+  riskControlCut?: number;
+  /** This year's normal losses x the cut, in dollars. */
+  riskControlLossSaved?: number;
+  /** The ALAE and ULAE on riskControlLossSaved, at the year's drawn ALAE ratio. */
+  riskControlLaeSaved?: number;
 
   // Reserve development (NET basis — reserves are net of reinsurance)
   priorYearDevelopment: number; // positive = favorable, negative = adverse
@@ -2077,13 +2220,6 @@ interface ResultRowFields {
   // Narrative
   narrativeExplanation: string;
 
-  // Provenance of the pre-game reject-and-redraw bootstrap (priorHistoryEngine).
-  // Set only on pre-game years (yearNumber <= 0), per line, so the exact
-  // effective seed that produced that line's history — instance.seed +
-  // pregameAttempt x 997 — is derivable from saved state. Undefined for live
-  // years and for the pool-level aggregate (each line can carry a different
-  // attempt, so there is no single pool-level value).
-  pregameAttempt?: number;
 
 }
 
@@ -2282,6 +2418,12 @@ export interface LinePoolState {
    * Withdrawal move it; the year's exposure is it x exposureFactor.
    */
   bookExposure?: number;
+  /**
+   * YEAR 1'S QUOTED EXPOSURE (wip/shocks) — the base the shock cost factor
+   * scales T claims and cover prices against (utils/shockCost). Set once when
+   * the pre-game ends; absent on a save from before it, read as no exposure term.
+   */
+  shockCostBaseExposure?: number;
   netUnpaidReserve: number;    // unpaid loss reserve, net of reinsurance
   surplus: number;
   investedAssets: number;      // this line's own segregated investment portfolio (Stage 2.9),
@@ -2396,39 +2538,9 @@ export interface PoolState {
   // membershipHistory, and discarding a save over an additive field would be a
   // worse trade.
   memberLossHistory?: MemberLossHistory;
-  /**
-   * THE BOOK OF UNITS EACH LINE HOLDS — indices into the line's market
-   * (bookUnits.ts), which is regenerated from the game seed and never stored.
-   * ONCE PER GAME: on the game's own pool state, never on a world's or in a
-   * year's record — every world holds the same book. Absent with MEMBER_LEVEL
-   * on, and on saves from before book units. Never shown.
-   */
-  bookUnits?: Partial<Record<CoverageLine, number[]>>;
-  /**
-   * WHAT UNDERWRITING KNOWS OF EACH LINE'S BOOK BEYOND ITS INDICES — the share
-   * held of a partly held unit, the year each unit joined, and each unit's loss
-   * history AVERAGED ACROSS THE WORLDS. Like bookUnits, ONCE PER GAME on the
-   * game's pool state, never on a world's. Never shown. See bookUnderwriting.ts.
-   */
-  bookLedger?: Partial<Record<CoverageLine, BookLedger>>;
-}
-
-/** One accident year of a unit's record: its losses for the history, and the premium it paid, $. */
-export interface UnitYearRecord {
-  year: number;
-  /** Ordinary (with the year's uplift and any penalty), routine large excess, shock claims capped. */
-  loss: number;
-  premium: number;
-}
-
-/** A line's underwriting ledger — keys are unit indices, as strings (JSON). */
-export interface BookLedger {
-  /** The share held of a unit held only in part; absent is wholly held. */
-  share: Record<string, number>;
-  /** The year a unit joined; absent is the opening book. */
-  joined: Record<string, number>;
-  /** The last LOSS_HISTORY_YEARS records of every held unit, oldest first. */
-  history: Record<string, UnitYearRecord[]>;
+  // ⚠ bookUnits and bookLedger — the book of units and its underwriting
+  // ledger — are RETIRED with simple underwriting. A save written before may
+  // still carry them; nothing reads them.
 }
 
 // Top-level game state
@@ -2463,6 +2575,14 @@ export interface GameState {
   worlds?: WorldState[];
   /** Every played year's decisions and loan choices, in order — what a reload replays. */
   playedYears?: PlayedYear[];
+  /**
+   * THE SHOCK-FREE SHADOW the pure premium is struck from (wip/shocks,
+   * SHOCK_FREE_PRICING): this game with no shock firing, advanced in lockstep
+   * with the same decisions and loan choices from the first year a shock is in
+   * force. Absent before then — the game IS its own shadow — and never saved:
+   * a reload replays the years and rebuilds it.
+   */
+  pricingShadow?: GameState;
 }
 
 /** One world's own state and played years. See GameState.worlds. */

@@ -1,3 +1,12 @@
+// ============================================================================
+// ⚠ UNROUTED. The tab this page filled is the Year Walkthrough now
+// (components/YearWalkthroughPanel, utils/yearWalkthrough), in every mode.
+// The page stays in the tree, like HistoryPage, because its derivations —
+// computeAuditChecks, the formula rows, evaluateFormula — are what
+// audit-formula-check holds to the engine on every commit: each re-derives an
+// engine figure (investment income from the market, the cash sweep, the
+// funding build-up) and the gate fails if the engine moves away from it.
+// ============================================================================
 import React, { useState } from 'react';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import { lookupCLF, ibnerBookingBias } from '../utils/simulationEngine';
@@ -13,7 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { CoverageLine, GameInstance, LineResultSet, LineView, ResultSet } from '../types/simulation';
-import { resolveShockYear, type ShockTiming } from '../utils/shockLosses';
+import { applyMarketShock, resolveShockYear, SHOCK_EVENT_LABELS, type ShockTiming } from '../utils/shockLosses';
 import { worldInstance } from '../utils/worlds';
 import { reconstructSweep } from '../utils/worldAudit';
 import { asLineRow } from '../utils/lineHelpers';
@@ -21,7 +30,6 @@ import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { formatCurrency, formatPct } from '../utils/formatters';
 import { unpaidShare } from '../utils/payoutPattern';
-import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { deriveSubRng } from '../utils/random';
 import { simulateMarketReturns, blendInvestmentReturn } from '../utils/investmentEngine';
 import {
@@ -50,10 +58,12 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { ADMIN_OVERRUN_RANGE, AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { ADMIN_OVERRUN_RANGE, ADMIN_SHARE_OF_PREMIUM, AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { placementFor } from '../utils/reinsuranceOptions';
-import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
+import { effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
+import type { TeamMarketShareOfYear } from '../session/contract';
+import { roomShareFor } from '../session/marketShares';
 
 interface CalculationAuditPageProps {
   // Pool-level results, UNFILTERED by line view: the page selects its own
@@ -69,6 +79,8 @@ interface CalculationAuditPageProps {
   /** The game's instance and shock timing — the investment check applies the year's Investment Loss. */
   instance?: GameInstance;
   shockTiming?: ShockTiming;
+  /** A hosted team's room share and its year; absent in single player. See GameShell. */
+  roomMarketShare?: TeamMarketShareOfYear | null;
 }
 
 // Three-state check outcome. 'variance' is a DOCUMENTED, bounded modelling
@@ -368,7 +380,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming, roomMarketShare }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -393,7 +405,7 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
   if (allYears.length === 0 || !poolResult) {
     return (
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
-        <div className="text-center py-20 text-gray-400">
+        <div className="text-center py-20 text-black">
           <Calculator size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No calculation audit available yet</p>
           <p className="text-sm mt-1">Complete a year to see calculation details.</p>
@@ -423,7 +435,7 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
   // buildRevExpRows / buildNetPositionRows pattern below) so a regression
   // script can evaluate every formula without rendering the page.
   const { exposureRows, rateRows, lossRows, reserveRows, ratioRows, capitalRows } =
-    buildSupportingRows(poolResult, lineView);
+    buildSupportingRows(poolResult, lineView, roomMarketShare);
 
   // The two statement-mirroring cards, built from exported pure functions so a
   // regression script can assert their correspondence to the statements.
@@ -550,7 +562,7 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
 function buildShockAuditRows(result: ResultSet | LineResultSet): AuditRow[] {
   const rows: AuditRow[] = [];
   for (const s of result.shockEvents ?? []) {
-    rows.push({ kind: 'section', metric: `${s.shockId} — ${s.name}`, value: '', formula: '' } as AuditRow);
+    rows.push({ kind: 'section', metric: `${s.shockId} — ${SHOCK_EVENT_LABELS[s.shockId]?.name ?? s.name}`, value: '', formula: '' } as AuditRow);
     rows.push({
       metric: 'Band / horizon',
       value: `${s.band} · ${s.horizon}`,
@@ -615,10 +627,10 @@ function AuditSection({ title, icon, rows }: AuditSectionProps) {
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th className="text-left px-5 py-3 font-semibold text-gray-600 w-1/4">Metric</th>
-              <th className="text-right px-5 py-3 font-semibold text-gray-600 w-1/6">Value</th>
-              <th className="text-left px-5 py-3 font-semibold text-gray-600">Formula / Source</th>
-              <th className="text-left px-5 py-3 font-semibold text-gray-600 w-1/6">Check / Notes</th>
+              <th className="text-left px-5 py-3 font-semibold text-black w-1/4">Metric</th>
+              <th className="text-right px-5 py-3 font-semibold text-black w-1/6">Value</th>
+              <th className="text-left px-5 py-3 font-semibold text-black">Formula / Source</th>
+              <th className="text-left px-5 py-3 font-semibold text-black w-1/6">Check / Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -664,7 +676,7 @@ function FormulaCell({ row }: { row: AuditRow }) {
   return (
     <div className="space-y-1">
       {(spec.kind !== 'text' || spec.text !== '') && (
-        <div className={isProse ? 'text-gray-600 whitespace-pre-line' : 'font-mono text-gray-800 tabular-nums'}>
+        <div className={isProse ? 'text-black whitespace-pre-line' : 'font-mono text-gray-800 tabular-nums'}>
           {renderFormula(spec)}
         </div>
       )}
@@ -673,7 +685,7 @@ function FormulaCell({ row }: { row: AuditRow }) {
           {row.subFormula.label} = {renderFormula(row.subFormula.spec)}
         </div>
       )}
-      {row.explain && <div className="text-xs text-gray-400">{row.explain}</div>}
+      {row.explain && <div className="text-xs text-black">{row.explain}</div>}
     </div>
   );
 }
@@ -1080,30 +1092,25 @@ export function computeAuditChecks(
 
   // --- Investment income: plumbing consistency, not an independent derivation ---
   // Live years draw one shared market from the plain instance seed. Pre-game
-  // years are simulated PER LINE in isolation on attempt-shifted seeds
-  // (instance.seed + pregameAttempt x 997), so each line saw a DIFFERENT
-  // market in the same pre-game year — there is no single pool-level market
-  // draw to check, only per-line ones.
+  // years are simulated PER LINE in isolation, each its own single-line game,
+  // so there is no single pool-level market draw to check, only per-line ones.
   let investmentIncome: AuditCheck;
   if (isPoolView && !isLiveYear) {
     const { note, status } = naNote(
-      'no single pool-level market draw exists for a pre-game year — each line pre-games on its own ' +
-      'attempt-shifted seed and drew a different market. Select a line tab to check it.'
+      'no single pool-level market draw exists for a pre-game year — each line pre-games on its own. ' +
+      'Select a line tab to check it.'
     );
     investmentIncome = { derived: 0, statement: r.investmentIncome, diff: 0, note, status };
   } else {
-    const attempt = isLiveYear ? 0 : (r.pregameAttempt ?? 0);
     // The year's market for one world: its own seed's draw, with the year's
     // Investment Loss taken off equities as the engine takes it (live years on
     // the new engine, when the instance is known).
     const marketFor = (i: number) => {
       const seed = i === 0 ? instanceSeed : worldInstance({ seed: instanceSeed } as GameInstance, i).seed;
-      const effectiveSeed = attempt === 0 ? seed : (seed + attempt * 997) >>> 0;
-      const drawn = simulateMarketReturns(deriveSubRng(effectiveSeed, r.yearNumber, 'invest'));
-      const shock = market && isLiveYear && newLossEngineRuns()
-        ? resolveShockYear(worldInstance(market.instance, i), market.timing, r.yearNumber).equityShock
-        : 0;
-      return shock !== 0 ? { ...drawn, equities: drawn.equities + shock } : drawn;
+      const drawn = simulateMarketReturns(deriveSubRng(seed, r.yearNumber, 'invest'));
+      return market && isLiveYear && newLossEngineRuns()
+        ? applyMarketShock(drawn, resolveShockYear(worldInstance(market.instance, i), market.timing, r.yearNumber).marketShock)
+        : drawn;
     };
     // ⚠ A MULTI-WORLD YEAR IS THE AVERAGE OF EACH WORLD'S OWN MARKET on its own
     // assets (loss engine commit 4b) — no single draw produced the averaged row.
@@ -1213,13 +1220,21 @@ function statusLine(rows: AuditRow[]): { text: string; tone: string } {
 
 function buildAssumptionRows(): AuditRow[] {
   const rows: AuditRow[] = [
-    {
-      metric: 'Admin Expense as % of Pure Premium',
-      value: formatPct(ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM),
-      formula: `Pure Premium × ${formatPct(ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, 0)}. Added after selected CLF and not multiplied by CLF.`,
-      note:
-        'Higher values make it harder to generate underwriting income. This is separate from LAE, so avoid double counting claim adjustment expenses.',
-    },
+    NEW_RATE_STACK.enabled
+      ? {
+        metric: 'Admin Expense as % of Premium',
+        value: (['WC', 'GL', 'Property'] as const).map(l => `${l} ${formatPct(ADMIN_SHARE_OF_PREMIUM[l], 0)}`).join(' · '),
+        formula: 'Rate = Pure Premium × CLF ÷ (1 − admin share − risk control) + reinsurance, so admin is exactly its share of the premium before reinsurance and the permissible loss ratio is 1 − that share.',
+        note:
+          'The same every year. This is separate from LAE, so avoid double counting claim adjustment expenses.',
+      }
+      : {
+        metric: 'Admin Expense as % of Pure Premium',
+        value: formatPct(ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM),
+        formula: `Pure Premium × ${formatPct(ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, 0)}. Added after selected CLF and not multiplied by CLF.`,
+        note:
+          'Higher values make it harder to generate underwriting income. This is separate from LAE, so avoid double counting claim adjustment expenses.',
+      },
     {
       metric: 'Member Actual Loss Distribution',
       value: MEMBER_LOSS_VOLATILITY.distribution,
@@ -1443,9 +1458,7 @@ function buildAssumptionRows(): AuditRow[] {
       metric: 'Slider Ranges',
       value:
         `Funding Confidence Level: ${formatSliderPct(SLIDER_RANGES.fundingConfidenceLevel)}\n` +
-        `Dividend / Assessment (combined, collapsed input): ${formatSliderPct(SLIDER_RANGES.dividendAssessment)}\n` +
-        `  Dividend % (engine field): ${formatSliderPct(SLIDER_RANGES.dividendPct)}\n` +
-        `  Assessment % (engine field): ${formatSliderPct(SLIDER_RANGES.assessmentPct)}\n` +
+        `Dividend / Assessment (combined, in dollars): Min ${formatCurrency(SLIDER_RANGES.dividendAssessment.min)}, Max ${formatCurrency(SLIDER_RANGES.dividendAssessment.max)}, Step ${formatCurrency(SLIDER_RANGES.dividendAssessment.step)}\n` +
         `Risk Control %: ${formatSliderPct(SLIDER_RANGES.riskControlPct)}\n` +
         `Asset Allocation Default: Cash ${ASSET_ALLOCATION_DEFAULT.cashPct}% / Bonds ${ASSET_ALLOCATION_DEFAULT.bondsPct}% / Equities ${ASSET_ALLOCATION_DEFAULT.equitiesPct}%`,
       formula: 'Player decision slider configuration.',
@@ -1532,6 +1545,8 @@ function formatSliderPct(range: { min: number; max: number; step: number; defaul
 export function buildSupportingRows(
   poolResult: ResultSet,
   lineView: LineView,
+  /** A hosted team's room share (undefined in single player: no market-share row). */
+  roomShare?: TeamMarketShareOfYear | null,
 ): { exposureRows: AuditRow[]; rateRows: AuditRow[]; lossRows: AuditRow[]; reserveRows: AuditRow[]; ratioRows: AuditRow[]; capitalRows: AuditRow[] } {
   const lineKeysHere = Object.keys(poolResult.byLine) as CoverageLine[];
   const result: ResultSet | LineResultSet =
@@ -1696,8 +1711,17 @@ export function buildSupportingRows(
       ? 'No pool CLF exists: each line prices off its OWN static table, and this figure is one line\'s value kept as a placeholder. Select a line tab for the real one.'
       : `FUNDING_CLF_TABLE[${formatPct(lineRow!.selectedFundingConfidenceLevel, 0)}] — see Default Assumptions`;
 
-  const reserveRiskMarginCheck =
-    result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1);
+  // ⚠ WITH THE RETAINED CATASTROPHE, as the engine stores it
+  // (simulationEngine: max(0, expectedNetUnpaidLoss x (CLF − 1) + catCapitalNeeded)).
+  // The term arrived with the shocks landing — a game with shocks on and no
+  // cover retains its catastrophe, Property's above all — and this
+  // recalculation was left without it, so the check read Review by exactly the
+  // term ($12,082,474 on a Property opening) while the formula row above
+  // already showed both. audit-formula-check section 6 fails when it is left out.
+  const reserveRiskMarginCheck = Math.max(
+    0,
+    result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1) + (result.catCapitalNeeded ?? 0),
+  );
 
   const reserveRiskMarginDifference =
     result.reserveRiskMarginNeeded - reserveRiskMarginCheck;
@@ -1787,9 +1811,14 @@ export function buildSupportingRows(
   // row's 1e-4 tolerance — but it now fails if that identity ever breaks, which
   // is a thing that can actually happen. The numerator is the admin BOOKED
   // (with the overrun); the denominator's admin is the admin CHARGED.
+  // ⚠ RISK CONTROL IS IN BOTH (wip/risk-control): the slider's charge is part of
+  // what members pay and is paid away as Other Admin Expense. 0 at 0%.
   const expenseRatioCheck =
-    (result.operatingExpense + result.reinsuranceCost) /
-    Math.max(result.poolPremium + result.adminExpense + result.reinsuranceCost, 1);
+    (result.operatingExpense + result.reinsuranceCost + result.riskControlInvestment) /
+    Math.max(result.poolPremium + result.adminExpense + result.riskControlInvestment + result.reinsuranceCost, 1);
+  // The risk control term on the expense rows, shown only in a year it was charged.
+  const rcTerms = result.riskControlInvestment !== 0 ? [curTerm(result.riskControlInvestment, 'risk control')] : [];
+  const rcLabel = result.riskControlInvestment !== 0 ? ' + risk control' : '';
 
   const capitalFundingGapCheck =
     result.availableSurplus - result.reserveRiskMarginNeeded;
@@ -1905,47 +1934,29 @@ export function buildSupportingRows(
       value: exposureDisplay(result.totalMarketExposure),
       formula: { kind: 'text', text: 'The full simulated market total — no on-page breakdown by member exists.' },
     },
-    {
-      metric: 'Market Share',
-      value: formatPct(result.marketShare),
-      numericValue: result.marketShare,
-      // ⚠ THE POOL FORMULA WAS THE RETIRED ONE. activeExposure /
-      // totalMarketExposure stopped being how marketShare is computed at pool
-      // scope when that ratio was found to add WC/GL payroll to Property TIV —
-      // a mixed-unit fraction. The engine replaced it with the CHARGE-WEIGHTED
-      // average of each line's own (dimensionless) share; the formula here was
-      // not replaced with it, so the row stated one number and derived another
-      // for a full release, in EVERY arm.
-      //
-      // Shown as the real weighted average rather than gated to n/a: unlike a
-      // pool CLF, this quantity genuinely exists at pool scope — it is exactly
-      // what the engine computes — so declining to explain it would hide a
-      // derivation that is available and correct. The per-line build-up is
-      // beneath it.
-      //
-      // LINE SCOPE IS UNCHANGED: there the exposure ratio IS the definition, one
-      // clean unit, and it reconciles exactly.
-      formula: isPoolView && perLine && perLine.length > 0
-        ? {
-            kind: 'ratio',
-            numerator: curTerm(perLine.reduce((sum, pl) => sum + pl.marketShare * pl.totalMemberCharge, 0), 'charge-weighted share'),
-            denominator: curTerm(perLine.reduce((sum, pl) => sum + pl.totalMemberCharge, 0), 'total member charge'),
-          }
-        : { kind: 'ratio', numerator: expTerm(result.activeExposure, 'enrolled exposure, $M'), denominator: expTerm(result.totalMarketExposure, 'market exposure, $M') },
-      subFormula: isPoolView && perLine && perLine.length > 0
-        ? {
-            label: 'charge-weighted share',
-            value: perLine.reduce((sum, pl) => sum + pl.marketShare * pl.totalMemberCharge, 0),
-            spec: { kind: 'sum', terms: perLine.map(pl => ({
-              product: [pctTerm(pl.marketShare, 'its own share'), curTerm(pl.totalMemberCharge, 'its member charge')],
-              label: pl.line,
-            })) },
-          }
-        : undefined,
-      explain: isPoolView
-        ? 'Each line\'s own share, weighted by what its members actually pay. NOT summed exposure over summed market exposure — that adds payroll to insured value and is not a ratio of anything.'
-        : undefined,
-    },
+    // ⚠ THE ROOM SHARE IN A HOSTED GAME, NONE IN SINGLE PLAYER. The engine's
+    // marketShare is the share of the whole market of potential members, which
+    // is no one's share of anything a player competes for (a hosted team saw
+    // ~30% in a room of eight). A hosted team's share is the room's figure for
+    // it — the top bar's chip and the host's Market share column — held for the
+    // latest known year only; another year reads a dash. The room's totals are
+    // not shown: they would carry other teams' figures.
+    ...(roomShare === undefined ? [] : [{
+      metric: 'Market Share (of the room)',
+      value: (() => {
+        const v = roomShareFor(roomShare, result.yearNumber, lineView);
+        return v === undefined ? '—' : formatPct(v);
+      })(),
+      formula: {
+        kind: 'text' as const,
+        text: (isPoolView
+          ? 'This team\'s premium over the total premium of every team in the room'
+          : 'This team\'s exposure on the line over the total exposure on it of every team in the room')
+          + (roomShare ? `, for ${roomShare.year <= 0 ? 'the opening books (every team alike)' : `year ${roomShare.year}`}` : '')
+          + ' — worked out where the room is kept, so it is the top bar\'s and the host\'s figure. '
+          + 'Shown for the latest known year only; the room\'s totals are not shown, since they carry other teams\' figures.',
+      },
+    }]),
   ];
 
   // ⚠ EMPTY AT POOL SCOPE. Every row below reads a per-line quantity — a
@@ -1993,8 +2004,9 @@ export function buildSupportingRows(
               // The expense divisor under the new stack, the rate level under
               // the old — see the Contributions row for why it belongs here.
               NEW_RATE_STACK.enabled
-                ? factorTerm(1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
-                  `/ ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`)
+                ? factorTerm((1 - ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] - effectiveRiskControlIncentivePct(lineRow.decisions))
+                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
+                  `× (1 - admin - risk control) / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`)
                 : factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
             ],
           },
@@ -2404,11 +2416,11 @@ export function buildSupportingRows(
       metric: 'Expected Expense Ratio (member charge basis)',
       value: formatPct(result.expectedExpenseRatio),
       numericValue: result.expectedExpenseRatio,
-      formula: { kind: 'ratio', numerator: curTerm(result.adminExpense + result.reinsuranceCost, 'admin expense + reinsurance cost'), denominator: curTerm(result.totalMemberCharge, 'total member charge') },
+      formula: { kind: 'ratio', numerator: curTerm(result.adminExpense + result.reinsuranceCost + result.riskControlInvestment, `admin expense${rcLabel} + reinsurance cost`), denominator: curTerm(result.totalMemberCharge, 'total member charge') },
       subFormula: {
-        label: 'admin expense + reinsurance cost',
-        value: result.adminExpense + result.reinsuranceCost,
-        spec: { kind: 'sum', terms: [curTerm(result.adminExpense, 'admin expense'), curTerm(result.reinsuranceCost, 'reinsurance cost')] },
+        label: `admin expense${rcLabel} + reinsurance cost`,
+        value: result.adminExpense + result.reinsuranceCost + result.riskControlInvestment,
+        spec: { kind: 'sum', terms: [curTerm(result.adminExpense, 'admin expense'), ...rcTerms, curTerm(result.reinsuranceCost, 'reinsurance cost')] },
       },
       explain: 'Computed from the actual expense dollars, not as a residual of the loss ratio — so the combined ratio can land anywhere pricing puts it rather than being forced to 100%.',
     },
@@ -2460,11 +2472,11 @@ export function buildSupportingRows(
       metric: 'Actual Expense Ratio',
       value: formatPct(result.expenseRatio),
       numericValue: result.expenseRatio,
-      formula: { kind: 'ratio', numerator: curTerm(result.operatingExpense + result.reinsuranceCost, 'admin paid + reinsurance cost'), denominator: curTerm(result.totalMemberCharge, 'collected gross premium and admin expense') },
+      formula: { kind: 'ratio', numerator: curTerm(result.operatingExpense + result.reinsuranceCost + result.riskControlInvestment, `admin paid${rcLabel} + reinsurance cost`), denominator: curTerm(result.totalMemberCharge, 'collected gross premium and admin expense') },
       subFormula: {
-        label: 'admin paid + reinsurance cost',
-        value: result.operatingExpense + result.reinsuranceCost,
-        spec: { kind: 'sum', terms: [curTerm(result.operatingExpense, 'admin paid'), curTerm(result.reinsuranceCost, 'reinsurance cost')] },
+        label: `admin paid${rcLabel} + reinsurance cost`,
+        value: result.operatingExpense + result.reinsuranceCost + result.riskControlInvestment,
+        spec: { kind: 'sum', terms: [curTerm(result.operatingExpense, 'admin paid'), ...rcTerms, curTerm(result.reinsuranceCost, 'reinsurance cost')] },
       },
       explain: 'The admin actually paid, with the year\'s overrun — not the admin the rate charged, which the expected expense ratio keeps.',
     },
@@ -2745,15 +2757,18 @@ export function buildRevExpRows(
               label: 'net expected loss',
             },
             { value: lineRow.selectedFundingCLF, format: 'factor', label: `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%` },
-            // ⚠ THE EXPENSE DIVISOR, UNDER THE NEW STACK. The loading is split
-            // across the pure-premium and admin limbs so the charge stays
-            // additive, so this row carries its own share of it. Flag off, the
-            // factor is the rate level and this reads exactly as it did.
+            // ⚠ THE EXPENSE DIVISOR, UNDER THE NEW STACK, less admin's and risk
+            // control's shares: the rate before reinsurance is retained x CLF /
+            // (1 - admin share - risk control), and this row is that rate less
+            // admin and risk control — (1 - admin share - risk control) of it,
+            // so the factor is 1. Flag off, the factor is the rate level and
+            // this reads exactly as it did.
             ...(NEW_RATE_STACK.enabled
               ? [{
-                value: 1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
+                value: (1 - ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] - effectiveRiskControlIncentivePct(lineRow.decisions))
+                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
                 format: 'factor' as const,
-                label: `/ (1 - risk control - contingency) = / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`,
+                label: `× (1 - admin ${(ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] * 100).toFixed(0)}% - risk control) / (1 - admin - risk control) = / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`,
               }]
               : [{ value: lineRow.rateLevel / 100, format: 'factor' as const, label: `rate level ${lineRow.rateLevel}` }]),
           ],
@@ -2782,29 +2797,28 @@ export function buildRevExpRows(
         () => ({
           kind: 'product',
           factors: NEW_RATE_STACK.enabled && lineRow !== null
-            // ⚠ THE 15% LOAD IS RETIRED UNDER THE NEW STACK. Admin is a fixed
-            // amount per line spread over exposure plus a per-exposure rate,
-            // and it carries its share of the expense divisor — stated here
-            // the way it is charged, because a page that states the old
-            // formula beside the new number is the defect this check exists
-            // to catch.
+            // ⚠ THE 15% LOAD IS RETIRED UNDER THE NEW STACK. Admin is its share
+            // of premium (ADMIN_SHARE_OF_PREMIUM): that share of the rate
+            // before reinsurance, retained x CLF / (1 - admin share - risk
+            // control) — stated here the way it is charged, because a page that
+            // states the old formula beside the new number is the defect this
+            // check exists to catch.
             ? [
               { value: lineRow.activeExposure, format: 'exposure', label: 'exposure, $M' },
               { value: 10_000, format: 'plain', label: 'units of $100 per $M' },
-              {
-                // At the book the rate was struck on — a multi-world year's
-                // averaged book before the year (ratedExposure), else this one.
-                value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.ratedExposure ?? lineRow.activeExposure, poolResult.yearNumber)
-                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
-                format: 'plain',
-                label: 'admin rate per $100, loaded',
-              },
+              { value: lineRow.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
+              factorTerm(lineRow.selectedFundingCLF, `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%`),
+              factorTerm(1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
+                `/ ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`),
+              { value: ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine], format: 'pct', label: 'admin share of premium' },
             ]
             : [cur(result.expectedLoss, 'expected loss'), { value: ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, format: 'pct' }],
         }),
         x => x.adminExpense
       ),
-      explain: 'Added after the CLF, not multiplied by it. Appears again below as general administrative services.',
+      explain: NEW_RATE_STACK.enabled
+        ? 'Its share of the premium before reinsurance, the same every year. Appears again below as general administrative services, with the year\'s overrun.'
+        : 'Added after the CLF, not multiplied by it. Appears again below as general administrative services.',
       indent: 1,
     },
     {
@@ -2812,19 +2826,8 @@ export function buildRevExpRows(
       value: formatCurrency(result.assessments),
       numericValue: result.assessments,
       formula: lineRow === null ? PER_LINE_ONLY : scoped(
-        () => ({
-          kind: 'product',
-          // BASIS IS OPENING SURPLUS, NOT POOL PREMIUM — see
-          // dividendAssessment.ts. `beginingSurplus` is the engine's own name
-          // for this line's opening surplus, and the clamp is the engine's.
-          factors: [
-            checks.worldBasis?.[lineRow.line as CoverageLine]
-              ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.assessment,
-                'opening surplus basis')
-              : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
-            { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' },
-          ],
-        }),
+        // IN DOLLARS (dividendAssessment.ts): the assessment chosen, charged in full.
+        () => ({ kind: 'echo', value: lineRow.decisions.assessmentAmount, text: 'the assessment chosen, charged in full whatever the surplus' }),
         x => x.assessments
       ),
       indent: 1,
@@ -2993,20 +2996,12 @@ export function buildRevExpRows(
         // The blocked-dividend detection is unchanged in kind: it still asks
         // whether the engine's figure matches the un-blocked product, only now
         // against the basis the engine actually uses.
-        : Math.abs(result.dividends - (checks.worldBasis?.[lineRow.line as CoverageLine]?.dividend
-            ?? dividendAssessmentBasis(result.beginingSurplus)) * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
-        ? { kind: 'text', text: `${formatCurrency(0)} — dividend blocked: this line carried a negative surplus into the year` }
+        // IN DOLLARS (dividendAssessment.ts): the dividend chosen, paid in full
+        // unless the surplus available (or a block) limited it.
+        : Math.abs(result.dividends - lineRow.decisions.dividendAmount) > CHECK_TOLERANCE
+        ? { kind: 'text', text: `${formatCurrency(result.dividends)} — the ${formatCurrency(lineRow.decisions.dividendAmount)} chosen, limited to the surplus available (none where the line carried a negative surplus in)` }
         : scoped(
-            () => ({
-              kind: 'product',
-              factors: [
-                checks.worldBasis?.[lineRow.line as CoverageLine]
-                  ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.dividend,
-                    'opening surplus basis')
-                  : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
-                { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' },
-              ],
-            }),
+            () => ({ kind: 'echo', value: lineRow.decisions.dividendAmount, text: 'the dividend chosen, within the surplus available' }),
             x => x.dividends
           ),
       indent: 1,

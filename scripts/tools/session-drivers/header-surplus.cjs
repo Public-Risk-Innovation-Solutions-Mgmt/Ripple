@@ -1,19 +1,24 @@
 // THE SURPLUS AT THE TOP MATCHES THE STATEMENT'S, AND THE MARKET SHARE
 // FOLLOWS THE VIEW — what a player sees.
 //
-// The header's "Surplus" chip is the Annual Statement's balance-sheet Ending
-// Surplus for the latest year (resultsStatement.topSurplus): the opening before
-// year 1, each played year's year-end after it, for the view on screen. This
-// drives a solo game, three lines, through the real setup screen on scenarios
-// 1, 7 and 12 and, on the Annual Statement tab, for the pool and every line,
-// before year 1 and after years 1 and 2, checks the chip against the
-// statement's latest-year Ending Surplus.
+// The header's "Surplus" chip is the Annual Statement's balance-sheet Net Worth
+// (the builder's Ending Surplus, resultsStatement.topSurplus, laid out as the
+// template's "Net Worth") for the latest year: the opening before
+// year 1, each played year's year-end after it. This drives a solo game, three
+// lines, through the real setup screen on scenarios 1, 7 and 12, before year 1
+// and after years 1 and 2.
 //
-// The "Market Share" chip is a line's own exposure share on its view — the
-// same figure the Calculation Audit's Market Share row shows for that line at
-// the latest year — and absent on the pool view, where the three lines'
-// markets are not comparable. Checked at the same points, on the Calculation
-// Audit tab.
+// ⚠ THE TOP BAR READS THE POOL ON EVERY TAB BUT A LINE ON DECISIONS (it used
+// to follow the last line picked onto every tab). Checked: on the Annual
+// Statement, whatever line view is selected, the chip is the POOL's latest Net
+// Worth and the "Showing" chip says Pool; on Decisions with a line selected, the
+// chip is that line's Net Worth and "Showing" names the line; and with a line
+// left selected, every other tab reads the pool (surplus and combined ratio).
+//
+// ⚠ AND NO "Market Share" CHIP AT ALL, ON ANY VIEW: single player has no room
+// to share. (In a hosted game the chip is the team's share of the room —
+// room-market-share.cjs.) Checked at the same points, on the Calculation Audit
+// tab, where the full-market share used to be compared.
 //
 // The chip is in $M to two places and the statement in thousands, so the two
 // are equal when they agree within the chip's own rounding (half a cent of a
@@ -22,10 +27,10 @@
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/header-surplus.cjs
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const SCENARIOS = ['1', '7', '12'];
-const ROW = 'Ending Surplus';
+const ROW = 'Net Worth';
 const VIEWS = ['Pool', "Workers' Compensation", 'General Liability', 'Property'];
 const TOLERANCE_M = 0.0055;
 // "$26.17M", "-$1.20M", "$950.0K"; the statement's "26,170" or "(1,200)" in thousands.
@@ -66,53 +71,76 @@ const ok = (cond, label, detail = '') => {
       const btn = page.locator('button', { hasText: label }).first();
       if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
     }
-    await page.getByRole('button', { name: 'Start Simulation' }).click();
+    await page.getByRole('button', { name: 'Single player', exact: true }).click();
     await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
+    const SHORT = { Pool: 'Pool', "Workers' Compensation": 'WC', 'General Liability': 'GL', Property: 'Property' };
+    const bar = async () => {
+      const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
+      return {
+        surplus: (head.match(/Surplus\s+(-?\$[-\d,.]+[MKB]?)/) || [])[1],
+        cr: (await page.locator('[data-testid="header-combined-ratio"]').innerText().catch(() => '')).trim(),
+        scope: (await page.locator('[data-testid="header-scope"]').innerText().catch(() => '')).trim(),
+      };
+    };
     async function compare(phase) {
+      // 1. The statement's latest Net Worth on every view; the bar reads the POOL on every one.
       await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
       await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
+      const worth = {};
+      let poolBar = null;
       for (const view of VIEWS) {
         await page.getByRole('button', { name: view, exact: true }).first().click();
         await page.waitForTimeout(400);
-        const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
-        const chip = (head.match(/Surplus\s+(-?\$[-\d,.]+[MKB]?)/) || [])[1];
         const cells = await page.locator(`[data-testid="statement-balance"] tr[data-row-label="${ROW}"] td`).allInnerTexts();
-        const latest = cells[cells.length - 2];   // the last column is Total
-        const a = chipM(chip), b = thousandsM(latest);
-        ok(a !== null && b !== null && Math.abs(a - b) <= TOLERANCE_M,
-          `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Ending Surplus`,
-          `chip ${chip} · statement ${latest} (thousands)`);
+        worth[view] = cells[cells.length - 2];   // C and I blank on the balance sheet: the newest year is the cell before I
+        const b = await bar();
+        if (view === 'Pool') poolBar = b;
+        const a = chipM(b.surplus), w = thousandsM(worth.Pool ?? worth[view]);
+        ok(a !== null && w !== null && Math.abs(a - w) <= TOLERANCE_M && b.scope === 'Pool',
+          `scenario ${scenario}, ${phase}, Annual Statement on ${view}: the bar reads the POOL's latest Net Worth and says so`,
+          `chip ${b.surplus} · pool ${worth.Pool} (thousands) · showing ${b.scope}`);
       }
-      await page.getByRole('button', { name: /^Calculation Audit$/ }).first().click();
+      // 2. Decisions: a line selected is that line's figures, named; the pool view is the pool's.
+      await page.getByRole('button', { name: /^Decisions$/ }).first().click();
+      await page.waitForTimeout(500);
+      for (const view of VIEWS) {
+        await page.getByRole('button', { name: view, exact: true }).first().click();
+        await page.waitForTimeout(400);
+        const b = await bar();
+        const a = chipM(b.surplus), w = thousandsM(worth[view]);
+        ok(a !== null && w !== null && Math.abs(a - w) <= TOLERANCE_M && b.scope === SHORT[view],
+          `scenario ${scenario}, ${phase}, Decisions on ${view}: the bar reads ${view === 'Pool' ? 'the pool' : 'that line'} and names it`,
+          `chip ${b.surplus} · statement ${worth[view]} (thousands) · showing ${b.scope}`);
+      }
+      // 3. A line left selected (General Liability, from Decisions): every other tab reads the pool.
+      await page.getByRole('button', { name: 'General Liability', exact: true }).first().click();
+      await page.waitForTimeout(300);
+      for (const tab of ['Introduction', 'Rate Indication', 'Annual Statement', 'Decision History', 'Year Walkthrough']) {
+        const btn = page.getByRole('button', { name: new RegExp(`^${tab}$`) }).first();
+        if (await btn.count() === 0) continue;
+        await btn.click();
+        await page.waitForTimeout(500);
+        const b = await bar();
+        ok(b.scope === 'Pool' && b.surplus === poolBar.surplus && b.cr === poolBar.cr,
+          `scenario ${scenario}, ${phase}, ${tab} with General Liability selected: the bar reads the pool`,
+          `showing ${b.scope} · surplus ${b.surplus} vs ${poolBar.surplus} · CR ${b.cr} vs ${poolBar.cr}`);
+      }
+      await page.getByRole('button', { name: /^Year Walkthrough$/ }).first().click();
       await page.waitForTimeout(800);
       for (const view of VIEWS) {
         await page.getByRole('button', { name: view, exact: true }).first().click();
         await page.waitForTimeout(500);
         const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
         const chip = (head.match(/Market Share\s+([\d.]+%)/) || [])[1];
-        if (view === 'Pool') {
-          ok(chip === undefined && !/Market Share/.test(head),
-            `scenario ${scenario}, ${phase}, Pool: no market share chip — the lines' markets are not comparable`, chip ? `chip ${chip}` : '');
-          continue;
-        }
-        const audit = await page.evaluate(() => {
-          for (const tr of document.querySelectorAll('main tr')) {
-            const tds = [...tr.querySelectorAll('td, th')].map(td => td.textContent.trim());
-            const i = tds.indexOf('Market Share');
-            if (i >= 0 && tds[i + 1]) return tds[i + 1];
-          }
-          return null;
-        });
-        ok(chip !== undefined && chip === audit,
-          `scenario ${scenario}, ${phase}, ${view}: the market share chip is the line's own, as the Calculation Audit shows it`,
-          `chip ${chip} · audit ${audit}`);
+        ok(chip === undefined && !/Market Share/.test(head),
+          `scenario ${scenario}, ${phase}, ${view}: no market share chip — single player has no room to share`, chip ? `chip ${chip}` : '');
       }
     }
 
     await compare('before year 1');
     for (const y of [1, 2]) {
-      await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(page);
       await page.waitForTimeout(2500);
       const decline = page.getByRole('button', { name: /Decline/i }).first();
       // A loan offer, if a line ended the year below zero (the Line Surplus Deficit

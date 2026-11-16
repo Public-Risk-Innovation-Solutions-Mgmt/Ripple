@@ -1,9 +1,17 @@
 // ============================================================================
 // THE TEAMS TAB — one row per team, scanned for outliers.
 //
-// ⚠ A SUMMARY, NOT THE TEAM'S PAGES. Five figures and a name. The host is
-// looking for who is in trouble, not diagnosing why; the per-team drill-down is
-// a later tab and deliberately not this one.
+// ⚠ A SUMMARY, NOT THE TEAM'S PAGES. The host is looking for who is in
+// trouble, not diagnosing why. Per line and for the pool: Team · Ripple Score (a
+// PLACEHOLDER until the real score is designed: the team's rank by the pool's
+// net surplus, "1st" for the highest, ties sharing a rank — utils/rippleScore)
+// · Premium to surplus · Rate (per $100, with
+// the year's change) · Admin expense (the year's, over premium) · Combined ratio
+// (the year's own — the team's statement's newest column and its top-bar figure —
+// headed with the year, on the combined-ratio colour scale) · Net
+// surplus (year-end) · Market share. The premium to surplus, rate, admin expense
+// and combined ratio are the team's own Annual Statement figures, posted with
+// its results (TeamYearFigures); a row posted before they existed shows dashes.
 //
 // ⚠ THE LINE VIEW IS WHAT MAKES THE TABLE COMPARABLE AT ALL. Teams pick their
 // own lines, so a pooled surplus blends a WC-only book with a three-line book
@@ -21,7 +29,7 @@
 //            numeric columns is exactly the thing somebody reads as a result.
 //   PENDING  the team writes it and has not posted this year yet. Also one cell,
 //            naming the year it is waiting on.
-//   REPORTED five numbers.
+//   REPORTED its figures.
 //
 // A row in any of the three is still a row: the team is always listed, because
 // "which teams exist" is not the question any of these three answers.
@@ -32,190 +40,172 @@
 // a slow team should be reading it rather than a blank.
 // ============================================================================
 
-import { useState } from 'react';
-import { latestKnownRoomYear } from '../../utils/knownYears';
-import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
-import TabNav from '../../components/TabNav';
-import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { colorForRatio, colorForSurplus, formatCurrency, formatMillions, formatPct } from '../../utils/formatters';
-import type { CoverageLine, LineView } from '../../types/simulation';
-import type { RoomView, TeamYearFigures, TeamView } from '../index';
-
-const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
-
-const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
-  pool: <Layers size={14} />,
-  WC: <HardHat size={14} />,
-  GL: <Scale size={14} />,
-  Property: <Building2 size={14} />,
-};
-
-type RowState =
-  | { kind: 'absent' }
-  | { kind: 'pending' }
-  | { kind: 'reported'; figures: TeamYearFigures; minSurplus?: number };
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import { Smartphone, Loader2, Copy } from 'lucide-react';
+import StandingsTable from './StandingsTable';
+import { sessionTransport, isSessionError, type RoomView } from '../index';
 
 /**
- * ⚠ THE WHOLE POINT OF THIS FUNCTION IS THE ORDER OF ITS CHECKS. Absence is
- * decided BEFORE lateness: a team that does not write GL is not "late on GL",
- * and never will be, so asking whether it has reported would be asking the wrong
- * question of it forever.
+ * ⚠ ONE-TIME, LIKE THE RECOVERY CODE IT MAY REISSUE. Opened from a row's
+ * action button; mints a fresh handoff link on open (never reused across
+ * opens — closing and reopening gets a new one, same "ask again" shape as
+ * every other one-time secret in this app) and shows it as both a link and a
+ * QR code, so a player can get it onto a phone without typing anything.
+ *
+ * ⚠ THE QR CODE IS RENDERED ENTIRELY IN THE BROWSER. `qrcode`'s `toDataURL`
+ * never leaves the page — no remote QR-image service ever sees this link,
+ * because the link itself is a live bearer secret, not a URL safe to hand to
+ * a third party just to get a picture back.
  */
-function rowState(team: TeamView, view: LineView, reportingYear: number): RowState {
-  if (view !== 'pool' && !team.lines.includes(view)) return { kind: 'absent' };
+function HandoffModal({ code, hostToken, teamName, onClose }: {
+  code: string;
+  hostToken: string;
+  teamName: string;
+  onClose: () => void;
+}) {
+  const [link, setLink] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [expiresAtSec, setExpiresAtSec] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
 
-  // ⚠ YEAR 0 COUNTS ONCE IT IS KNOWN. Results run one year behind
-  // (utils/knownYears): the first advance completes 2026, the opening, and it is
-  // then the latest known year — the table shows it rather than nothing. Before
-  // that advance nothing is known, though the opening is already posted.
-  if (reportingYear < 0) return { kind: 'pending' };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await sessionTransport().createHandoff({ code, token: hostToken, teamName });
+        if (cancelled) return;
+        const url = `${window.location.origin}/claim/${code}/${res.handoffToken}`;
+        const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 220 });
+        if (cancelled) return;
+        setLink(url);
+        setQr(dataUrl);
+        setExpiresAtSec(res.expiresAtSec);
+      } catch (e) {
+        if (!cancelled) setError(isSessionError(e) ? e.message : 'Could not create a hand-off link.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code, hostToken, teamName]);
 
-  // ⚠ THE EXACT YEAR, NOT "THE LATEST ONE, IF IT HAPPENS TO BE THIS YEAR". The
-  // room keeps every year now, so this asks for the year the table is showing
-  // and gets it or nothing. The old form could only ever answer for the newest
-  // year, which was the same question only while the record held one slot.
-  const posted = team.resultsByYear?.[String(reportingYear)];
-  if (!posted) return { kind: 'pending' };
+  // A plain tick for the countdown — nothing here re-fetches on expiry, since
+  // the link simply stops working server-side; this just tells the host so.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  const figures = view === 'pool' ? posted.pool : posted.byLine[view];
-  // A team that writes the line but whose posted summary has no slice for it is
-  // pending rather than absent — the summary predates the line, not the team.
-  if (!figures) return { kind: 'pending' };
-  // THE WORST WORLD (loss engine commit 4b): the figures are the average across
-  // the team's worlds, and the pool's minimum ending surplus sits beside it. Pool
-  // scope only — the spread is posted for the pool.
-  const minSurplus = view === 'pool' ? posted.surplusRange?.min : undefined;
-  return { kind: 'reported', figures, ...(minSurplus !== undefined ? { minSurplus } : {}) };
+  const secondsLeft = expiresAtSec !== null ? Math.max(0, expiresAtSec - Math.floor(now / 1000)) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><Smartphone size={18} /></span>
+          <h2 className="text-lg font-bold text-slate-900">Move {teamName} to a new device</h2>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          Scan this on the new device, or send it the link. It works once, for the next 10 minutes.
+        </p>
+
+        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+        {!error && !qr && (
+          <div className="mt-6 flex items-center justify-center gap-2 py-8 text-slate-500">
+            <Loader2 className="animate-spin" size={18} />
+            <span className="text-sm">Creating link…</span>
+          </div>
+        )}
+
+        {qr && link && (
+          <>
+            <div className="mt-4 flex justify-center">
+              <img src={qr} alt={`QR code to claim ${teamName}`} width={220} height={220} />
+            </div>
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p data-testid="handoff-link" className="flex-1 break-all font-mono text-xs text-slate-700">
+                {link}
+              </p>
+              <button
+                type="button"
+                onClick={() => { void navigator.clipboard?.writeText(link).then(() => setCopied(true)); }}
+                className="shrink-0 text-black hover:text-slate-700"
+                aria-label="Copy hand-off link"
+              >
+                <Copy size={16} />
+              </button>
+            </div>
+            {copied && <p className="mt-1.5 text-center text-xs text-emerald-600">Copied.</p>}
+            {secondsLeft !== null && (
+              <p className="mt-1.5 text-center text-xs text-slate-500">
+                {secondsLeft > 0 ? `Expires in ${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}` : 'Expired — close and try again for a new link.'}
+              </p>
+            )}
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface Props {
   room: RoomView;
+  code: string;
+  hostToken: string | undefined;
 }
 
-export default function HostTeamsTab({ room }: Props) {
-  const [view, setView] = useState<LineView>('pool');
-
-  // Only the lines SOMEBODY writes are worth offering: a room where nobody took
-  // Property has no Property column to compare.
-  const linesInPlay = LINE_ORDER.filter(l => room.teams.some(t => t.lines.includes(l)));
-  const effectiveView: LineView = view !== 'pool' && !linesInPlay.includes(view) ? 'pool' : view;
-
-  // The latest known year (utils/knownYears): results run a year behind the
-  // last year played, until the event is over and the final year shows.
-  const reportingYear = Math.min(latestKnownRoomYear(room), room.currentYear - 1);
-  const teams = room.teams;
-
-  if (teams.length === 0) {
-    return (
-      <p data-testid="teams-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
-        No teams have joined yet.
-      </p>
-    );
-  }
-
+// The table itself is StandingsTable's — the same one a team's Market Survey
+// renders. The host adds its hand-off column.
+export default function HostTeamsTab({ room, code, hostToken }: Props) {
+  const [handoffTeam, setHandoffTeam] = useState<string | null>(null);
   return (
-    <div className="space-y-4">
-      {/* The same line-view bar the game uses, from the same component. */}
-      <TabNav<LineView>
-        tabs={[
-          { id: 'pool' as LineView, label: 'Pool', icon: LINE_VIEW_ICONS.pool },
-          ...linesInPlay.map(l => ({ id: l as LineView, label: LINE_FULL_NAME[l], icon: LINE_VIEW_ICONS[l] })),
-        ]}
-        activeTab={effectiveView}
-        onSelect={setView}
-        stickyTop={0}
-        zIndex={10}
+    <>
+      <StandingsTable
+        teams={room.teams}
+        marketShares={room.marketShares}
+        startingYear={room.startingYear}
+        currentYear={room.currentYear}
+        yearCount={room.yearCount}
+        market={room.marketByYear}
+        actionHead="Hand Off"
+        // ⚠ "MOVE TO NEW DEVICE" — THE HOST'S HALF OF A HAND-OFF. A QR code and a
+        // one-time link for this team, from HandoffModal; see ClaimScreen.tsx for
+        // the device side. Disabled without a hostToken (admin not yet confirmed
+        // for this room), which should not happen once the tab itself is
+        // reachable, but the button has nothing to call without one.
+        renderAction={name => (
+          <button
+            type="button"
+            data-testid={`handoff-${name}`}
+            onClick={() => setHandoffTeam(name)}
+            disabled={!hostToken}
+            title="Move to new device"
+            aria-label={`Move ${name} to a new device`}
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Smartphone size={14} />
+          </button>
+        )}
       />
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-          <p className="text-sm font-medium text-slate-700">
-            {effectiveView === 'pool' ? 'Pool' : LINE_FULL_NAME[effectiveView]}
-          </p>
-          <p data-testid="teams-year" className="text-xs text-slate-400">
-            {reportingYear < 0
-              ? 'No results known yet'
-              : `${room.startingYear + reportingYear - 1} — the latest known year`}
-          </p>
-        </div>
-
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
-              <th className="px-5 py-2 font-medium">Team</th>
-              <th className="px-5 py-2 font-medium">Surplus (avg)</th>
-              <th className="px-5 py-2 font-medium">Min</th>
-              <th className="px-5 py-2 font-medium">Loss ratio</th>
-              <th className="px-5 py-2 font-medium">Premium</th>
-              <th className="px-5 py-2 font-medium">Exposure</th>
-              <th className="px-5 py-2 font-medium">Funding</th>
-            </tr>
-          </thead>
-          <tbody data-testid="teams-table">
-            {teams.map(t => {
-              const state = rowState(t, effectiveView, reportingYear);
-              return (
-                <tr key={t.name} className="border-t border-slate-50">
-                  <td className="px-5 py-2.5">
-                    <span className="text-slate-700">{t.name}</span>
-                    <span className="ml-2 font-mono text-xs text-slate-400">{t.lines.join('+')}</span>
-                  </td>
-
-                  {state.kind === 'absent' && (
-                    // ⚠ ONE CELL, IN WORDS. Nothing here can be read as a
-                    // number, which is the requirement.
-                    <td colSpan={6} data-testid={`absent-${t.name}`} className="px-5 py-2.5 text-xs italic text-slate-400">
-                      does not write {effectiveView === 'pool' ? '' : effectiveView}
-                    </td>
-                  )}
-
-                  {state.kind === 'pending' && (
-                    <td colSpan={6} data-testid={`pending-${t.name}`} className="px-5 py-2.5 text-xs text-amber-600">
-                      {reportingYear < 0 ? 'no results known yet' : `${room.startingYear + reportingYear - 1} not reported yet`}
-                    </td>
-                  )}
-
-                  {state.kind === 'reported' && (
-                    <>
-                      <td data-testid={`surplus-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
-                        {formatCurrency(state.figures.endingSurplus, true)}
-                      </td>
-                      <td data-testid={`minsurplus-${t.name}`}
-                        className={`px-5 py-2.5 font-mono ${state.minSurplus !== undefined ? colorForSurplus(state.minSurplus) : 'text-slate-300'}`}>
-                        {state.minSurplus !== undefined ? formatCurrency(state.minSurplus, true) : '—'}
-                      </td>
-                      <td data-testid={`ratio-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForRatio(state.figures.actualLossRatioPricingBasis)}`}>
-                        {formatPct(state.figures.actualLossRatioPricingBasis)}
-                      </td>
-                      <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {formatCurrency(state.figures.poolPremium, true)}
-                      </td>
-                      <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {formatMillions(state.figures.activeExposure, 1)}
-                      </td>
-                      <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {/* ⚠ A DASH MEANS THE TEAM'S LINES CHOSE DIFFERENT STOPS, not zero
-                            and not missing. The pool only has a funding level when every
-                            line the team writes picked the same one; this column used to
-                            print the first line's regardless. See poolFiguresOf. */}
-                        {state.figures.selectedFundingConfidenceLevel === undefined
-                          ? <span className="text-slate-400" title="Lines chose different funding stops — open the team to see each">—</span>
-                          : formatPct(state.figures.selectedFundingConfidenceLevel, 0)}
-                      </td>
-                    </>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        <p className="border-t border-slate-100 px-5 py-2.5 text-[11px] text-slate-400">
-          {effectiveView === 'pool'
-            ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
-            : `Every figure is ${effectiveView}, so the column compares like with like.`}
-        </p>
-      </div>
-    </div>
+      {handoffTeam && hostToken && (
+        <HandoffModal
+          code={code}
+          hostToken={hostToken}
+          teamName={handoffTeam}
+          onClose={() => setHandoffTeam(null)}
+        />
+      )}
+    </>
   );
 }

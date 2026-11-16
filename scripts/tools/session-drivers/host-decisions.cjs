@@ -7,7 +7,16 @@
 // the tab across the advance and asserts both sides of it.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+//
+// ⚠ RESTATED FOR pr/pregame-65: the play defaults now carry the prior board's
+// covers, so a team locked on the defaults shows "$19M xs $1M + aggregate
+// stop-loss 125% / 50%" in the Reinsurance column (was None), and the funding
+// column reads 65%. The cover's name carries its terms as shares of expected
+// losses (125% / 50%), so the "real percentage" check reads every cell but the
+// Reinsurance one — the allocation bug it was added for lived in the
+// allocation column, which it still reads. Against the aws build (None,
+// Expected) the restated Reinsurance check fails, as it must.
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -64,8 +73,8 @@ async function join(ctx, code, name) {
 
   // Both teams lock year 1 and the host advances.
   for (const p of [a, b]) {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
-    await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await lockAndConfirm(p);
+    await p.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
   }
 
   // ⚠ STILL NOTHING, EVEN THOUGH BOTH TEAMS HAVE LOCKED. This is the assertion
@@ -85,7 +94,7 @@ async function join(ctx, code, name) {
     null, { timeout: 30000 });
   for (const p of [a, b]) {
     await p.waitForFunction(
-      () => /year 1 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''),
+      () => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === '1',
       null, { timeout: 180000 });
   }
 
@@ -106,7 +115,7 @@ async function join(ctx, code, name) {
   await host.waitForFunction(
     () => {
       const rs = [...document.querySelectorAll('[data-testid^="decisions-row-"]')];
-      return rs.length >= 2 && rs.every(r => r.children.length === 8);
+      return rs.length >= 2 && rs.every(r => r.children.length === 9);
     },
     null, { timeout: 60000 }).catch(() => {});
 
@@ -118,25 +127,32 @@ async function join(ctx, code, name) {
   ok(rows.length === 2, `both teams appear (${rows.length} rows)`);
   // A reported row has a cell per decision column; a non-reported one collapses
   // to a single spanning cell, exactly as the Teams tab does.
-  ok(rows.every(r => r.length === 8),
-     'every row is REPORTED — eight cells, not a collapsed "not reported" span');
+  ok(rows.every(r => r.length === 9),
+     'every row is REPORTED — nine cells (the team number, the name and seven decisions), not a collapsed "not reported" span');
+  // TEAM NUMBERS: "Team number" before "Team", Team 1 the first to join.
+  {
+    const heads = await host.$$eval('[data-testid="decisions-table"] th', hs => hs.map(h => h.textContent.trim()));
+    const pairs = rows.map(r => `${r[0]} | ${r[1]}`);
+    ok(heads[0] === 'Team number' && heads[1] === 'Team' && JSON.stringify(pairs) === JSON.stringify(['Team 1 | Harbour Mutual', 'Team 2 | Cedar Valley']),
+       `the Decisions tab pairs each team's number with its name, in join order (${pairs.join(', ')})`);
+  }
   ok(rows.every(r => !/Decisions not recorded/.test(r.join(' '))),
      'and none reads "not recorded" — the posted rows carry their decisions block');
   // The Reinsurance column is each line's cover, by name (stable-scenarios
   // commit 6: the aggregate stop). Both teams locked on the defaults, so it
-  // reads the default cover's name — None, because this room schedules no
-  // shocks and a room with its shocks off defaults to None
-  // (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF).
-  ok(rows.every(r => r[2] === 'None'),
-     `the Reinsurance column shows the package the team chose (${rows.map(r => r[2]).join(', ')})`);
-  // uw-hybrid: the two underwriting sliders, by name, as percentages — both
-  // teams locked on the defaults, 0% and 0%.
+  // reads the default covers — the prior board's, carried (PLAY_DEFAULTS):
+  // $19M xs $1M and the aggregate cover 125% / 50%, in every game, shocks on or
+  // off (COVERS_IN_EVERY_GAME; this room schedules no shocks).
+  ok(rows.every(r => r[3] === '$19M xs $1M + aggregate stop-loss 125% / 50%'),
+     `the Reinsurance column shows the package the team chose (${rows.map(r => r[3]).join(', ')})`);
+  // Simple underwriting: the two underwriting sliders, by name, as percentages
+  // — both teams locked on the defaults, 0% and 0%.
   {
     const heads = await host.$$eval('[data-testid="decisions-table"] th', hs => hs.map(h => h.textContent.trim()));
-    ok(heads.includes('Renewals declined') && heads.includes('New Business, rejection rate'),
+    ok(heads.includes('Non-renewal') && heads.includes('New members'),
        `the Decisions tab names both sliders (${heads.join(' | ')})`);
-    ok(rows.every(r => r[3] === '0%' && r[4] === '0%'),
-       `and shows both as percentages (${rows.map(r => `${r[3]} / ${r[4]}`).join(', ')})`);
+    ok(rows.every(r => r[4] === '0%' && r[5] === '0%'),
+       `and shows both as percentages (${rows.map(r => `${r[4]} / ${r[5]}`).join(', ')})`);
   }
 
   // ⚠ ADDED AFTER THIS DRIVER FOUND THE BUG. The allocation column rendered
@@ -144,7 +160,9 @@ async function join(ctx, code, name) {
   // had been put through a fraction formatter. The driver PRINTED it and
   // asserted nothing, so it would have shipped. No percentage on this row can
   // exceed 100.
-  const pcts = rows.flatMap(r => [...r.join(' ').matchAll(/(\d+(?:\.\d+)?)%/g)].map(m => Number(m[1])));
+  // Every cell but the Reinsurance one, whose aggregate cover is named by its
+  // terms as shares of expected losses (125% / 50%) — not a decision's share.
+  const pcts = rows.flatMap(r => [...r.filter((_, i) => i !== 3).join(' ').matchAll(/(\d+(?:\.\d+)?)%/g)].map(m => Number(m[1])));
   const overflow = pcts.filter(v => v > 100);
   ok(overflow.length === 0,
      `every percentage on the row is a real percentage (worst ${Math.max(0, ...pcts)}%)`);

@@ -4,7 +4,6 @@
 import type { Member, LineDecisionSet, CoverageLine, MembershipHistory, MemberLossHistory } from '../types/simulation';
 import { SeededRandom } from './random';
 import { canReenroll } from './membershipHistory';
-import { rejectionShare } from './bookUnderwriting';
 import { getMemberExposure } from './lineHelpers';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { departureRisks } from './memberDeparture';
@@ -87,7 +86,7 @@ export interface MemberMovementResult {
   // caps, `applicantCount` is how many applied, `eligibleCount` how many
   // cleared the bar. Short ⟺ eligibleCount < intakeRoom. ⚠ Since the intake
   // positions retired (uw-hybrid) there is no bar: eligibleCount is everyone
-  // who applied, and the rejection rate admits a random share of them.
+  // who applied, and every one of them is admitted.
   intakeRoom: number;
   applicantCount: number;
   eligibleCount: number;
@@ -145,8 +144,10 @@ function calcRetentionProbability(inputs: MemberMovementInputs): number {
   const satisfactionImpact = (currentMemberSatisfaction - 5.0) / 5.0 * 0.03;
   const surplusRatio = surplus / Math.max(annualPremium, 1);
   const financialImpact = Math.min(0.02, Math.max(-0.02, (surplusRatio - 0.6) / 30));
-  const dividendImpact = decisions.dividendPct * 0.20;
-  const assessmentPenalty = decisions.assessmentPct * 0.15;
+  // The dividend and assessment are DOLLARS; these terms were tuned on a share of
+  // premium, so they read the dollars as one (dividendAssessment.ts). Member level only.
+  const dividendImpact = decisions.dividendAmount / Math.max(annualPremium, 1) * 0.20;
+  const assessmentPenalty = decisions.assessmentAmount / Math.max(annualPremium, 1) * 0.15;
   // rateIncreasePenalty RECONNECTED. Reads the derived rate change — this
   // year's total member charge rate per $100 against last year's — measured
   // as a DEVIATION from this line's own neutral, because at defaults the
@@ -284,6 +285,8 @@ function updateSatisfaction(
   current: number,
   decisions: LineDecisionSet,
   changeDeviationPct: number,
+  // The premium the dividend and assessment dollars are read as a share of.
+  annualPremium: number,
 ): number {
   let delta = 0;
   // The rateChange satisfaction term RECONNECTED, reading the same derived rate
@@ -294,8 +297,8 @@ function updateSatisfaction(
   // defaults on rate noise alone. Letting it move both ways keeps it centred on
   // its starting value when the pool prices at its neutral.
   delta -= changeDeviationPct * RATE_SATISFACTION_SENSITIVITY;
-  delta += decisions.dividendPct * 10.0;
-  delta -= decisions.assessmentPct * 8.0;
+  delta += decisions.dividendAmount / Math.max(annualPremium, 1) * 10.0;
+  delta -= decisions.assessmentAmount / Math.max(annualPremium, 1) * 8.0;
   // NEUTRALISED — coefficient set to 0, not sign-flipped. This term zeroed at
   // the old fundingConfidenceLevel default (0.75); the new default is 0.60
   // (CLF-only pricing), so it started contributing -0.075 satisfaction/yr at
@@ -575,7 +578,7 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   // RANDOM AMONG ELIGIBLE, NOT BEST-FIRST. Filter to who clears the inspection,
   // keep their arrival order, take the room off the top. Best-first would
   // collapse every level into the cap. ⚠ RETIRED WITH THE INTAKE POSITIONS
-  // (uw-hybrid): the rejection rate below admits a random share instead.
+  // (uw-hybrid): every applicant is admitted below.
   //
   // ⚠ THE INSPECTION DRAWS ON ITS OWN LABELLED SUB-STREAMS, so no level moves
   // the membership stream: every level shuffles the same pool to the same order
@@ -616,12 +619,10 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   // At 0 this is exactly the shuffled prefix it always was.
   const applicants = selectApplicants(shuffledPool, applicationCount);
 
-  // ⚠ THE REJECTION RATE, AT RANDOM (since the intake positions retired):
-  // the applicants are already a random order, so the first (1 − rate) of them
-  // are admitted — no selection beyond who applies. "Eligible" is everyone who
-  // applied.
-  const admittedCount = Math.round(applicants.length * (1 - rejectionShare(inputs.decisions.newBusinessRejection)));
-  const intake = { passed: applicants, admitted: applicants.slice(0, admittedCount) };
+  // ⚠ EVERY APPLICANT IS ADMITTED: the rejection rate is gone (simple
+  // underwriting), and the dormant member path keeps no selection beyond who
+  // applies. "Eligible" is everyone who applied.
+  const intake = { passed: applicants, admitted: applicants };
   const candidatePool = intake.admitted;
 
   // ⚠ BUILT IN FULL AND THEN DISCARDED WHEN THE ROSTER IS FROZEN, BECAUSE THE
@@ -666,7 +667,7 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
     : 1;
 
   const newSatisfaction = updateSatisfaction(
-    inputs.currentMemberSatisfaction, inputs.decisions, priceSignalFor(inputs).changeDeviationPct,
+    inputs.currentMemberSatisfaction, inputs.decisions, priceSignalFor(inputs).changeDeviationPct, inputs.annualPremium,
   );
   const newRiskQuality = updateRiskQuality(inputs.currentRiskQuality, newMembers, activeMembers);
 
