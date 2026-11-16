@@ -72,7 +72,7 @@ import { Faults } from './faults';
 import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
 import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
-import { applyGameEdit, GameEditError } from '../utils/gameEdits';
+import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../utils/gameEdits';
 import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, teamMarketByYear, validMarketLockInput } from './market';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
@@ -827,6 +827,15 @@ export class LocalSessionTransport implements SessionTransport {
         const v = req.developmentLevels?.[l];
         if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
       }
+      // THE ADVANCED SETUP (pr/advanced-development): levels by year, checked by
+      // the rules Edit game shares; absent on a simple setup, which stores none.
+      let startByYear: Record<string, DevelopmentLevels> | undefined;
+      try {
+        startByYear = startingLevelsByYear(req.developmentLevelsByYear, req.yearCount, roomLines);
+      } catch (e) {
+        if (e instanceof GameEditError) throw new SessionError('INVALID_REQUEST', e.message);
+        throw e;
+      }
       // Market competition: absent reads 'off' (the form always sends the host's choice).
       const market = requestedMarketLevel(req.market);
       if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
@@ -864,6 +873,7 @@ export class LocalSessionTransport implements SessionTransport {
         lines: roomLines,
         priorDevelopment: roomPriorDev,
           developmentLevels: roomDevLevels,
+        ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
         ...(market !== 'off' ? { market } : {}),
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),

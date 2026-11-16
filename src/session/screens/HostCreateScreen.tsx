@@ -24,8 +24,9 @@ import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
 import type { DevelopmentLevels } from '../contract';
-import { DevelopmentLevelSelect, ShockScheduleFields } from '../../components/GameRulesFields';
-import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, type MarketLevel } from '../../data/pricingParameters';
+import { DevelopmentByYearTable, DevelopmentLevelSelect, ShockScheduleFields, type LevelsRow } from '../../components/GameRulesFields';
+import { startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
+import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, type DevelopmentSetting, type MarketLevel } from '../../data/pricingParameters';
 import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
 import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -88,6 +89,38 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
   const [devLevels, setDevLevels] = useState<Required<DevelopmentLevels>>({
     WC: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, GL: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, Property: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL,
   });
+  // ⚠ SIMPLE OR ADVANCED (pr/advanced-development). Simple: one level per line
+  // for every year, as before — the room stores nothing by year. Advanced: a
+  // level per line per year, started from the simple choices, sent as
+  // developmentLevelsByYear (the field Edit game writes). Back to Simple drops
+  // the table, after a warning.
+  const [devMode, setDevMode] = useState<'simple' | 'advanced'>('simple');
+  const [devTable, setDevTable] = useState<LevelsRow[]>([]);
+  const [confirmSimple, setConfirmSimple] = useState(false);
+  // Years 1 to yearCount: a year past the table's last carries its last row
+  // (the year count grew), and the table stops at the year count (it shrank).
+  const devRows: LevelsRow[] = [];
+  const shownYears = Number.isInteger(yearCount) ? Math.min(Math.max(yearCount, 0), 50) : 0;
+  for (let i = 0; i < shownYears; i++) devRows.push(devTable[i] ?? devRows[i - 1] ?? devLevels);
+  function toAdvanced() {
+    setDevTable(Array.from({ length: shownYears }, () => ({ ...devLevels })));
+    setDevMode('advanced');
+  }
+  function toSimple() {
+    setDevMode('simple');
+    setDevTable([]);
+    setConfirmSimple(false);
+  }
+  // Edit game's rule: a level applies from the year it is set onward.
+  const setYearLevel = (y: number, l: CoverageLine, v: DevelopmentSetting) =>
+    setDevTable(devRows.map((r, i) => (i + 1 >= y ? { ...r, [l]: v } : r)));
+  /** The advanced table as the room stores it: year -> each PLAYED line's level. Undefined in Simple. */
+  const advancedByYear = (): Record<string, DevelopmentLevels> | undefined => (devMode === 'advanced'
+    ? Object.fromEntries(devRows.map((r, i) => [String(i + 1), Object.fromEntries(lines.map(l => [l, r[l]]))]))
+    : undefined);
+  // The setup's own levels: the simple choices, or the table's first year.
+  const baseLevels: Required<DevelopmentLevels> = devMode === 'advanced' && devRows[0] ? devRows[0] : devLevels;
+
   const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
   // A blank seed would be replaced at creation, and a schedule drawn from it
   // would not be the room's — so Randomise fills it first.
@@ -115,9 +148,15 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
     // Only the lines played, as the transport keeps them for a room. The levels
     // ride on the setup (setup.developmentLevels), as Single player's draw does.
     const developmentLevels: DevelopmentLevels = {};
-    for (const l of lines) developmentLevels[l] = devLevels[l];
+    for (const l of lines) developmentLevels[l] = baseLevels[l];
+    // Advanced: the table rides on the setup (developmentLevelsByYear, which
+    // Test player's Edit game already reads), and the history opens with it.
+    const byYear = startingLevelsByYear(advancedByYear(), yearCount, lines);
     soloTest.onStart(
-      { poolName: poolName.trim(), gameLength: yearCount, startingYear, instanceId: seed, activeLines: [...lines], developmentLevels },
+      {
+        poolName: poolName.trim(), gameLength: yearCount, startingYear, instanceId: seed, activeLines: [...lines], developmentLevels,
+        ...(byYear ? { developmentLevelsByYear: byYear, gameEdits: startingEdits(byYear, 'Test player', Date.now()) } : {}),
+      },
       shocks.filter(s => s.yearNumber >= 1 && s.yearNumber <= yearCount).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
     );
   }
@@ -141,7 +180,8 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
         ...(poolName.trim() ? { poolName: poolName.trim() } : {}),
         expectedTeams,
         lines,
-        developmentLevels: devLevels,
+        developmentLevels: baseLevels,
+        ...(devMode === 'advanced' ? { developmentLevelsByYear: advancedByYear() } : {}),
         shocks,
         market,
       });
@@ -331,15 +371,49 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                       />
                       {LINE_FULL_NAME[l]}
                     </label>
-                    <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
-                      <span className="text-sm text-slate-500">Adverse development</span>
-                      <DevelopmentLevelSelect line={l} value={devLevels[l]} disabled={!on}
-                        onChange={v => setDevLevels(prev => ({ ...prev, [l]: v }))} />
-                    </div>
+                    {devMode === 'simple' && (
+                      <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
+                        <span className="text-sm text-slate-500">Adverse development</span>
+                        <DevelopmentLevelSelect line={l} value={devLevels[l]} disabled={!on}
+                          onChange={v => setDevLevels(prev => ({ ...prev, [l]: v }))} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-slate-500">Adverse development by year</span>
+              <div role="group" aria-label="Adverse development: simple or advanced" className="inline-flex rounded-lg border border-slate-300 p-0.5">
+                <button type="button" data-testid="dev-mode-simple" aria-pressed={devMode === 'simple'}
+                  onClick={() => { if (devMode === 'advanced') setConfirmSimple(true); }}
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${devMode === 'simple' ? 'bg-brand-600 text-white' : 'text-slate-700'}`}>
+                  Simple
+                </button>
+                <button type="button" data-testid="dev-mode-advanced" aria-pressed={devMode === 'advanced'}
+                  onClick={() => { if (devMode === 'simple') toAdvanced(); setConfirmSimple(false); }}
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${devMode === 'advanced' ? 'bg-brand-600 text-white' : 'text-slate-700'}`}>
+                  Advanced
+                </button>
+              </div>
+              <span className="text-xs text-black">
+                {devMode === 'simple' ? 'One level per line, every year.' : 'A level per line for each year; a change applies from that year onward.'}
+              </span>
+            </div>
+            {confirmSimple && (
+              <div data-testid="dev-mode-warning" role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p>Switching to Simple sets one level per line for every year. Your per-year choices will be lost.</p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" data-testid="dev-mode-confirm-simple" onClick={toSimple}
+                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white">Switch to Simple</button>
+                  <button type="button" data-testid="dev-mode-keep-advanced" onClick={() => setConfirmSimple(false)}
+                    className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs text-amber-900">Keep Advanced</button>
+                </div>
+              </div>
+            )}
+            {devMode === 'advanced' && lines.length > 0 && (
+              <DevelopmentByYearTable lines={lines} rows={devRows} startingYear={startingYear} onChange={setYearLevel} />
+            )}
             <p data-testid="dev-level-note" className="mt-2 text-xs text-black">
               Each played year every open prior year's reserve grows by a rate drawn in its line's range —
               None 0%,

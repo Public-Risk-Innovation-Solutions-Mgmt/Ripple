@@ -1161,6 +1161,17 @@ export interface CreateRoomRequest {
   priorDevelopment?: PriorDevelopment;
   /** Per-line adverse development level (DevelopmentLevels); entries for lines not played are dropped. */
   developmentLevels?: DevelopmentLevels;
+  /**
+   * THE ADVANCED SETUP (pr/advanced-development): year -> each line's level,
+   * stored as the room's developmentLevelsByYear — the field mid-game edits
+   * write — so replays, rejoins and Edit game read it unchanged. Years 1 to
+   * yearCount and real levels only (anything else is refused); entries for lines
+   * not played are dropped. ABSENT ON A SIMPLE SETUP, which stores nothing by
+   * year and reads `developmentLevels` for every year, exactly as before. When
+   * present the room's change history opens with one "starting settings" entry
+   * per year (GameEdit kind 'start').
+   */
+  developmentLevelsByYear?: Record<string, DevelopmentLevels>;
   shocks: ScheduledShockSpec[];
   /** Market competition (RoomView.market). Omitted reads 'off'; the setup form sends the host's choice, Medium by default. */
   market?: MarketLevel;
