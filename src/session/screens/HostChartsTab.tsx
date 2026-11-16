@@ -654,8 +654,16 @@ export default function HostChartsTab({ room }: Props) {
   // A scheduled shock's host-facing name under the x-axis year it fired —
   // ScheduledShockSpec.yearNumber is the SAME year numbering the x-axis
   // already uses (0 = opening, 1..yearCount = played), so no offset here.
+  //
+  // ⚠ ONLY THROUGH lastPlayable — room.shocks is the WHOLE drawn schedule,
+  // future years included (it has to be: every team's client builds its game
+  // from this same list). Naming a future year's event on screen would read
+  // out a random draw before it happens, the same spoiler a locked year's own
+  // results avoid elsewhere (knownYears.ts). A year with no posted results
+  // yet shows no label, same as it shows no point on the line.
   const shockLabelByYear = new Map<number, string>();
   for (const s of room.shocks) {
+    if (s.yearNumber > lastPlayable) continue;
     const name = SCHEDULABLE_SHOCKS.find(e => e.id === s.shockId)?.name ?? s.shockId;
     const existing = shockLabelByYear.get(s.yearNumber);
     shockLabelByYear.set(s.yearNumber, existing ? `${existing}, ${name}` : name);
