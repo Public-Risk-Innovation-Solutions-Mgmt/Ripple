@@ -13,7 +13,7 @@ Locking a year plays it at once. Decisions carry into the next year; the game sa
 market competition (section 5): New Members and Non-Renewal work as the formula in section 5 says.
 
 **Test player** (also on `/solo`). Single player on the host's setup form: the person sets the shock schedule and
-an adverse-development level per line, and the Year Walkthrough shows the scenario's seed. No sign-in. During the
+an adverse-development level per line (or, Advanced, per line per year), and the Year Walkthrough shows the scenario's seed. No sign-in. During the
 game an "Edit game" button opens the host's mid-game panel (section 2), with the same rules; the history reads
 "Test player". Single player has no such panel. Test player has no market competition either.
 
@@ -61,10 +61,16 @@ add, reset, disable or delete other admins.
 | Number of teams | 3 | a label; it limits nothing |
 | Coverage lines | all three | every team writes the room's lines |
 | Adverse development, per line | Low | None, Low (1–5%), Mid (5–15%), High (15–20%) |
+| Adverse development by year | Simple | Simple: the level above, every year. Advanced: a table, a row per year and a column per line, set as in Edit game (a level applies from that year onward); it starts from the simple choices, and going back to Simple warns that the per-year choices are lost |
 | Shock schedule | empty | add events by year, or Randomise (2–4 events, never year 1) |
 | Market competition | Medium | Off, Low, Medium, High (section 5). A room created before the setting reads Off |
 
 The host gets a resume code for reopening the room elsewhere, and can hide the event from the lobby.
+
+An Advanced room stores its table as the room's settings by year — the same record mid-game edits write — so
+replays, rejoins and Edit game read it unchanged, and its change history opens with each year's starting settings
+("Starting settings for 2028: adverse development WC High · GL Low"). A Simple room stores nothing by year and
+opens with no history, as before. Test player's Advanced setup works the same way, its history reading "Test player".
 
 **Joining.** A team opens the join link, types a name and joins. Teams are numbered in join order ("Team 1 |
 Harbour Mutual"). Each new team is shown, once, a 6-digit viewer PIN and a 4-digit recovery code. Teams can join
