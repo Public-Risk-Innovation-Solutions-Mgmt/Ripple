@@ -21,6 +21,7 @@ import { Home, Shield } from 'lucide-react';
 import { HOST_TABS, type HostTabId } from './hostTabs';
 import { navigate } from '../client/navigation';
 import RippleBrandLogo from '../../components/RippleBrandLogo';
+import { useTopBar } from '../../components/useTopBar';
 import type { WalkthroughHeader } from '../../utils/yearWalkthrough';
 
 interface Props {
@@ -41,9 +42,13 @@ interface Props {
 }
 
 export default function HostShell({ activeTab, onSelectTab, hasRoom, code, eventName, version, children }: Props) {
+  const topBar = useTopBar<HTMLElement>();
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
-      <header className="border-b border-slate-200 bg-white">
+    // --content-top: the host tabs' own sticky strips (Charts, Decisions, Teams) start under the bar.
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30" style={{ ['--content-top' as string]: 'var(--top-bar-h, 0px)' }}>
+      {/* ⚠ STICKY NOW, like the game's bar: it is taller at the top so the logo can
+          be read, and shrinks once the page is scrolled (useTopBar). */}
+      <header ref={topBar.ref} data-testid="top-bar" data-compact={topBar.compact ? 'true' : 'false'} className="sticky top-0 z-40 border-b border-slate-200 bg-white">
         {/* ⚠ ONE ROW ON A PHONE AS ON A DESKTOP: the logo, the event and its
             details, the two links. The details are a small line under the event
             name rather than their own rows, and on a phone the links are icons
@@ -52,7 +57,8 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
           <div className="flex min-w-0 items-center gap-3">
             {/* The full logo, no tile: the bar is white, as the logo's own background is. */}
-            <RippleBrandLogo className="h-12 sm:h-14" />
+            {/* Readable at the top (60px on a phone, 76px from tablet width up); today's 48 / 56px once scrolled. */}
+            <RippleBrandLogo className={`transition-[height] duration-200 ease-out ${topBar.compact ? 'h-12 sm:h-14' : 'h-[60px] sm:h-[76px]'}`} />
             <span className="hidden h-10 w-px bg-slate-200 sm:block" aria-hidden="true" />
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold text-slate-800 sm:text-lg">

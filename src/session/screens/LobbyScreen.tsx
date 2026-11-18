@@ -21,6 +21,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
+import RippleBrandLogo from '../../components/RippleBrandLogo';
 import { CheckCircle2, Clock, Eye, KeyRound, LogOut, Play, Plus, RotateCcw, Shield, Trash2 } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
 import { newSessionToken } from '../contract';
@@ -281,12 +282,15 @@ export default function LobbyScreen() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">R</div>
-            <span className="text-lg font-bold tracking-tight text-slate-900">RIPPLE</span>
-            <span className="text-slate-300">|</span>
-            <span className="text-sm text-slate-500">Public entity risk pool simulation</span>
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
+          {/* THE RIPPLE LOGO (components/RippleBrandLogo), in place of the old "R"
+              circle and "RIPPLE": no tile, as the bar is white. 64px on a phone,
+              80px from tablet width up — the lobby is the front door, and at
+              these sizes "Powered by PRISM" reads. */}
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <RippleBrandLogo className="h-16 sm:h-20" />
+            <span className="hidden h-10 w-px bg-slate-200 sm:block" aria-hidden="true" />
+            <span className="text-xs text-slate-500 sm:text-sm">Public entity risk pool simulation</span>
           </div>
           {/* ⚠ LOGGED IN, THIS GOES TO /admin DIRECTLY — not the login modal
               again. Logged out, it still opens the modal; a separate Log out
@@ -296,7 +300,7 @@ export default function LobbyScreen() {
               type="button"
               data-testid="admin-login"
               onClick={() => { if (isAdmin) navigate('/admin'); else setShowAdminLogin(true); }}
-              className="flex items-center gap-1.5 text-sm text-black hover:text-black"
+              className="flex items-center gap-1.5 whitespace-nowrap text-sm text-black hover:text-black"
             >
               <Shield size={14} /> Admin
             </button>
@@ -305,7 +309,7 @@ export default function LobbyScreen() {
                 type="button"
                 data-testid="admin-logout"
                 onClick={() => { void adminLogout().then(() => setAdmin(null)); }}
-                className="flex items-center gap-1.5 text-sm text-black hover:text-black"
+                className="flex items-center gap-1.5 whitespace-nowrap text-sm text-black hover:text-black"
               >
                 <LogOut size={14} /> Log out
               </button>
@@ -430,7 +434,7 @@ export default function LobbyScreen() {
                 <div
                   key={e.code}
                   data-testid={`event-${e.code}`}
-                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm hover:border-blue-400"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm hover:border-blue-400"
                 >
                   <div>
                     <div className="flex items-center gap-2.5">
@@ -495,7 +499,7 @@ export default function LobbyScreen() {
                     <div
                       key={e.code}
                       data-testid={`event-${e.code}`}
-                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-5 py-4"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4"
                     >
                       <div>
                         <div className="flex items-center gap-2.5">

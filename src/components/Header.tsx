@@ -5,6 +5,7 @@ import type { TeamMarketShare } from '../session/contract';
 import { buildAnnualStatement, newestCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import RippleBrandLogo from './RippleBrandLogo';
+import { useTopBar } from './useTopBar';
 
 interface HeaderProps {
   gameState: GameState | null;
@@ -98,15 +99,18 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   const calendarYear = programYear !== undefined ? programYear - 1 : '—';
   const isStarted = gameState?.isStarted ?? false;
   const isComplete = gameState?.isComplete ?? false;
+  const topBar = useTopBar<HTMLElement>();
 
   return (
-    <header className="bg-slate-900 text-white shadow-xl sticky top-0 z-40">
+    <header ref={topBar.ref} data-testid="top-bar" data-compact={topBar.compact ? 'true' : 'false'} className="bg-slate-900 text-white shadow-xl sticky top-0 z-40">
       <div className="max-w-screen-2xl mx-auto px-4 py-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           {/* Left: branding */}
           <div className="flex items-center gap-3 min-w-0">
             {/* The full logo on a white tile: its own background is white and its lettering black. */}
-            <RippleBrandLogo tile className="h-11" />
+            {/* Readable at the top of the page (60px on a phone, 76px from tablet width
+                up, "Powered by PRISM" included); today's 44px once scrolled (useTopBar). */}
+            <RippleBrandLogo tile className={`transition-[height] duration-200 ease-out ${topBar.compact ? 'h-11' : 'h-[60px] sm:h-[76px]'}`} />
             <span className="text-slate-500 flex-shrink-0">|</span>
             {/* Same slot, two occupants that never overlap: the tagline
                 before a game exists, the SIMULATED pool's own name once one

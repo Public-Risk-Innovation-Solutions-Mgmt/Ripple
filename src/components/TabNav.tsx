@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export type TabId =
@@ -31,7 +31,12 @@ interface TabNavProps<T extends string> {
   tabs: Tab<T>[];
   activeTab: T;
   onSelect: (tab: T) => void;
-  stickyTop?: number; // px offset from viewport top when stacking multiple nav bars
+  /** Offset from the viewport top when stacking nav bars: px, or a CSS length (e.g. var(--content-top)). */
+  stickyTop?: number | string;
+  /** A class that sets `top` instead (index.css), for an offset that changes with the screen's width. */
+  topClass?: string;
+  /** Publish this strip's live height on <html> as this CSS variable, for strips stacked below it. */
+  heightVar?: string;
   zIndex?: number;
   /**
    * Prev/Next chevrons flanking the tab list, stepping through `tabs` in
@@ -53,7 +58,18 @@ interface TabNavProps<T extends string> {
   onNext?: (current: T) => void;
 }
 
-export default function TabNav<T extends string>({ tabs, activeTab, onSelect, stickyTop = 60, zIndex = 30, showArrows = false, trailing, onNext }: TabNavProps<T>) {
+export default function TabNav<T extends string>({ tabs, activeTab, onSelect, stickyTop = 60, topClass, heightVar, zIndex = 30, showArrows = false, trailing, onNext }: TabNavProps<T>) {
+  const navRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!heightVar || !el) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty(heightVar, `${el.getBoundingClientRect().height}px`);
+    publish();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publish) : null;
+    ro?.observe(el);
+    return () => { ro?.disconnect(); root.style.removeProperty(heightVar); };
+  }, [heightVar]);
   const index = tabs.findIndex(t => t.id === activeTab);
   const step = (delta: number) => {
     const tab = tabs[index + delta];
@@ -61,7 +77,7 @@ export default function TabNav<T extends string>({ tabs, activeTab, onSelect, st
   };
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky shadow-sm" style={{ top: stickyTop, zIndex }}>
+    <nav ref={navRef} className={`bg-white border-b border-gray-200 sticky shadow-sm ${topClass ?? ''}`} style={topClass ? { zIndex } : { top: stickyTop, zIndex }}>
       <div className="max-w-screen-2xl mx-auto px-4">
         <div className="flex items-center gap-1">
           {showArrows && (

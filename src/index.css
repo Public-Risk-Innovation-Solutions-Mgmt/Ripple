@@ -1,3 +1,23 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* ============================================================================
+   STICKY STRIPS UNDER THE TOP BAR (components/useTopBar.ts). The bar is taller
+   at the top of the page and shrinks once scrolled; its live height is
+   --top-bar-h. From tablet width up the game's tab strips sit just under it at
+   either height. ⚠ ON A PHONE THEY KEEP TODAY'S OFFSETS (60px and 108px), which
+   tuck them under the phone's tall bar: pinning them below it would add about
+   100px of fixed chrome to a small screen. --game-tabs-h is the main tab strip's
+   own measured height (TabNav heightVar), not an assumed 48px: it is 51px, and
+   the old fixed 108px overlapped it by 3px. --content-top is where a page's own
+   sticky strip starts: under the game's tab strip, or (HostShell sets it) under
+   the host's bar.
+   ========================================================================== */
+.game-tabs-top { top: 60px; }
+.game-line-tabs-top { top: 108px; }
+.game-content-top { --content-top: 0px; }
+@media (min-width: 640px) {
+  .game-tabs-top { top: var(--top-bar-h, 60px); }
+  .game-line-tabs-top { top: calc(var(--top-bar-h, 60px) + var(--game-tabs-h, 48px)); }
+  .game-content-top { --content-top: calc(var(--top-bar-h, 60px) + var(--game-tabs-h, 48px)); }
+}
