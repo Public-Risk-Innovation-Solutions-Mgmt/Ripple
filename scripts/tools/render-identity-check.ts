@@ -1867,7 +1867,16 @@ const BASELINE = process.env.RENDER_BASELINE
 //   $100 of the book billed" on GL) — 13 y2 walkthrough screens, words and
 //   codes only, no figure (the harness never moves its books).
 // No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v132.json');
+// v133: LEGISLATION CHANGE AND WORKERS COMP LEGISLATION REDESIGNED
+// (pr/legislation-step). The control ran first: aws f74aa88, served on 4181,
+// reproduced v132 174 of 174. 26 of 174 move — every Year Walkthrough screen
+// (y0 and y2, every line and the pool, in all five games) — and each was
+// diffed word by word (RENDER_TEXT_DIR on both sides): one word on each, the
+// download's save key, riskpool_gamestate_v52 -> v53. No figure moves on any
+// screen: no game here fires either event in the years shown, and no screen
+// shows the GL expectation the game's map moves (VALUE_IDENTITY v97). No key
+// added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v133.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

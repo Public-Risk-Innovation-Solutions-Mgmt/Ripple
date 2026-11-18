@@ -2469,6 +2469,92 @@ export const R_MODEL = {
 } as const;
 
 /**
+ * THE GAME'S SHOCK MAP — the R model's (R_MODEL.shockMap, kept as supplied)
+ * with two rows changed (pr/legislation-step). Every reader of an event's A /
+ * T / R levels reads this, through shockLosses.eventLines: the engine, the
+ * expected-cost pricing, the covers, the Year Walkthrough and the event card.
+ *
+ *   Legislation (Legislation Change)   GL  A Mid  T –     R High
+ *                                  now GL  A –    T High  R –
+ *   WC Reform (Workers Comp Legis.)    WC  A High T –     R Mid
+ *                                  now WC  A High T –     R –
+ *
+ * ONE-TIME, IN THE EVENT YEAR: Legislation Change brings one High GL large
+ * claim (SHOCK_T_CLAIM_RANGE, $7–40M, grown by shockCostFactor) instead of its
+ * surge; WC Reform keeps its WC surge. CONTINUOUS: neither keeps its R (the
+ * three-year fading reserve strengthening); EVENT_DEVELOPMENT_STEP replaces it.
+ *
+ * WHY: the R made the cost of a law change a few years' strengthening that
+ * then faded, which reads as a passing storm, not a change in the law. A law
+ * change is felt as one landmark claim the year it lands (a verdict under the
+ * new law, Legislation Change) or a dearer year of ordinary claims (a new fee
+ * schedule, WC Reform), and then as older claims that keep costing more for
+ * the rest of the game (the step). Measured (scenario 6, five years, Medium
+ * market, development Low, a 65% team with no covers, year-5 surplus against
+ * no events): Legislation Change in year 2 cost $33.8M before (one-time 5.6 +
+ * strengthening 28.2) and $42.9M after (claim 35.8 + step 7.1) — that draw's
+ * claim is near the top of the range; with covers $31.7M → $33.4M; in year 4
+ * $37.0M → $29.0M. WC Reform in year 2 $28.0M → $22.4M, in year 4 $31.9M →
+ * $25.3M. No team went below zero in any single-event schedule. The test's
+ * runs, and the harness that played them, are on the tools/simulations branch
+ * (scripts/simulations/event_design_matrix.py).
+ */
+type ShockMapRow = readonly [string, string, string, string, string];
+const SHOCK_MAP_CHANGES: Readonly<Record<string, ShockMapRow>> = {
+  'Legislation|GL': ['Legislation', 'GL', 'None', 'High', 'None'],
+  'WC Reform|WC': ['WC Reform', 'WC', 'High', 'None', 'None'],
+};
+export const GAME_SHOCK_MAP: readonly ShockMapRow[] = R_MODEL.shockMap.map(
+  r => SHOCK_MAP_CHANGES[`${r[0]}|${r[1]}`] ?? r);
+
+/**
+ * THE DEVELOPMENT STEP (pr/legislation-step) — Legislation Change and WC
+ * Reform, from the year the event fires to the end of the game, raise their
+ * line's adverse development range by `step` at BOTH ends: on top of the
+ * level set each year (simple, advanced or Edit game — the λ drawn from
+ * ADVERSE_DEVELOPMENT_RANGE), the line's open prior years take `step` more of
+ * their outstanding each year. It enters as the shock development rate does
+ * (resolveShockYear's rRate, on the same base as λ) and is attributed to the
+ * firing that brought it, so the event's record carries its cost.
+ *
+ *   step   +2 points a year on the line, from the event year on, never fading
+ *   cap    +3 points in total on a line: steps from more than one event on a
+ *          line add (a host can schedule one twice; the catalogue can fire it
+ *          twice), but no further than this
+ *   lines  Legislation → GL, WC Reform → WC (the lines their map rows name)
+ *
+ * UNPRICED: once an event is in force the rate is struck from the shock-free
+ * shadow (SHOCK_FREE_PRICING), which never fires one, so the step never
+ * reaches a rate — the pool pays it from surplus, as it paid the R.
+ *
+ * WHY 2 POINTS (chosen from a test of 2 and 3 points): the step costs $3.5–
+ * 4.1M of year-5 surplus per point when the event fires in year 2, $1.7–2.3M
+ * in year 4 (scenario 6, five years, development Low, a 65% team with no
+ * covers). At 2, one-time effect and step together cost about what the event
+ * cost with the fading R — Legislation Change in year 2 $33.4M against $31.7M
+ * for a 65% team with covers; WC Reform in year 2 $22.4M against $28.0M with
+ * none — and the step's share ($7.1M and $8.2M of those) keeps growing the
+ * longer the game runs after the event, where the R stopped after three
+ * years. At 3 the step costs half as much again ($10.8M and $12.3M).
+ *
+ * WHY A 3-POINT CAP: a second event on the same line adds one more point at
+ * most, so a doubled event costs more than a single one but its continuing
+ * cost stays bounded for the rest of the game. Measured with Legislation
+ * Change in year 2 and Social Inflation in year 3 both stepping GL (the test
+ * stepped Social Inflation too; the game does not): $65.7M capped at 3,
+ * $69.0M uncapped at 2 points each, $76.3M uncapped at 3 points each.
+ */
+export const EVENT_DEVELOPMENT_STEP: {
+  readonly enabled: boolean; readonly step: number; readonly cap: number;
+  readonly lines: Readonly<Record<string, readonly string[]>>;
+} = {
+  enabled: true,
+  step: 0.02,
+  cap: 0.03,
+  lines: { Legislation: ['GL'], 'WC Reform': ['WC'] },
+};
+
+/**
  * SHOCKS PER YEAR — the catalogue's expected events a year (stable-scenarios
  * commit 5). Every one of the twelve probabilities is scaled by the same
  * factor, SHOCKS_PER_YEAR / their total (0.3 / 0.432 = 0.694), so the relative
@@ -4148,13 +4234,35 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'a probability, decides what fires in a game. Durations and regional flags adopted throughout.',
       }],
       ['Shock map', {
-        value: `${R_MODEL.shockMap.length} event-line pairs`, unit: 'A / T / R level', basis: 'CHOSEN',
-        status: 'ADOPTED',
+        value: `${GAME_SHOCK_MAP.length} event-line pairs`, unit: 'A / T / R level', basis: 'CHOSEN',
+        status: 'ADAPTED',
         what: 'Earthquake: GL Mid/–/– · WC High/–/– · Property High/High/–. Winterstorm: Property '
-          + 'High/Low/–. Wildfire: Property Low/High/–. Legislation: GL Mid/–/High. WC Reform (Workers Comp Legislation): WC '
-          + 'High/–/Mid. Recession: GL Low/–/– · WC Low/–/–. Nuclear Verdict: GL –/High/Mid. '
+          + 'High/Low/–. Wildfire: Property Low/High/–. Legislation: GL –/High/–. WC Reform (Workers Comp Legislation): WC '
+          + 'High/–/–. Recession: GL Low/–/– · WC Low/–/–. Nuclear Verdict: GL –/High/Mid. '
           + 'Social Inflation: GL High/Low/Mid. Pandemic: GL –/Mid/– · WC High/High/–.',
-        note: 'Which line each event touches, and at what level on each of the three channels.',
+        note: 'Which line each event touches, and at what level on each of the three channels. CHANGED from the '
+          + 'R model\'s (Legislation GL Mid/–/High, WC Reform WC High/–/Mid): Legislation Change brings one High GL '
+          + 'large claim ($7–40M) in its year instead of its surge; WC Reform keeps its surge; neither keeps its '
+          + 'three-year fading reserve strengthening (R) — the Event development step replaces it. WHY: a law change '
+          + 'is felt as one landmark claim or a dearer year, then as older claims that keep costing more for the rest '
+          + 'of the game, not as strengthening that fades. Measured (scenario 6, 65% team, no covers): Legislation '
+          + 'Change in year 2 cost $33.8M of year-5 surplus before, $42.9M after; WC Reform in year 2 $28.0M before, '
+          + '$22.4M after.',
+      }],
+      ['Event development step', {
+        value: `+${EVENT_DEVELOPMENT_STEP.step * 100} points a year, capped at +${EVENT_DEVELOPMENT_STEP.cap * 100} on a line`,
+        unit: 'on the line\'s adverse development range, both ends', basis: 'CHOSEN', status: 'ADOPTED',
+        what: 'From the year Legislation Change (GL) or WC Reform (Workers Comp Legislation, WC) fires to the end '
+          + 'of the game, that line\'s open prior years take 2 points more of their outstanding each year, on top '
+          + 'of the development level set for the year (simple, advanced or Edit game). Steps from more than one '
+          + 'event on a line add, capped at 3 points in total. Unpriced: rates are struck from the shock-free '
+          + 'shadow once an event is in force.',
+        note: 'Replaces the two events\' three-year fading reserve strengthening. WHY 2: at 2 an event costs about '
+          + 'what it did with the fading R (Legislation Change in year 2, 65% team with covers: $33.4M against '
+          + '$31.7M), and the step\'s share keeps growing the longer the game runs; it costs $3.5–4.1M of year-5 '
+          + 'surplus per point fired in year 2, $1.7–2.3M in year 4. WHY A 3-POINT CAP: a second event on a line '
+          + 'adds one more point at most, so its continuing cost stays bounded ($65.7M capped against $69.0M '
+          + 'uncapped for two stepping events on GL).',
       }],
 
       // ---- superseded structure ----

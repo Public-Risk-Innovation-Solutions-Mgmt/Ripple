@@ -234,9 +234,15 @@ export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'Earthquake': 'A major earthquake strikes, damaging buildings and injuring people at work.',
   'Winterstorm': 'A severe winter storm brings heavy rain, snow and flooding.',
   'Wildfire': 'A wildfire spreads through the area, burning buildings and land.',
-  'Legislation Change': 'A change in the law widens what claims can recover, old and new.',
+  // ⚠ BOTH SAY THE COST LASTS (pr/legislation-step): from the year either fires
+  // to the end of the game its line's older claims develop further
+  // (EVENT_DEVELOPMENT_STEP), so the player is told so — not how much.
+  'Legislation Change':
+    'A change in the law widens what liability claims can recover. A large claim is brought under the new law, '
+    + 'and older liability claims will keep costing more for the rest of the game.',
   'Workers Compensation Legislation: Increased Medical Fee Schedule':
-    "A new medical fee schedule raises what workers' compensation pays for injured workers' care, and WC claims cost more for a few years.",
+    "A new medical fee schedule raises what workers' compensation pays for injured workers' care. This year's WC "
+    + 'claims cost more, and older WC claims will keep costing more for the rest of the game.',
   'Economic Recession': 'A recession takes hold, and members and their workforces feel it.',
   'Nuclear Verdict': 'A jury returns an exceptionally large award in a liability lawsuit.',
   'Social Inflation': 'Juries and claimants push liability awards and settlements higher.',

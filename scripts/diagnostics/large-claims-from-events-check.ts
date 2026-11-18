@@ -13,8 +13,9 @@
 //         Earthquake        Property High     Nuclear Verdict   GL High
 //         Winterstorm       Property Low      Social Inflation  GL Low
 //         Wildfire          Property High     Pandemic          GL Mid, WC High
-//     and no other event (Legislation, WC Reform, Recession, Economic
-//     Inflation, Investment Loss, Member Withdrawal) brings one.
+//         Legislation       GL High
+//     and no other event (WC Reform, Recession, Economic Inflation,
+//     Investment Loss, Member Withdrawal) brings one.
 //   - Its size drawn evenly within the line's range for the level ($M):
 //         WC        Low 1-3   Mid 3-6    High 6-40
 //         GL        Low 1-3   Mid 3-7    High 7-40
@@ -39,8 +40,9 @@
 //      five years, every world: no shock-tier claim on any line, year or world,
 //      no shock record of any kind, and the nine covers still offered.
 //   4. ONLY THE EVENTS' T: a hosted game with Nuclear Verdict (#7), Pandemic
-//      (#9) and Legislation (#4, no T) scheduled, and two single player games
-//      on the catalogue (scenario 13: Winterstorm and Legislation (no T) in
+//      (#9), Legislation (#4, GL High) and WC Reform (#5, no T) scheduled, and
+//      two single player games on the catalogue (scenario 13: Winterstorm and
+//      Legislation in
 //      year 2, Social Inflation in year 3; scenario 11: Wildfire and Social
 //      Inflation in year 4, Winterstorm in year 5 — restated, see SOLO_IDS).
 //      Every shock
@@ -48,7 +50,13 @@
 //      that level, inside the range x the year's growth factor (and exactly the
 //      firing's draw there), one per line per firing, in the firing year, the
 //      same in every world. Nuclear Verdict brings exactly one GL High claim;
-//      Legislation none. No record or claim carries shockId 'T'.
+//      WC Reform none. No record or claim carries shockId 'T'.
+//
+// ⚠ RESTATED FOR pr/legislation-step: Legislation Change (#4) now brings one
+// GL High claim in its year (GAME_SHOCK_MAP) — it was this gate's T-less
+// event. WC Reform (#5, no T) takes that part: scheduled in year 2 of the
+// hosted game, it is T_LESS, and the control attributing a claim to it must
+// fail. Scenario 13's solo game keeps a T-less event in Economic Inflation.
 //   5. COVERS AND LIKELIHOODS IN EVERY GAME: in the shocks-off hosted game,
 //      reinsuranceOptionIds gives the nine; each one's struck charge is
 //      optionPrice at the game's growth factor, as each one's is in the
@@ -131,7 +139,7 @@ const BRIEF_TREND: Record<CoverageLine, number> = { WC: 0.04, GL: 0.08, Property
 // The event map's T column, by event id: line -> level. Absent: no T.
 const BRIEF_T: Record<string, Partial<Record<CoverageLine, Lv>>> = {
   '#1': { Property: 'High' }, '#2': { Property: 'Low' }, '#3': { Property: 'High' },
-  '#4': {}, '#5': {}, '#6': {},
+  '#4': { GL: 'High' }, '#5': {}, '#6': {},
   '#7': { GL: 'High' }, '#8': { GL: 'Low' }, '#9': { GL: 'Mid', WC: 'High' },
   '#10': {}, '#11': {}, '#12': {},
 };
@@ -247,11 +255,11 @@ const hostSetup = (): GameSetupSettings =>
   ({ poolName: 'E', gameLength: YEARS + 1, startingYear: 2026, instanceId: HOST_ID, activeLines: LINES, shockTiming: 'host' }) as GameSetupSettings;
 const hosted = (schedule: ScheduledShock[]) => ({ setup: hostSetup(), instance: generateGameInstance(HOST_ID, seedFromInstanceId(HOST_ID), schedule) });
 const SCHEDULE: ScheduledShock[] = [
-  { shockId: '#7', yearNumber: 2 }, { shockId: '#4', yearNumber: 2 }, { shockId: '#9', yearNumber: 3 }, { shockId: '#7', yearNumber: 5 },
+  { shockId: '#7', yearNumber: 2 }, { shockId: '#4', yearNumber: 2 }, { shockId: '#5', yearNumber: 2 }, { shockId: '#9', yearNumber: 3 }, { shockId: '#7', yearNumber: 5 },
 ];
-const T_LESS = '#4';
+const T_LESS = '#5';
 // Single player on the catalogue (SOLO_SHOCKS): scenario 13 draws #2 (Winterstorm)
-// and #4 (Legislation, no T) in year 2, #8 (Social Inflation) and #10 (no T) in
+// and #4 (Legislation, GL High since pr/legislation-step) in year 2, #8 (Social Inflation) and #10 (no T) in
 // year 3; scenario 11 draws #3 (Wildfire) and #8 in year 4 and #2 in year 5.
 // ⚠ RESTATED FOR pr/pregame-65's seeds: it was 19 (#4 year 2, #3 year 4) and 11
 // (#7 year 3); on the new seeds 19 draws nothing in five years, so 13 takes its
@@ -497,10 +505,10 @@ control('None put back as the default per-claim cover (before pr/pregame-65)', (
   const was = defs.WC; defs.WC = 'none'; return () => { defs.WC = was; };
 }, () => sectionNoDraw());
 
-check(sectionEvents(), `4. only the events' T: a hosted game (#7 years 2 and 5, #4 year 2, #9 year 3) and solo scenarios ${SOLO_IDS.join(' and ')} on the catalogue — every shock claim its firing's T level on its line, the draw x the year's growth, one per line per firing, in the firing year, alike in every world; NV one GL High; #4 none; no 'T'`,
+check(sectionEvents(), `4. only the events' T: a hosted game (#7 years 2 and 5, #4 and #5 year 2, #9 year 3) and solo scenarios ${SOLO_IDS.join(' and ')} on the catalogue — every shock claim its firing's T level on its line, the draw x the year's growth, one per line per firing, in the firing year, alike in every world; NV one GL High; #5 none; no 'T'`,
   (() => { const t = lastTally as Tally | null; return t ? `${t.claims} claims matched across both games' worlds, ${t.firingsWithT} T-bearing firings` : ''; })());
 control('the claims expected at trend alone (no book growth)', () => () => {}, () => sectionEvents(trendOnly));
-control('a claim attributed to a T-less event (#4)', () => () => {}, () => {
+control('a claim attributed to a T-less event (#5)', () => () => {}, () => {
   const run = onGame();
   const pw = run.perWorld.map(ws => ws.map(rows => rows.map(r => ({ ...r, claims: [...(r.claims ?? [])] }))));
   const y = pw.findIndex(ws => ws[0].some(r => shockClaims(r).some(c => c.accidentYear === pw.indexOf(ws) + 1)));

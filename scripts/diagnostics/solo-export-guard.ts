@@ -1230,7 +1230,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   "Rate per $100 (member charge rate)" with a working line; the stage and year
 //   codes follow. No figure moves here: the guard's games never move their
 //   books, so struck and billed are the same book.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v130.json');
+// v131: LEGISLATION CHANGE AND WORKERS COMP LEGISLATION REDESIGNED
+// (pr/legislation-step). Captured with --write after the control: aws
+// f74aa88 against v130, all 48 byte-identical. Diffed as TEXT (GUARD_TEXT_DIR
+// on both sides): 24 of the 48 files move, and only these rows:
+//   THE SAVE KEY, v52 -> v53: the Version row, on all 24 Results files. On the
+//   12 WC-solo and PR-solo files it is the only change.
+//   THE GL EXPECTATION (Legislation Change's GL claim priced in place of its
+//   surge — see VALUE_IDENTITY v97): on the 12 files that write GL (GL-solo and
+//   tri), Pure Premium, Expected Losses and Expected Losses net of
+//   reinsurance, on the GL and pool rows, every year, up 0.03–0.90% (net of
+//   reinsurance least: the cover takes much of the claim).
+// No row is added or removed; no realised figure moves (none of the guard's
+// games fires either event).
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v131.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
