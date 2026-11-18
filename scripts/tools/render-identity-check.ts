@@ -384,6 +384,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // text (RENDER_TEXT_DIR): on each of the 26, exactly two insertions and nothing
 // removed or changed — the index ("SECTIONS" and its seven entries) and the
 // Decisions section after the Reinsurance section. No key added or removed.
+// v134: THE FULL RIPPLE LOGO IN THE TOP BAR (pr/top-bar-logo, from aws
+// c2d9231; numbered past every render baseline on any branch — v133 is taken).
+// The control ran first: aws c2d9231's own build reproduced v132, 174 of 174.
+// 134 of 174 move — every screen whose text includes the top bar — and
+// word-diffed against c2d9231's own text (RENDER_TEXT_DIR) each moves in
+// exactly one place: the word "RIPPLE" is gone from the bar (the logo is an
+// image; its alt text is not page text). Nothing else on any screen moves. No
+// key added or removed.
 const BASELINE = process.env.RENDER_BASELINE
 //
 // ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
@@ -1867,7 +1875,7 @@ const BASELINE = process.env.RENDER_BASELINE
 //   $100 of the book billed" on GL) — 13 y2 walkthrough screens, words and
 //   codes only, no figure (the harness never moves its books).
 // No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v132.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v134.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
