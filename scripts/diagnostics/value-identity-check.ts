@@ -1584,7 +1584,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // expectedCombinedRatio leaves 1 because it funds at 65%, not Expected: all
 // intended. No exposure, claim count or ground-up claim moves, and no field is
 // added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v96.json');
+// v97: LEGISLATION CHANGE AND WORKERS COMP LEGISLATION REDESIGNED
+// (pr/legislation-step; GAME_SHOCK_MAP, EVENT_DEVELOPMENT_STEP). Captured with
+// --write after the control: aws f74aa88 against v96 HOLDS. Diffed field by
+// field against v96 — 420 of 39,600 move, every one an EXPECTED cost on GL:
+//   THE GL EXPECTATION (the game's map read by shockExpectation): Legislation
+//   Change's GL surge (A Mid) leaves it and its $7–40M GL claim (T High)
+//   enters, at the event's odds. On the 12 instances that write GL (GL-solo
+//   and tri, three ids, both arms), every year: GL expectedLoss,
+//   clfAdjustedExpectedLoss and lossPurePremiumPer100 +0.89–0.90%; GL
+//   expectedReinsuranceRecovery +46–50% (the claim reaches the per-claim
+//   cover, the surge did not); the pool rows the same fields, +0.29–0.90% and
+//   +16–50% (diluted by WC and Property in tri).
+//   NOTHING ELSE: no WC or Property field (WC Reform kept its surge, and its R
+//   was never in the expectation), no realised loss, development, reserve,
+//   rate or surplus — none of the harness's games fires either event. No
+//   field is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v97.json');
 
 function seedOf(id: string) {
   let h = 5381;

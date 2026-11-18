@@ -273,15 +273,23 @@ $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate dro
 - **Shocks:** single player draws from a 12-event catalogue (about 0.3 a year, from year 2); hosted rooms use
   the host's schedule. An event can surge a line's normal losses, add one large claim, strengthen old reserves,
   cut investment returns, or take 25% of the book.
-  *Workers Comp Legislation* (to players, *Workers Compensation Legislation: Increased Medical Fee Schedule*; id #5,
-  formerly "WC Reform"): a new medical fee schedule raises the cost of WC claims for a few years — WC's normal losses
-  surge 35–75% in the year it starts, and WC's open prior-year reserves strengthen 5–12% that year, then by 65% and
-  42% of that in the next two. No large claim.
+  *Legislation Change* (#4) and *Workers Comp Legislation* (to players, *Workers Compensation Legislation: Increased
+  Medical Fee Schedule*; #5, formerly "WC Reform") change the law, so their cost lasts:
+  - **In the year it fires, once:** Legislation Change brings one large GL claim, $7–40M (grown with GL's trend and
+    book like every event claim), and no surge. Workers Comp Legislation surges WC's normal losses 35–75%, and
+    brings no large claim.
+  - **From that year to the end of the game:** the line's adverse development range steps up 2 points at both ends
+    (GL for Legislation Change, WC for Workers Comp Legislation), on top of the level set for each year — simple,
+    advanced or Edit game. It does not fade. A second such event on the same line adds its step too, but a line's
+    steps total at most 3 points. Rates do not include it (pricing never sees shocks).
+  - Neither strengthens reserves for three fading years any more; the step replaces that. Their event text tells
+    players older claims will keep costing more for the rest of the game.
   ⚠ Whether a game prices for shocks is fixed when it starts: one set up with no events and given one mid-game
   has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
   is pinned at the first edit so replays agree).
 - **Large claims** come only from those events.
-- **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate.
+- **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate
+  (plus 2–3 points on a line once Legislation Change or Workers Comp Legislation has fired, above).
 - **Per-claim covers** pay on large claims; **the aggregate cover** pays on the year's attritional losses (normal
   plus surges) above its attachment. Both are offered in every game.
 - **Risk control** is charged in the rate and booked as an expense; it cuts that year's normal losses by,
