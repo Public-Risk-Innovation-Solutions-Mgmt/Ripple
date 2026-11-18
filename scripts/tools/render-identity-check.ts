@@ -1876,7 +1876,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // screen: no game here fires either event in the years shown, and no screen
 // shows the GL expectation the game's map moves (VALUE_IDENTITY v97). No key
 // added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v133.json');
+// v134: THE FULL RIPPLE LOGO IN THE TOP BAR (pr/top-bar-logo, recaptured on
+// top of aws 03405a2 after merging #94; the next free number past aws's v133 —
+// no other branch holds v134). The control ran first: aws 03405a2's own build
+// reproduced v133, 174 of 174. 134 of 174 move — every screen whose text
+// includes the top bar — and word-diffed against 03405a2's own text
+// (RENDER_TEXT_DIR) each moves in exactly one place: the word "RIPPLE" is gone
+// from the bar (the logo is an image; its alt text is not page text). #94's own
+// moves (the save key v52 -> v53 on the Year Walkthrough) are already in v133,
+// so none shows here. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v134.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

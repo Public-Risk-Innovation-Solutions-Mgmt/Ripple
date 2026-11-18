@@ -4,7 +4,7 @@ import type { GameState, LineView } from '../types/simulation';
 import type { TeamMarketShare } from '../session/contract';
 import { buildAnnualStatement, newestCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
-import { RippleMark } from '../assets/RippleLogo';
+import RippleBrandLogo from './RippleBrandLogo';
 
 interface HeaderProps {
   gameState: GameState | null;
@@ -105,8 +105,8 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
         <div className="flex items-center justify-between gap-4 flex-wrap">
           {/* Left: branding */}
           <div className="flex items-center gap-3 min-w-0">
-            <RippleMark size={32} className="flex-shrink-0" />
-            <span className="font-bold text-lg leading-none text-white flex-shrink-0">RIPPLE</span>
+            {/* The full logo on a white tile: its own background is white and its lettering black. */}
+            <RippleBrandLogo tile className="h-11" />
             <span className="text-slate-500 flex-shrink-0">|</span>
             {/* Same slot, two occupants that never overlap: the tagline
                 before a game exists, the SIMULATED pool's own name once one
