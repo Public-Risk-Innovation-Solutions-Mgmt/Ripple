@@ -31,10 +31,21 @@
 // proves an A surge never reaches the PER-CLAIM cover, holds no aggregate
 // cover either (an A surge rightly reaches the 125/50 cover on attritional
 // losses). New control: None put back as the default must fail 4a.
+//
+// ⚠ RESTATED FOR pr/legislation-step: the game's map (GAME_SHOCK_MAP) changes
+// two of the brief's rows — Legislation GL –/High/– (was Mid/–/High) and WC
+// Reform WC High/–/– (was High/–/Mid) — and gives both a development step
+// (EVENT_DEVELOPMENT_STEP: +2 points on the line from the event year on;
+// event-development-step-check grades it). Section 3 wants the new rows, and
+// through the engine reads a stepped line's rate net of the step. Section 1's
+// engine example is Social Inflation (GL A High, R Mid, three years), which
+// still has an A and a fading R; Legislation has neither. The map control
+// breaks the GAME's map, which every reader reads; breaking R_MODEL.shockMap
+// no longer reaches the engine.
 // ============================================================================
 
 import {
-  COVERS_IN_EVERY_GAME, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, SHOCK_COST_TREND, SHOCK_FREE_PRICING, T_COVER_FREQUENCY,
+  COVERS_IN_EVERY_GAME, EVENT_DEVELOPMENT_STEP, GAME_SHOCK_MAP, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, SHOCK_COST_TREND, SHOCK_FREE_PRICING, T_COVER_FREQUENCY,
   SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT, REINSURANCE_DEFAULT_OPTION,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -91,8 +102,10 @@ const BRIEF_MATRIX: Record<string, Partial<Record<CoverageLine, [string, string,
   'Earthquake': { GL: ['Mid', '-', '-'], WC: ['High', '-', '-'], Property: ['High', 'High', '-'] },
   'Winterstorm': { Property: ['High', 'Low', '-'] },
   'Wildfire': { Property: ['Low', 'High', '-'] },
-  'Legislation': { GL: ['Mid', '-', 'High'] },
-  'WC Reform': { WC: ['High', '-', 'Mid'] },
+  // The game's rows, not the brief's (pr/legislation-step): the brief had GL
+  // Mid/-/High and WC High/-/Mid.
+  'Legislation': { GL: ['-', 'High', '-'] },
+  'WC Reform': { WC: ['High', '-', '-'] },
   'Recession': { GL: ['Low', '-', '-'], WC: ['Low', '-', '-'] },
   'Nuclear Verdict': { GL: ['-', 'High', 'Mid'] },
   'Social Inflation': { GL: ['High', 'Low', 'Mid'] },
@@ -132,12 +145,12 @@ function sectionA(): string[] {
       if (!near(aShare(l, lv, u), lo + u * (hi - lo))) out.push(`${l} ${lv} u=${u}: A ${aShare(l, lv, u)} not uniform on [${lo}, ${hi}]`);
     }
   }
-  // Through the engine: Legislation (3 years, GL A Mid, R High) in year 2 of a
-  // game; its A is in year 2 only, on the whole line; its R runs on.
-  const inst = instanceWith('4', [{ shockId: '#4', yearNumber: 2 }]);
+  // Through the engine: Social Inflation (3 years, GL A High, R Mid) in year 2
+  // of a game; its A is in year 2 only, on the whole line; its R runs on.
+  const inst = instanceWith('4', [{ shockId: '#8', yearNumber: 2 }]);
   const f = firingsStartingIn(inst, 'host', 2)[0];
   const y2 = resolveShockYear(inst, 'host', 2).byLine.GL, y3 = resolveShockYear(inst, 'host', 3).byLine.GL;
-  const [lo, hi] = BRIEF_A.GL.Mid;
+  const [lo, hi] = BRIEF_A.GL.High;
   if (!near(y2.uplift, lo + f.draws.GL.a * (hi - lo))) out.push(`year 2 GL uplift ${y2.uplift}, expected the drawn A`);
   if (y3.uplift !== 0) out.push(`year 3 GL uplift ${y3.uplift}: A must last one year only`);
   if (!(y3.rRate > 0)) out.push('year 3 GL R is gone: R must run its duration as today');
@@ -208,7 +221,10 @@ function sectionMatrix(): string[] {
       const b = brief[l];
       const hasA = sy.byLine[l].uplift > 0 && e.name !== 'Economic Inflation';
       const hasT = sy.byLine[l].arrivals.length > 0;
-      const hasR = sy.byLine[l].rRate > 0;
+      // A stepped line's rate is the step plus any R: read the R net of it.
+      const step = (EVENT_DEVELOPMENT_STEP.lines[e.name] ?? []).includes(l) ? 0.02 : 0;
+      if (step && sy.byLine[l].rRate < step - 1e-12) out.push(`${e.name} ${l}: rate ${sy.byLine[l].rRate} below its step`);
+      const hasR = sy.byLine[l].rRate - step > 1e-12;
       if (hasA !== (!!b && b[0] !== '-')) out.push(`${e.name} ${l}: engine A ${hasA}`);
       if (hasT !== (!!b && b[1] !== '-')) out.push(`${e.name} ${l}: engine T ${hasT}`);
       if (hasR !== (!!b && b[2] !== '-')) out.push(`${e.name} ${l}: engine R ${hasR}`);
@@ -425,7 +441,7 @@ function sectionSolo(): string[] {
 
 // ---- 7. SHOCKS NEVER REACH THE PURE PREMIUM ---------------------------------
 // The same game with and without scheduled shocks — every route a shock has:
-// A + R (Legislation), T + R (Nuclear Verdict), a regional A + T (Wildfire),
+// T + the development step (Legislation), T + R (Nuclear Verdict), a regional A + T (Wildfire),
 // Investment Loss, Economic Inflation and Member Withdrawal — must charge
 // identical pure premiums, line by line, in every year (SHOCK_FREE_PRICING).
 const PP_SHOCKS: ScheduledShock[] = [
@@ -532,7 +548,7 @@ check(sectionTDraws(), '2. T: one claim, uniform within the brief\'s range, unsc
 control('T High top at $15M', () => { const o = SHOCK_T_CLAIM_RANGE.GL.High; (SHOCK_T_CLAIM_RANGE.GL as Record<string, unknown>).High = [7e6, 15e6]; return () => { (SHOCK_T_CLAIM_RANGE.GL as Record<string, unknown>).High = o; }; }, sectionTDraws);
 check(sectionMatrix(), '3. the event matrix, in the map and through the engine');
 control('a map row changed', () => {
-  const map = R_MODEL.shockMap as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
+  const map = GAME_SHOCK_MAP as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
 check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off, $19M xs $1M the default), priced by the method, ceding min(max(x - att, 0), limit)');

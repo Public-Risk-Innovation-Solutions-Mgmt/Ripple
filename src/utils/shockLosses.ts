@@ -26,6 +26,12 @@
 //      at 0.65, recognised in the year it applies and routed through the same
 //      code as the host's development % — on top of it. Unchanged.
 //
+// THE MAP IS THE GAME'S (GAME_SHOCK_MAP): the R model's with Legislation
+// Change (GL: a High T, no A, no R) and WC Reform (WC: its A, no R) changed.
+// In their place, the DEVELOPMENT STEP (EVENT_DEVELOPMENT_STEP): from the year
+// either fires to the end of the game its line's rRate is 2 points higher,
+// steps on a line adding to at most 3 — never fading, never priced.
+//
 // And three events act off the map: Economic Inflation adds 12% to every
 // line's ordinary losses, decaying (unchanged); Investment Loss hits each
 // asset class's return in its year (INVESTMENT_LOSS_BY_ASSET); Member
@@ -47,7 +53,8 @@
 // ============================================================================
 
 import {
-  GAME_REGIONS, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
+  EVENT_DEVELOPMENT_STEP, GAME_REGIONS, GAME_SHOCK_MAP, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL,
+  REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
   regionByShare, SHOCK_A_YEARS, SHOCK_CATALOGUE_SCALE, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
@@ -122,11 +129,19 @@ export function catalogueDisplayName(key: string): string {
 }
 
 const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
+
+/** The lines an event steps (EVENT_DEVELOPMENT_STEP), none when the step is off. */
+export const steppedLines = (name: string): readonly CoverageLine[] =>
+  EVENT_DEVELOPMENT_STEP.enabled ? (EVENT_DEVELOPMENT_STEP.lines[name] ?? []) as readonly CoverageLine[] : [];
 export const DECAY = R_MODEL.shockDecayRate;
 
-/** The shock map's rows for one event: line, and its A / T / R levels. */
+/**
+ * The shock map's rows for one event: line, and its A / T / R levels. The
+ * GAME's map (GAME_SHOCK_MAP: the R model's with Legislation's and WC Reform's
+ * rows changed), so the engine, pricing, the covers and every screen agree.
+ */
 export function eventLines(name: string): { line: CoverageLine; a: ShockLevel; t: ShockLevel; r: ShockLevel }[] {
-  return R_MODEL.shockMap
+  return GAME_SHOCK_MAP
     .filter(([e]) => e === name)
     .map(([, line, a, t, r]) => ({
       line: line as CoverageLine, a: a as ShockLevel, t: t as ShockLevel, r: r as ShockLevel,
@@ -265,17 +280,42 @@ export interface ShockYear {
   withdrawal: boolean;
 }
 
-/** Everything the shocks do in `yearNumber`. Pure in the instance and the year. */
+/**
+ * Everything the shocks do in `yearNumber`. Pure in the instance and the year.
+ *
+ * ⚠ THE DEVELOPMENT STEP OUTLIVES THE EVENT (EVENT_DEVELOPMENT_STEP). A
+ * Legislation Change or WC Reform adds the step to its line's rRate from the
+ * year it fires to the end of the game, so this looks back to year 1, not
+ * only over the catalogue's durations. A firing past its duration is not in
+ * force (no card, no surge) — it carries its step alone, in byFiring with no
+ * uplift, so the event's record still carries what it costs. Oldest first,
+ * each firing takes its step until the line's total reaches the cap.
+ */
 export function resolveShockYear(instance: GameInstance, timing: ShockTiming, yearNumber: number): ShockYear {
   const byLine = {} as Record<CoverageLine, LineShockYear>;
   for (const line of LINES) byLine[line] = { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
   const inForce: ShockYear['inForce'] = [];
   const marketShock: MarketShock = { ...NO_MARKET_SHOCK };
   let withdrawal = false;
-  for (let age = MAX_DURATION - 1; age >= 0; age--) {
+  const stepTaken: Partial<Record<CoverageLine, number>> = {};
+  const stepFor = (line: CoverageLine) => {
+    const taken = stepTaken[line] ?? 0;
+    const s = Math.max(0, Math.min(EVENT_DEVELOPMENT_STEP.step, EVENT_DEVELOPMENT_STEP.cap - taken));
+    stepTaken[line] = taken + s;
+    return s;
+  };
+  for (let age = Math.max(MAX_DURATION, yearNumber) - 1; age >= 0; age--) {
     for (const firing of firingsStartingIn(instance, timing, yearNumber - age)) {
       const e = firing.event;
-      if (age >= e.duration) continue;
+      if (age >= e.duration) {
+        for (const line of steppedLines(e.name)) {
+          const s = stepFor(line);
+          if (s <= 0) continue;
+          byLine[line].rRate += s;
+          byLine[line].byFiring.push({ firing, age, uplift: 0, rRate: s });
+        }
+        continue;
+      }
       inForce.push({ firing, age });
       const decay = Math.pow(DECAY, age);
       const perLine: Partial<Record<CoverageLine, { uplift: number; rRate: number }>> = {};
@@ -299,6 +339,10 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
         if (row.t !== 'None' && age === 0) {
           byLine[row.line].arrivals.push({ firing, line: row.line, level: row.t, size: tClaimSize(row.line, row.t, d.t) });
         }
+      }
+      for (const line of steppedLines(e.name)) {
+        const s = stepFor(line);
+        if (s > 0) add(line, 0, s);
       }
       for (const line of LINES) {
         const p = perLine[line];

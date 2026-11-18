@@ -305,6 +305,7 @@ const FAST: string[] = [
   'clf-stretch-check',               //  ~4s   wip/clf-stretch: each line's funding table is its BaselineCV table stretched about 1.0 to the brief's 95% stop (WC 1.30, GL and Property 1.25), Expected 1.0, the slider, required capital and a played year read it — three controls
   'carry-decisions-check',           //  ~13s  wip/carry-decisions: single player and Test player carry every decision into the next year (carryDecisions; App.tsx's commitYear), the first year on the defaults — each with a control
   'large-claims-from-events-check',  //  ~14s  wip/large-claims-from-events: large claims only from T-shock events (their map level, range x growth, one per line per firing), none with no schedule; the brief's ranges, odds and 2027 cover table; covers and likelihoods in every game — each with a control
+  'event-development-step-check',    //  ~12s  pr/legislation-step: Legislation Change's one High GL claim (no surge) and WC Reform's WC surge, in the event year only; +2 points of development on the line from the event year to the end of the game, undecayed, credited to the firing; steps on a line add to a 3-point cap; the step's dollars on λ's base through the engine; unpriced — each with a control
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces
