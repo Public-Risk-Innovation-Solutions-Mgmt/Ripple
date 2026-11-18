@@ -1,0 +1,71 @@
+diff --git a/src/data/pricingParameters.ts b/src/data/pricingParameters.ts
+index 5fcb00b..ebb4665 100644
+--- a/src/data/pricingParameters.ts
++++ b/src/data/pricingParameters.ts
+@@ -466,7 +466,9 @@ export const ADVERSE_DEVELOPMENT = { enabled: true };
+ export type DevelopmentLevel = 'Low' | 'Mid' | 'High';
+ export const DEVELOPMENT_LEVELS: readonly DevelopmentLevel[] = ['Low', 'Mid', 'High'];
+ /** λ's range per level, a yearly share of each open prior year's outstanding. */
+-export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readonly [number, number]>> = {
++// TEST (event design): DEV_RANGES in the environment overrides the ranges.
++export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readonly [number, number]>> =
++  (globalThis as any).process?.env?.DEV_RANGES ? JSON.parse((globalThis as any).process.env.DEV_RANGES) : {
+   Low: [0.01, 0.05], Mid: [0.05, 0.15], High: [0.15, 0.20],
+ };
+ /**
+diff --git a/src/utils/shockLosses.ts b/src/utils/shockLosses.ts
+index 3b03227..41f94d7 100644
+--- a/src/utils/shockLosses.ts
++++ b/src/utils/shockLosses.ts
+@@ -122,6 +122,14 @@ export function catalogueDisplayName(key: string): string {
+ }
+ 
+ const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
++// TEST (event design) switches, from the environment.
++const EV_ENV = (globalThis as any).process?.env ?? {};
++const EV_DESIGN: string = EV_ENV.EVENT_DESIGN ?? 'today';
++const EV_STEP = Number(EV_ENV.EVENT_STEP ?? 0) / 100;
++const EV_CAP = EV_ENV.EVENT_CAP === 'none' ? Infinity : 0.03;
++const EV_STEPPERS: Record<string, CoverageLine[]> = {
++  Legislation: ['GL'], 'WC Reform': ['WC'], ...(EV_ENV.EVENT_SI_STEP === '1' ? { 'Social Inflation': ['GL'] as CoverageLine[] } : {}),
++};
+ export const DECAY = R_MODEL.shockDecayRate;
+ 
+ /** The shock map's rows for one event: line, and its A / T / R levels. */
+@@ -291,11 +299,17 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
+         marketShock.equities += INVESTMENT_LOSS_BY_ASSET.equities;
+       }
+       if (e.name === 'Member Withdrawal' && age === 1) withdrawal = true;
+-      for (const row of eventLines(e.name)) {
++      for (const row0 of eventLines(e.name)) {
++        // TEST (event design): EVENT_DESIGN=new — Legislation Change's surge becomes a High GL large claim; the
++        // stepping events' fading R is replaced by a continuous step (below). EVENT_DESIGN=today-r0 — today's
++        // Legislation Change and WC Reform without their R (to split today's one-time part from its R).
++        const row = { ...row0 };
++        if (EV_DESIGN === 'new' && e.name === 'Legislation') { row.a = 'None'; row.t = 'High'; }
++        const dropR = (EV_DESIGN === 'new' && EV_STEPPERS[e.name]) || (EV_DESIGN === 'today-r0' && (e.name === 'Legislation' || e.name === 'WC Reform'));
+         const d = firing.draws[row.line];
+         // A: the firing year only (SHOCK_A_YEARS), on the whole line, undecayed.
+         if (row.a !== 'None' && age < SHOCK_A_YEARS) add(row.line, aShare(row.line, row.a, d.a), 0);
+-        if (row.r !== 'None') add(row.line, 0, within(R_MODEL.rShock[row.r], d.r) * decay);
++        if (row.r !== 'None' && !dropR) add(row.line, 0, within(R_MODEL.rShock[row.r], d.r) * decay);
+         if (row.t !== 'None' && age === 0) {
+           byLine[row.line].arrivals.push({ firing, line: row.line, level: row.t, size: tClaimSize(row.line, row.t, d.t) });
+         }
+@@ -309,6 +323,16 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
+       }
+     }
+   }
++  // TEST (event design): the continuous step — every stepping event fired in or before this year adds EV_STEP to
++  // its line's development rate on outstanding prior-year reserves, for the rest of the game; the steps on a line
++  // add, capped at EV_CAP. Unpriced, as R is.
++  if (EV_DESIGN === 'new' && EV_STEP > 0 && yearNumber >= 1) {
++    const step: Partial<Record<CoverageLine, number>> = {};
++    for (let y = 1; y <= yearNumber; y++) for (const f of firingsStartingIn(instance, timing, y)) {
++      for (const line of EV_STEPPERS[f.event.name] ?? []) step[line] = (step[line] ?? 0) + EV_STEP;
++    }
++    for (const line of LINES) if (step[line]) byLine[line].rRate += Math.min(EV_CAP, step[line]!);
++  }
+   return { yearNumber, timing, inForce, byLine, marketShock, withdrawal };
+ }
+ 
