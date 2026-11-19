@@ -19,10 +19,19 @@ import { buildAnnualStatementXlsx } from '../utils/annualStatementExport';
 import { buildAnnualStatementPdf } from '../utils/annualStatementPdf';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from '../utils/statementDecisions';
+import {
+  buildMarketSurveyTable, MARKET_SURVEY_TITLE, type MarketSurveyStandings, type MarketSurveyTable,
+} from '../utils/statementMarketSurvey';
 
 interface Props {
   gameState: GameState;
   lineView: LineView;
+  /**
+   * A hosted game's standings — the Market Survey tab's own (RoomView.standings),
+   * with the viewing team. Absent in single player and Test player, whose Market
+   * Survey section shows the player's own pool.
+   */
+  standings?: MarketSurveyStandings;
 }
 
 /** The test id of the table each title opens; the reinsurance blocks take their own by their header. */
@@ -35,6 +44,7 @@ const SECTION_ID: Record<string, string> = {
   'Reinsurance Information - Program Year Totals': 'statement-reinsurance',
 };
 const DECISIONS_ID = 'statement-decisions';
+const MARKET_SURVEY_ID = 'statement-market-survey';
 const BLOCK_ID: Record<string, string> = { Gross: 'statement-gross', Ceded: 'statement-ceded', Net: 'statement-net' };
 
 /** A statement row and its index in TEMPLATE_ROWS — the index is its row in the file, and its borders. */
@@ -228,9 +238,79 @@ function DecisionsSection({ table }: { table: DecisionsTable }) {
   );
 }
 
-/** The index's entries: every section of the statement, in order, then Decisions. */
+/**
+ * THE MARKET SURVEY SECTION (utils/statementMarketSurvey): the Market Survey
+ * tab's table for the statement's year and view, just before Decisions — every
+ * team in a hosted room, the viewing team's row marked; the player's own pool in
+ * single player and Test player. Laid out as the Decisions section — the title,
+ * a boxed header, each column boxed — its cells the tab's own text.
+ */
+function MarketSurveySection({ table }: { table: MarketSurveyTable }) {
+  const box: CSSProperties = { borderLeft: LINE, borderRight: LINE };
+  const headBox: CSSProperties = { ...box, borderTop: LINE, borderBottom: LINE };
+  return (
+    <section id={MARKET_SURVEY_ID} data-testid={MARKET_SURVEY_ID} className="overflow-x-auto" style={{ scrollMarginTop: 'var(--statement-index-offset, 0px)' }}>
+      <div className="h-5" aria-hidden="true" />
+      <div className="flex items-baseline justify-between gap-3 px-3">
+        <h2 className="text-base font-semibold text-black">{MARKET_SURVEY_TITLE} — {table.scopeName}</h2>
+        <p data-testid="statement-market-survey-year" className="text-xs text-black">{table.yearText}</p>
+      </div>
+      {table.note ? (
+        <p data-testid="statement-market-survey-note" className="px-3 py-2 text-sm text-black">{table.note}</p>
+      ) : (
+        // ⚠ THE STATEMENT'S WIDTH, NOT WIDER: nine columns, so the heads wrap rather than push Market share off the page.
+        <table className="w-full text-sm text-black border-collapse">
+          <thead>
+            <tr data-row-kind="header">
+              {table.heads.map((h, k) => (
+                <th key={h} data-testid={k === 6 ? 'statement-market-survey-cr-head' : undefined}
+                  className={`px-2 py-1 align-bottom font-semibold text-black ${k < 2 ? 'text-left' : 'text-right'}`} style={headBox}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody data-testid="statement-market-survey-rows">
+            {table.rows.map((r, n) => {
+              const last = n === table.rows.length - 1 ? { borderBottom: LINE } : {};
+              const cellStyle: CSSProperties = { ...box, ...last };
+              const f = r.figures;
+              return (
+                <tr key={r.team} data-testid={`statement-market-survey-row-${r.team}`} data-own={r.own ? 'true' : undefined}
+                  className={r.own ? 'bg-blue-50 font-semibold' : undefined}>
+                  <td className="px-2 py-1 whitespace-nowrap" style={cellStyle}>{r.teamNumber}</td>
+                  <td className="px-2 py-1 whitespace-nowrap" style={cellStyle}>{r.team}</td>
+                  {'absent' in f || 'pending' in f ? (
+                    <td colSpan={6} className={`px-2 py-1 text-xs ${'absent' in f ? 'italic' : 'text-amber-700'}`} style={cellStyle}>
+                      {'absent' in f ? f.absent : f.pending}
+                    </td>
+                  ) : (
+                    <>
+                      <td data-testid={`statement-market-survey-ripple-${r.team}`} className="px-2 py-1 text-right tabular-nums" style={cellStyle}>{f.ripple}</td>
+                      <td data-testid={`statement-market-survey-pts-${r.team}`} className="px-2 py-1 text-right tabular-nums" style={cellStyle}>{f.premiumToSurplus}</td>
+                      <td data-testid={`statement-market-survey-rate-${r.team}`} className="px-2 py-1 text-right tabular-nums" style={cellStyle}>
+                        {f.rate.map(x => <span key={x} className="block whitespace-nowrap">{x}</span>)}
+                      </td>
+                      <td data-testid={`statement-market-survey-admin-${r.team}`} className="px-2 py-1 text-right tabular-nums" style={cellStyle}>{f.admin}</td>
+                      <td data-testid={`statement-market-survey-cr-${r.team}`} className="px-2 py-1 text-right tabular-nums" style={cellStyle}>{f.combinedRatio}</td>
+                      <td data-testid={`statement-market-survey-surplus-${r.team}`}
+                        className={`px-2 py-1 text-right tabular-nums ${r.surplus !== undefined && r.surplus < 0 ? 'text-red-600' : ''}`} style={cellStyle}>{f.netSurplus}</td>
+                    </>
+                  )}
+                  <td data-testid={`statement-market-survey-share-${r.team}`} className="px-2 py-1 text-right tabular-nums whitespace-nowrap" style={cellStyle}>{r.marketShare}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <p className="px-3 pt-1 text-[11px] text-black">{table.footnote}</p>
+    </section>
+  );
+}
+
+/** The index's entries: every section of the statement, in order, then the Market Survey and Decisions. */
 const INDEX: { id: string; title: string }[] = [
   ...SECTIONS.map(s => ({ id: SECTION_ID[s.title], title: s.title })),
+  { id: MARKET_SURVEY_ID, title: MARKET_SURVEY_TITLE },
   { id: DECISIONS_ID, title: DECISIONS_TITLE },
 ];
 
@@ -283,7 +363,7 @@ function StatementIndex({ offset, active, onGo, navRef }: {
   );
 }
 
-export default function ResultsStatementPage({ gameState, lineView }: Props) {
+export default function ResultsStatementPage({ gameState, lineView, standings }: Props) {
   // The year the statement stands at; null follows the latest year as the game moves on.
   const [chosen, setChosen] = useState<number | null>(null);
   const years = useMemo(() => statementYears(gameState), [gameState]);
@@ -291,6 +371,7 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
   const asOf = chosen !== null && years.some(y => y.yearNumber === chosen) ? chosen : latest;
   const ts = useMemo(() => buildTemplateStatement(gameState, lineView, asOf), [gameState, lineView, asOf]);
   const decisions = useMemo(() => buildDecisionsTable(gameState, ts), [gameState, ts]);
+  const survey = useMemo(() => buildMarketSurveyTable(gameState, ts, standings), [gameState, ts, standings]);
 
   // ---- the sticky index: where it sits, and which section is in view ----
   const navRef = useRef<HTMLElement | null>(null);
@@ -353,8 +434,8 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
     try {
       const year = ts.years.at(-1) ?? gameState.setup.startingYear;
       const [bytes, type, name] = kind === 'xlsx'
-        ? [await buildAnnualStatementXlsx(gameState, asOf, lineView), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', statementFilename(lineView, year, 'xlsx')]
-        : [await buildAnnualStatementPdf(gameState, asOf, lineView), 'application/pdf', statementFilename(lineView, year, 'pdf')];
+        ? [await buildAnnualStatementXlsx(gameState, asOf, lineView, standings), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', statementFilename(lineView, year, 'xlsx')]
+        : [await buildAnnualStatementPdf(gameState, asOf, lineView, standings), 'application/pdf', statementFilename(lineView, year, 'pdf')];
       const url = URL.createObjectURL(new Blob([bytes], { type }));
       const a = document.createElement('a');
       a.href = url;
@@ -409,6 +490,7 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
           </div>
         </div>
         {SECTIONS.map(s => <SectionTable key={s.title} title={s.title} rows={s.rows} ts={ts} />)}
+        <MarketSurveySection table={survey} />
         <DecisionsSection table={decisions} />
       </div>
     </div>

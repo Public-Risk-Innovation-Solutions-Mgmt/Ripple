@@ -1885,7 +1885,20 @@ const BASELINE = process.env.RENDER_BASELINE
 // from the bar (the logo is an image; its alt text is not page text). #94's own
 // moves (the save key v52 -> v53 on the Year Walkthrough) are already in v133,
 // so none shows here. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v134.json');
+// v136: THE ANNUAL STATEMENT'S MARKET SURVEY SECTION (pr/statement-market-
+// survey, from aws ee29d9f, merged with aws fabff9b (#96, the top bar); numbered
+// past v135, which was left for #96 while it was open — it merged needing none).
+// aws ee29d9f and aws fabff9b each reproduced v134 174 of 174 here first, and
+// the merged tree reproduces v136. 26 of 174
+// keys move — every Annual Statement screen, each word-diffed against the
+// control (RENDER_TEXT_DIR both sides), and each by two insertions and nothing
+// else: the sticky index's "Market Survey" entry, before Decisions; and the
+// section before the Decisions section — its title on the screen's view
+// ("Market Survey — General Liability"), the year ("Results for 2028"), the
+// nine heads, the harness's single-player pool as its one row ("—, Render
+// Identity Pool, 1st, 1.30, $5.91 (+4.1%), 20.4%, 104.4%, $27.09M, —" on GL
+// at y2) and the tab's note. No other screen moves; no key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v136.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

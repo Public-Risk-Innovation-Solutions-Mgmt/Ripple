@@ -68,6 +68,11 @@
 //      EVERY CELL'S BORDER, A to I on every row — each side and its style, read
 //      from the template file itself (exceljs), never from the table the app
 //      draws from. Each listed label change must be one the template has.
+//      Below the template: the Market Survey section (pr/statement-market-
+//      survey) — its title and year, its nine heads in B to J, each team's row
+//      the section's table's own text, the tab's note — then the Decisions
+//      section, each cell for cell. Controls: the Market Survey's premium to
+//      surplus changed, and the sheet read as if it had no Market Survey.
 //   C. THE OPERATING RATIO BY HAND, scenario 1, WC, 2027: its parts printed and
 //      the ratio recomputed from them.
 //
@@ -110,6 +115,9 @@ import ExcelJS from 'exceljs';
 import { ALL_YEARS_COLUMN, allYearsFormula, buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet, LineView, ResultSet } from '../../src/types/simulation';
 import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from '../../src/utils/statementDecisions';
+import {
+  buildMarketSurveyTable, MARKET_SURVEY_TITLE, marketSurveyCells, type MarketSurveyTable,
+} from '../../src/utils/statementMarketSurvey';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = path.join(__dirname, '../../docs/Annual Statement Example v2.xlsx');
@@ -714,9 +722,43 @@ const expectedAllYears = (r: number) => {
  * sheet it occupies: 3 + 1 + the table's rows.
  */
 const decisionsRowCount = (t: DecisionsTable) => 4 + t.rows.length;
-function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable): string[] {
+/**
+ * THE MARKET SURVEY SECTION, between the template's last row and Decisions
+ * (utils/statementMarketSurvey; pr/statement-market-survey): a blank, its title
+ * in B and the year it shows in D, a blank, the header of its nine columns in B
+ * to J, a row per team — each cell the table's own text (the tab's), the pool's
+ * rate lines joined by line breaks — and the tab's note in B. With a note in
+ * place of the rows (a room's standings for another year): the note, then the
+ * tab's. Rows of the sheet it occupies: 5 + the table's rows.
+ */
+const surveyRowCount = (t: MarketSurveyTable) => 5 + t.rows.length;
+function surveyDiffs(ws: XLSX.WorkSheet, t: MarketSurveyTable): string[] {
   const out: string[] = [];
   const T = expectedRows.length;
+  const title = `${MARKET_SURVEY_TITLE} — ${t.scopeName}`;
+  if (labelAt(ws, T + 1) !== title) out.push(`B${T + 2}: "${labelAt(ws, T + 1)}", not the Market Survey title "${title}"`);
+  if (cellOf(ws, T + 1, 3)?.v !== t.yearText) out.push(`D${T + 2}: "${cellOf(ws, T + 1, 3)?.v}" ≠ "${t.yearText}"`);
+  if (labelAt(ws, T) !== null || labelAt(ws, T + 2) !== null) out.push('the Market Survey title not set off by blank rows');
+  if (t.note) {
+    if (labelAt(ws, T + 3) !== t.note) out.push(`B${T + 4}: "${labelAt(ws, T + 3)}" ≠ the note "${t.note}"`);
+    if (labelAt(ws, T + 4) !== t.footnote) out.push(`B${T + 5}: the tab's note missing`);
+    return out;
+  }
+  const h = T + 3;
+  t.heads.forEach((head, k) => { if (cellOf(ws, h, 1 + k)?.v !== head) out.push(`row ${h + 1}: head ${k} "${cellOf(ws, h, 1 + k)?.v}" ≠ "${head}"`); });
+  t.rows.forEach((row, n) => {
+    const r = h + 1 + n;
+    marketSurveyCells(row).forEach((want, k) => {
+      const got = cellOf(ws, r, 1 + k)?.v;
+      if ((got ?? '') !== want) out.push(`row ${r + 1} (${row.team}) col ${t.heads[k]}: "${got}" ≠ "${want}"`);
+    });
+  });
+  if (labelAt(ws, h + 1 + t.rows.length) !== t.footnote) out.push(`row ${h + 2 + t.rows.length}: the tab's note missing`);
+  return out;
+}
+function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable, survey?: MarketSurveyTable): string[] {
+  const out: string[] = [];
+  const T = expectedRows.length + (survey ? surveyRowCount(survey) : 0);
   if (labelAt(ws, T + 1) !== DECISIONS_TITLE) out.push(`B${T + 2}: "${labelAt(ws, T + 1)}", not the Decisions title`);
   if (labelAt(ws, T) !== null || labelAt(ws, T + 2) !== null) out.push(`the Decisions title not set off by blank rows`);
   const h = T + 3;
@@ -736,12 +778,13 @@ function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable): string[] {
   return out;
 }
 
-function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement, decisions?: DecisionsTable): string[] {
+function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement, decisions?: DecisionsTable, survey?: MarketSurveyTable): string[] {
   const out: string[] = [];
   const range = XLSX.utils.decode_range(ws['!ref']!);
-  const rowsWanted = expectedRows.length + (decisions ? decisionsRowCount(decisions) : 0);
-  if (range.e.r + 1 !== rowsWanted) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}${decisions ? ` + Decisions ${decisionsRowCount(decisions)}` : ''}`);
-  if (decisions) out.push(...decisionsDiffs(ws, decisions));
+  const rowsWanted = expectedRows.length + (survey ? surveyRowCount(survey) : 0) + (decisions ? decisionsRowCount(decisions) : 0);
+  if (range.e.r + 1 !== rowsWanted) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}${survey ? ` + Market Survey ${surveyRowCount(survey)}` : ''}${decisions ? ` + Decisions ${decisionsRowCount(decisions)}` : ''}`);
+  if (survey) out.push(...surveyDiffs(ws, survey));
+  if (decisions) out.push(...decisionsDiffs(ws, decisions, survey));
   expectedRows.forEach(r => {
     if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${isInsertedRow(r) ? '' : labelAt(tws, tRowOf(r))}")`);
     const wantBlank = !isInsertedRow(r) && blankAt(tws, tRowOf(r));
@@ -829,7 +872,7 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   await ex.xlsx.load(bytes);
   const tag = `${g.id}, year ${gs.lockedResults.length}`;
   check(wb.SheetNames.join(',') === 'Pool,WC,GL,Property', `B. ${tag}: a sheet for the pool and one per line`, wb.SheetNames.join(','));
-  const diffs = wb.SheetNames.flatMap((s, i) => { const ts = buildTemplateStatement(gs, SCOPES[i]); return layoutDiffs(wb.Sheets[s], ts, buildDecisionsTable(gs, ts)).map(d => `${s} ${d}`); });
+  const diffs = wb.SheetNames.flatMap((s, i) => { const ts = buildTemplateStatement(gs, SCOPES[i]); return layoutDiffs(wb.Sheets[s], ts, buildDecisionsTable(gs, ts), buildMarketSurveyTable(gs, ts)).map(d => `${s} ${d}`); });
   check(diffs.length === 0, `B. ${tag}: every sheet matches the template label for label, blank for blank and All Years formula for formula (${expectedRows.length} rows, ${templateFormulas} formulas), figures numbers in their formats`, diffs.slice(0, 3).join(' · '));
   const bdiffs = ex.worksheets.flatMap(ws => borderDiffs(ws).map(d => `${ws.name} ${d}`));
   check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–I × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
@@ -856,7 +899,7 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
     for (const view of viewsOf(gs)) {
       const wb = await sheetsFor(gs, view);
       bad.push(...sheetSetDiff(wb.SheetNames, gs, view));
-      wb.SheetNames.forEach(sh => { const ts = buildTemplateStatement(gs, sh === 'Pool' ? 'pool' : sh as LineView); for (const d of layoutDiffs(wb.Sheets[sh], ts, buildDecisionsTable(gs, ts))) bad.push(`${view} ${sh} ${d}`); });
+      wb.SheetNames.forEach(sh => { const ts = buildTemplateStatement(gs, sh === 'Pool' ? 'pool' : sh as LineView); for (const d of layoutDiffs(wb.Sheets[sh], ts, buildDecisionsTable(gs, ts), buildMarketSurveyTable(gs, ts))) bad.push(`${view} ${sh} ${d}`); });
     }
     check(bad.length === 0, `B. ${name}: each view's download holds exactly its statements (${viewsOf(gs).map(v => `${v}: ${expectedSheets(gs, v).join('+')}`).join('; ')}), each the template cell for cell`, bad.slice(0, 3).join(' · '));
   }
@@ -897,11 +940,17 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   check(layoutDiffs(noInserted, ts).length > 0, 'B control — General Admin Expense\'s own "% of Premium" row left out: the layout check fails', layoutDiffs(noInserted, ts)[0]);
   // THE DECISIONS SECTION: the real sheet passes with its table; one decision changed, and the section cut off, must each fail.
   const table = buildDecisionsTable(g1, ts);
-  check(layoutDiffs(base, ts, table).length === 0, 'B. the WC sheet as built: the template and its Decisions section, cell for cell', layoutDiffs(base, ts, table)[0]);
-  const fundingAt = expectedRows.length + 4 + table.rows.findIndex(r => r.kind === 'decision' && r.key === 'WC.funding');
+  const survey = buildMarketSurveyTable(g1, ts);
+  check(layoutDiffs(base, ts, table, survey).length === 0, 'B. the WC sheet as built: the template, its Market Survey section and its Decisions section, cell for cell', layoutDiffs(base, ts, table, survey)[0]);
+  const fundingAt = expectedRows.length + surveyRowCount(survey) + 4 + table.rows.findIndex(r => r.kind === 'decision' && r.key === 'WC.funding');
   const offDecision: XLSX.WorkSheet = { ...base, [XLSX.utils.encode_cell({ r: fundingAt, c: 5 })]: { t: 'n', v: 0.99, z: '0%' } };
-  check(layoutDiffs(offDecision, ts, table).some(d => /Funding Level/.test(d)), 'B control — one decision changed (WC\'s Funding Level in one year): the check fails, on that row', layoutDiffs(offDecision, ts, table)[0] ?? 'NOTHING FIRED');
-  check(layoutDiffs(shifted(all), ts, table).length > 0, 'B control — the Decisions section cut off: the check fails', layoutDiffs(shifted(all), ts, table)[0] ?? 'NOTHING FIRED');
+  check(layoutDiffs(offDecision, ts, table, survey).some(d => /Funding Level/.test(d)), 'B control — one decision changed (WC\'s Funding Level in one year): the check fails, on that row', layoutDiffs(offDecision, ts, table, survey)[0] ?? 'NOTHING FIRED');
+  check(layoutDiffs(shifted(all), ts, table, survey).length > 0, 'B control — the Market Survey and Decisions sections cut off: the check fails', layoutDiffs(shifted(all), ts, table, survey)[0] ?? 'NOTHING FIRED');
+  // THE MARKET SURVEY SECTION (pr/statement-market-survey): one cell changed, and the section read as missing, must each fail.
+  const ptsAt = expectedRows.length + 4;
+  const offSurvey: XLSX.WorkSheet = { ...base, [XLSX.utils.encode_cell({ r: ptsAt, c: 4 })]: { t: 's', v: '9.99' } };
+  check(layoutDiffs(offSurvey, ts, table, survey).some(d => /Premium to surplus/.test(d)), 'B control — the Market Survey\'s premium to surplus changed: the check fails, on that cell', layoutDiffs(offSurvey, ts, table, survey)[0] ?? 'NOTHING FIRED');
+  check(layoutDiffs(base, ts, table).length > 0, 'B control — the sheet read as if it had no Market Survey section: the check fails', layoutDiffs(base, ts, table)[0] ?? 'NOTHING FIRED');
   // Each deliberate label change undone (the template's old text kept), and an undeclared one: every one must fail.
   const rowOfTemplate = (t: number) => TEMPLATE_ROW_OF.findIndex((x, i) => x === t && !isInsertedRow(i));
   const undone = LABEL_CHANGES.map(c => {

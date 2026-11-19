@@ -28,6 +28,9 @@ import {
 } from './annualStatementTemplate';
 import type { GameState, LineView } from '../types/simulation';
 import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from './statementDecisions';
+import {
+  buildMarketSurveyTable, MARKET_SURVEY_TITLE, marketSurveyCells, type MarketSurveyStandings, type MarketSurveyTable,
+} from './statementMarketSurvey';
 
 /** Landscape Letter, in points. */
 export const PDF_PAGE = { width: 792, height: 612 } as const;
@@ -209,12 +212,83 @@ function drawDecisions(doc: Doc, table: DecisionsTable, lines: PdfDecisionLine[]
 }
 
 /**
+ * THE MARKET SURVEY SECTION'S NINE COLUMNS, 732pt across as the statement's
+ * eight: Team number, Team, Ripple Score, Premium to surplus, Rate, Admin
+ * expense, Combined ratio, Net surplus, Market share.
+ */
+export const PDF_SURVEY_WIDTHS = [56, 128, 56, 66, 144, 66, 84, 70, 62] as const;
+const surveyX = (k: number) => MARGIN_X + PDF_SURVEY_WIDTHS.slice(0, k).reduce((a, b) => a + b, 0);
+
+/** The Market Survey section's lines as the PDF lays them out: its title, the header, each team, the note. */
+export type PdfSurveyLine = { kind: 'title' } | { kind: 'header' } | { kind: 'row'; n: number } | { kind: 'note'; text: string };
+/** Each page's Market Survey lines: the title and header open the section, and every page it runs onto. */
+export function pdfSurveyPlan(table: MarketSurveyTable): PdfSurveyLine[][] {
+  if (table.note) return [[{ kind: 'title' }, { kind: 'note', text: table.note }, { kind: 'note', text: table.footnote }]];
+  const per = Math.floor((BOTTOM - TOP) / PDF_ROW_HEIGHT) - 3; // the title, the header and the note
+  const pages: PdfSurveyLine[][] = [];
+  for (let n = 0; n < table.rows.length || pages.length === 0; n += per) {
+    pages.push([{ kind: 'title' }, { kind: 'header' }, ...table.rows.slice(n, n + per).map((_, k) => ({ kind: 'row' as const, n: n + k }))]);
+  }
+  pages[pages.length - 1].push({ kind: 'note', text: table.footnote });
+  return pages;
+}
+/** One Market Survey cell's text, column k (0 = Team number … 8 = Market share), as the PDF writes it; the rate's lines joined. */
+export function pdfSurveyCellText(table: MarketSurveyTable, line: PdfSurveyLine, k: number): string {
+  if (line.kind === 'title') return k === 0 ? `${MARKET_SURVEY_TITLE} - ${table.scopeName}` : k === 8 ? table.yearText : '';
+  if (line.kind === 'note') return k === 0 ? pdfFigureText(line.text) : '';
+  if (line.kind === 'header') return table.heads[k];
+  return pdfFigureText(marketSurveyCells(table.rows[line.n], ' · ')[k]);
+}
+
+function drawMarketSurvey(doc: Doc, table: MarketSurveyTable, lines: PdfSurveyLine[], red: [number, number, number]) {
+  let y = TOP;
+  const tableLines = lines.filter(l => l.kind === 'header' || l.kind === 'row');
+  lines.forEach(line => {
+    const h = PDF_ROW_HEIGHT;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    const lastRow = line.kind === 'row' && line === tableLines[tableLines.length - 1];
+    if (line.kind === 'header' || line.kind === 'row') {
+      for (let k = 0; k < PDF_SURVEY_WIDTHS.length; k++) {
+        const x = surveyX(k), w = PDF_SURVEY_WIDTHS[k];
+        doc.line(x, y, x, y + h);
+        doc.line(x + w, y, x + w, y + h);
+        if (line.kind === 'header') { doc.line(x, y, x + w, y); doc.line(x, y + h, x + w, y + h); }
+        if (lastRow) doc.line(x, y + h, x + w, y + h);
+      }
+    }
+    const base = y + h - 3;
+    const row = line.kind === 'row' ? table.rows[line.n] : null;
+    const words = !!row && ('absent' in row.figures || 'pending' in row.figures);
+    for (let k = 0; k < PDF_SURVEY_WIDTHS.length; k++) {
+      const text = pdfSurveyCellText(table, line, k);
+      if (!text) continue;
+      const bold = line.kind === 'title' || line.kind === 'header' || !!row?.own;
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      doc.setTextColor(...(k === 7 && row?.surplus !== undefined && row.surplus < 0 ? red : [0, 0, 0] as [number, number, number]));
+      const x = surveyX(k);
+      // The title, a note and a team's words run across the row; every other cell keeps to its column, drawn smaller to fit, never cut.
+      const across = line.kind === 'title' || line.kind === 'note' || (words && k === 2);
+      const w = across ? PDF_PAGE.width - 2 * MARGIN_X - (x - MARGIN_X) : PDF_SURVEY_WIDTHS[k];
+      const size = Math.min(PDF_FONT_SIZE, PDF_FONT_SIZE * (w - 2 * PAD) / Math.max(1, doc.getTextWidth(text)));
+      doc.setFontSize(across ? Math.min(PDF_FONT_SIZE, size) : size);
+      if (k < 2 || across) doc.text(text, x + PAD, base);
+      else doc.text(text, x + w - PAD, base, { align: 'right' });
+      doc.setFontSize(PDF_FONT_SIZE);
+    }
+    y += h;
+  });
+}
+
+/**
  * The PDF of these statements, one after another, each from a new page.
  * `negativeRgb` is the negatives' colour — red; only annual-statement-pdf-check's
  * control passes another, to prove the check reads it.
  */
 export async function buildStatementsPdf(statements: TemplateStatement[], poolName: string,
-  { negativeRgb = RED, decisions = [] }: { negativeRgb?: [number, number, number]; decisions?: DecisionsTable[] } = {}): Promise<ArrayBuffer> {
+  { negativeRgb = RED, decisions = [], surveys = [] }: {
+    negativeRgb?: [number, number, number]; decisions?: DecisionsTable[]; surveys?: MarketSurveyTable[];
+  } = {}): Promise<ArrayBuffer> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter', compress: true });
   doc.setProperties({ title: `Annual Statement - ${poolName}` });
@@ -229,6 +303,15 @@ export async function buildStatementsPdf(statements: TemplateStatement[], poolNa
       headers.push(pdfHeaderText(poolName, ts));
       let y = TOP;
       for (const i of rows) { drawRow(doc, TEMPLATE_ROWS[i], i, y, ts, negativeRgb); y += heightOf(i); }
+    }
+    // The statement's Market Survey section, from a new page, after its last.
+    const survey = surveys[statements.indexOf(ts)];
+    if (survey) {
+      for (const lines of pdfSurveyPlan(survey)) {
+        doc.addPage('letter', 'landscape');
+        headers.push(pdfHeaderText(poolName, ts));
+        drawMarketSurvey(doc, survey, lines, negativeRgb);
+      }
     }
     // The statement's Decisions section, from a new page, after its last.
     const table = decisions[statements.indexOf(ts)];
@@ -261,7 +344,14 @@ export async function buildStatementsPdf(statements: TemplateStatement[], poolNa
  * (statementsForView) — a line's alone on its view; the pool's, then each
  * line's, on the Pool view.
  */
-export async function buildAnnualStatementPdf(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
+export async function buildAnnualStatementPdf(
+  gs: GameState, asOfYear?: number, view: LineView = 'pool',
+  /** A hosted game's standings for the Market Survey section (utils/statementMarketSurvey); absent, the player's own pool. */
+  standings?: MarketSurveyStandings,
+): Promise<ArrayBuffer> {
   const statements = statementsForView(gs, view, asOfYear);
-  return buildStatementsPdf(statements, gs.setup.poolName, { decisions: statements.map(ts => buildDecisionsTable(gs, ts)) });
+  return buildStatementsPdf(statements, gs.setup.poolName, {
+    decisions: statements.map(ts => buildDecisionsTable(gs, ts)),
+    surveys: statements.map(ts => buildMarketSurveyTable(gs, ts, standings)),
+  });
 }

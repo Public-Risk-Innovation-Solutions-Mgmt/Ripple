@@ -31,6 +31,9 @@ import {
 } from './annualStatementTemplate';
 import type { GameState, LineView } from '../types/simulation';
 import { buildDecisionsTable, DECISIONS_TITLE, type DecisionFormat, type DecisionsTable } from './statementDecisions';
+import {
+  buildMarketSurveyTable, MARKET_SURVEY_TITLE, marketSurveyCells, type MarketSurveyStandings, type MarketSurveyTable,
+} from './statementMarketSurvey';
 
 /** The figures' Excel number formats: the screen's units and decimals, negatives red. */
 export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
@@ -154,6 +157,64 @@ export function fillDecisions(ws: Worksheet, table: DecisionsTable, firstRow: nu
   return last;
 }
 
+/** The Market Survey's nine columns, B to J: J is the one column the statement above leaves unused. */
+const SURVEY_FIRST = 2, SURVEY_LAST = 10;
+
+/**
+ * THE MARKET SURVEY SECTION, below the template's last row and before
+ * Decisions (utils/statementMarketSurvey): a blank row, its title with the year
+ * it shows, a blank, the header of its nine columns, then a row per team — the
+ * Market Survey tab's text in each cell, as the Decisions section writes a
+ * cover's name; the pool's rate a line per line. Every column lined down the
+ * section, the header and the foot closed, as the Decisions section; the
+ * viewing team's row in bold. The tab's note follows it. Returns the last row
+ * written.
+ */
+export function fillMarketSurvey(ws: Worksheet, table: MarketSurveyTable, firstRow: number): number {
+  const thin = { style: 'thin' as const };
+  ws.getCell(firstRow + 2, 2).value = `${MARKET_SURVEY_TITLE} — ${table.scopeName}`;
+  ws.getCell(firstRow + 2, 2).font = { bold: true };
+  ws.getCell(firstRow + 2, 4).value = table.yearText;
+  if (table.note) {
+    ws.getCell(firstRow + 4, 2).value = table.note;
+    ws.getCell(firstRow + 5, 2).value = table.footnote;
+    return firstRow + 5;
+  }
+  const header = firstRow + 4;
+  const last = header + table.rows.length;
+  for (let row = header; row <= last; row++) {
+    for (let c = SURVEY_FIRST; c <= SURVEY_LAST; c++) {
+      ws.getCell(row, c).border = {
+        left: thin, right: thin,
+        ...(row === header ? { top: thin, bottom: thin } : {}),
+        ...(row === last ? { bottom: thin } : {}),
+      };
+    }
+  }
+  table.heads.forEach((h, k) => {
+    const cell = ws.getCell(header, SURVEY_FIRST + k);
+    cell.value = h;
+    cell.font = { bold: true };
+    cell.alignment = { horizontal: k < 2 ? 'left' : 'right', wrapText: true };
+  });
+  table.rows.forEach((row, n) => {
+    const at = header + 1 + n;
+    const cells = marketSurveyCells(row);
+    const words = 'absent' in row.figures || 'pending' in row.figures;
+    cells.forEach((text, k) => {
+      if (!text) return;
+      const cell = ws.getCell(at, SURVEY_FIRST + k);
+      cell.value = text;
+      cell.alignment = { horizontal: k < 2 || (words && k === 2) ? 'left' : 'right', wrapText: k === 4 };
+      if (row.own) cell.font = { bold: true };
+      if (k === 7 && row.surplus !== undefined && row.surplus < 0) cell.font = { ...(row.own ? { bold: true } : {}), color: { argb: 'FFDC2626' } };
+    });
+  });
+  ws.getCell(last + 1, 2).value = table.footnote;
+  ws.getColumn(SURVEY_LAST).width = 12;
+  return last + 1;
+}
+
 /** Excel's serial day number for a calendar date (the 1900 system, past its leap-year bug). */
 function dateSerial(y: number, m: number, d: number): number {
   return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86_400_000);
@@ -172,13 +233,18 @@ async function loadExcelJS(): Promise<typeof import('exceljs')> {
  * statement the view's download holds (statementsForView) — a line's alone on
  * its view; the pool's, then each line's, on the Pool view.
  */
-export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
+export async function buildAnnualStatementXlsx(
+  gs: GameState, asOfYear?: number, view: LineView = 'pool',
+  /** A hosted game's standings for the Market Survey section (utils/statementMarketSurvey); absent, the player's own pool. */
+  standings?: MarketSurveyStandings,
+): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
   for (const ts of statementsForView(gs, view, asOfYear)) {
     const ws = wb.addWorksheet(SHEET_NAME(ts));
     fillSheet(ws, ts);
-    fillDecisions(ws, buildDecisionsTable(gs, ts), TEMPLATE_ROWS.length);
+    const surveyEnd = fillMarketSurvey(ws, buildMarketSurveyTable(gs, ts, standings), TEMPLATE_ROWS.length);
+    fillDecisions(ws, buildDecisionsTable(gs, ts), surveyEnd);
   }
   // Copied into its own buffer of exactly the file's length: in Node, writeBuffer
   // hands back a Buffer that may be a slice of a larger shared pool.

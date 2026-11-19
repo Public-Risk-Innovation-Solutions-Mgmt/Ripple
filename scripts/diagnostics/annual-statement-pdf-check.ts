@@ -23,6 +23,12 @@
 //     All Years totals.
 //   · NEGATIVES IN RED, AND ONLY THEM: every text run's fill colour, read from
 //     the page's drawing operators.
+//   · THE MARKET SURVEY SECTION (pr/statement-market-survey), from a new page
+//     between the statement and Decisions: read as rows of text runs left to
+//     right (its nine columns are its own), its title and year, its heads, a
+//     row per team and the tab's note, against the section's table
+//     (buildMarketSurveyTable) — a solo game's single row here. Controls: the
+//     section left out, and one cell off.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN: a PDF built from a statement with one figure
 // off, one with a sheet left out, and one with negatives drawn black must each
@@ -44,6 +50,9 @@ import {
 } from '../../src/utils/annualStatementTemplate';
 import { buildAnnualStatementPdf, buildStatementsPdf } from '../../src/utils/annualStatementPdf';
 import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from '../../src/utils/statementDecisions';
+import {
+  buildMarketSurveyTable, MARKET_SURVEY_TITLE, marketSurveyCells, type MarketSurveyTable,
+} from '../../src/utils/statementMarketSurvey';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineView } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -77,7 +86,11 @@ function play(id: string, years: number, opts: { lines?: CoverageLine[]; develop
 /** Column bounds on the page, B then C to I (points from the left): the layout's, as the reader must know it. */
 const COL_LEFT = [30, 258, 330, 402, 474, 546, 618, 690], COL_RIGHT = 762;
 const columnOf = (cx: number) => { for (let c = COL_LEFT.length - 1; c >= 0; c--) if (cx >= COL_LEFT[c]) return cx <= COL_RIGHT ? c : -1; return -1; };
-interface Page { width: number; height: number; header: string; footer: string; rows: string[][]; runs: { text: string; rgb: string }[] }
+interface Page {
+  width: number; height: number; header: string; footer: string; rows: string[][]; runs: { text: string; rgb: string }[];
+  /** Every row's text runs in reading order, left to right — the Market Survey section's own nine columns are not B to I. */
+  lines: string[][];
+}
 
 async function readPdf(bytes: ArrayBuffer): Promise<Page[]> {
   const doc = await getDocument({ data: new Uint8Array(bytes.slice(0)), useSystemFonts: false, isEvalSupported: false, standardFontDataUrl: STANDARD_FONTS }).promise;
@@ -112,7 +125,9 @@ async function readPdf(bytes: ArrayBuffer): Promise<Page[]> {
         if (text.trim()) runs.push({ text: text.trim(), rgb });
       }
     });
-    pages.push({ width: vp.width, height: vp.height, header, footer, rows, runs });
+    const lines = ys.map(y => body.filter(x => Math.round(fromTop(x) * 10) / 10 === y)
+      .sort((a, b) => a.transform[4] - b.transform[4]).map(it => it.str.trim()));
+    pages.push({ width: vp.width, height: vp.height, header, footer, rows, runs, lines });
   }
   return pages;
 }
@@ -155,6 +170,23 @@ function expectedDecisionRows(t: DecisionsTable): string[][] {
   }
   return out;
 }
+/**
+ * THE MARKET SURVEY SECTION'S LINES, between the statement and Decisions
+ * (utils/statementMarketSurvey; pr/statement-market-survey): its title with the
+ * year it shows, its nine heads, a row per team — the builder's own cell text,
+ * the pool's rate lines joined — and the tab's note, each line's runs left to
+ * right. ⚠ From the section's table, not the PDF module: what the table holds
+ * against the Market Survey tab is the market-survey driver's.
+ */
+function expectedSurveyLines(t: MarketSurveyTable): string[][] {
+  const out: string[][] = [[`${MARKET_SURVEY_TITLE} - ${t.scopeName}`, t.yearText]];
+  if (t.note) return [...out, [dash(t.note)], [dash(t.footnote)]];
+  out.push([...t.heads]);
+  for (const r of t.rows) out.push(marketSurveyCells(r, ' · ').filter(x => x !== '').map(dash));
+  out.push([dash(t.footnote)]);
+  return out;
+}
+const isSurveyPage = (p: Page) => (p.lines[0]?.[0] ?? '').startsWith(`${MARKET_SURVEY_TITLE} - `);
 const RED = '#dc2626';
 
 /** Every way the PDF differs from the statements it should carry. */
@@ -172,7 +204,17 @@ async function pdfDiffs(bytes: ArrayBuffer, statements: TemplateStatement[], gs:
     const mine: Page[] = [];
     while (at < pages.length && pages[at].header === head) mine.push(pages[at++]);
     if (mine.length === 0) { out.push(`${ts.scopeName}: no page with its header (next page reads "${pages[at]?.header ?? 'nothing'}")`); continue; }
-    const got = mine.flatMap(p => p.rows), want = [...expectedRows(ts), ...expectedDecisionRows(buildDecisionsTable(gs, ts))];
+    // The Market Survey section's pages read by their own lines; the statement's and Decisions' by B to I.
+    const survey = mine.filter(isSurveyPage);
+    const gotSurvey = survey.flatMap(p => p.lines), wantSurvey = expectedSurveyLines(buildMarketSurveyTable(gs, ts));
+    if (JSON.stringify(gotSurvey) !== JSON.stringify(wantSurvey)) {
+      const r = wantSurvey.findIndex((w, k) => JSON.stringify(w) !== JSON.stringify(gotSurvey[k]));
+      out.push(`${ts.scopeName} Market Survey line ${r + 1}: ${JSON.stringify(gotSurvey[r] ?? null)} ≠ ${JSON.stringify(wantSurvey[r])}`);
+    }
+    const firstSurvey = mine.findIndex(isSurveyPage);
+    if (firstSurvey >= 0 && (mine.slice(firstSurvey, firstSurvey + survey.length).some(p => !isSurveyPage(p))
+      || !(mine[firstSurvey + survey.length]?.rows[0]?.[0] === DECISIONS_TITLE))) out.push(`${ts.scopeName}: the Market Survey's pages are not together just before Decisions`);
+    const got = mine.filter(p => !isSurveyPage(p)).flatMap(p => p.rows), want = [...expectedRows(ts), ...expectedDecisionRows(buildDecisionsTable(gs, ts))];
     if (got.length !== want.length) out.push(`${ts.scopeName}: ${got.length} rows on its pages, the statement has ${want.length}`);
     want.forEach((w, r) => {
       const g = got[r];
@@ -227,7 +269,9 @@ console.log('\ncontrols');
 {
   const gs = games[1].gs;
   const statements = templateStatements(gs);
-  const tables = (sts: TemplateStatement[], g: GameState = gs) => ({ decisions: sts.map(ts => buildDecisionsTable(g, ts)) });
+  const tables = (sts: TemplateStatement[], g: GameState = gs) => ({
+    decisions: sts.map(ts => buildDecisionsTable(g, ts)), surveys: sts.map(ts => buildMarketSurveyTable(g, ts)),
+  });
   // One figure off: one column of WC's Contributions Total Net Incurred.
   const off = statements.map(ts => ({ ...ts, figures: Object.fromEntries(Object.entries(ts.figures).map(([k, v]) => [k, [...v]])) }));
   off[1].figures['cy.incurred'][3] = (off[1].figures['cy.incurred'][3] ?? 0) + 7_000;
@@ -244,13 +288,21 @@ console.log('\ncontrols');
   const e5 = await pdfDiffs(await buildStatementsPdf(templateStatements(one), POOL, tables(templateStatements(one), one)), expectedFor(one, 'pool'), one);
   check(e5.length > 0, 'control — a one-line team\'s Pool PDF with the line\'s statement too (the old set): the check fails', e5[0] ?? 'NOTHING FIRED');
   // THE DECISIONS SECTION: left out, and one decision off.
-  const e6 = await pdfDiffs(await buildStatementsPdf(statements, POOL), statements, gs);
-  check(e6.length > 0, 'control — the Decisions section left out: the check fails', e6[0] ?? 'NOTHING FIRED');
+  const e6 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { surveys: tables(statements).surveys }), statements, gs);
+  check(e6.length > 0 && !e6.some(e => /Market Survey line/.test(e)), 'control — the Decisions section left out (the Market Survey kept): the check fails', e6[0] ?? 'NOTHING FIRED');
   const offTables = tables(statements).decisions.map(t => ({ ...t, rows: t.rows.map(r => ({ ...r })) }));
   const wcFunding = offTables[1].rows.find(r => r.kind === 'decision' && r.key === 'WC.funding');
   if (wcFunding && wcFunding.kind === 'decision') wcFunding.cells = wcFunding.cells.map((c, k) => (k === 3 ? { text: '99%', format: 'pct0' as const, value: 0.99 } : c));
-  const e7 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { decisions: offTables }), statements, gs);
+  const e7 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { ...tables(statements), decisions: offTables }), statements, gs);
   check(e7.length > 0 && e7.some(e => /Funding Level/.test(e)), 'control — one decision off (WC\'s Funding Level in one year): the check fails, on that row', e7[0] ?? 'NOTHING FIRED');
+  // THE MARKET SURVEY SECTION (pr/statement-market-survey): left out, and one cell off.
+  const e8 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { decisions: tables(statements).decisions }), statements, gs);
+  check(e8.length > 0 && e8.some(e => /Market Survey/.test(e)), 'control — the Market Survey section left out: the check fails, on it', e8[0] ?? 'NOTHING FIRED');
+  const offSurveys = tables(statements).surveys.map(t => ({ ...t, rows: t.rows.map(r => ({ ...r })) }));
+  const r0 = offSurveys[0].rows[0];
+  if (r0 && 'ripple' in r0.figures) r0.figures = { ...r0.figures, premiumToSurplus: '9.99' };
+  const e9 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { ...tables(statements), surveys: offSurveys }), statements, gs);
+  check(e9.length > 0 && e9.some(e => /Market Survey line/.test(e)), 'control — the Market Survey\'s premium to surplus off: the check fails, on that line', e9[0] ?? 'NOTHING FIRED');
 }
 
 console.log(failures.length === 0 ? '\nANNUAL STATEMENT PDF PASS' : `\nFAIL — ${failures.length}: ${failures.join('; ')}`);

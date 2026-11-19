@@ -9,14 +9,14 @@
 // ============================================================================
 
 import { useState } from 'react';
-import { latestKnownRoomYear } from '../../utils/knownYears';
+import { rateText, reportingYearOf, rowState, shareOf } from '../standingsRows';
 import { ordinal, rippleScoreRanks } from '../../utils/rippleScore';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { colorForCombinedRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
-import type { RoomMarketShares, StandingFigures, StandingSummary, StandingTeam } from '../index';
+import type { RoomMarketShares, StandingTeam } from '../index';
 import type { StoredMarketYear } from '../contract';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -27,49 +27,6 @@ const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
   GL: <Scale size={14} />,
   Property: <Building2 size={14} />,
 };
-
-type RowState =
-  | { kind: 'absent' }
-  | { kind: 'pending' }
-  | { kind: 'reported'; figures: StandingFigures; pool?: StandingSummary['byLine'] };
-
-/**
- * ⚠ THE WHOLE POINT OF THIS FUNCTION IS THE ORDER OF ITS CHECKS. Absence is
- * decided BEFORE lateness: a team that does not write GL is not "late on GL",
- * and never will be, so asking whether it has reported would be asking the wrong
- * question of it forever.
- */
-function rowState(team: StandingTeam, view: LineView, reportingYear: number): RowState {
-  if (view !== 'pool' && !team.lines.includes(view)) return { kind: 'absent' };
-
-  // ⚠ YEAR 0 COUNTS, AND FROM THE START. Results show through the year just
-  // completed (utils/knownYears), so before the first advance the latest known
-  // year is 2026, the opening — the table shows it rather than nothing. A year
-  // before 0 is never known (no room keeps one).
-  if (reportingYear < 0) return { kind: 'pending' };
-
-  // ⚠ THE EXACT YEAR, NOT "THE LATEST ONE, IF IT HAPPENS TO BE THIS YEAR". The
-  // room keeps every year now, so this asks for the year the table is showing
-  // and gets it or nothing. The old form could only ever answer for the newest
-  // year, which was the same question only while the record held one slot.
-  const posted = team.resultsByYear?.[String(reportingYear)];
-  if (!posted) return { kind: 'pending' };
-
-  const figures = view === 'pool' ? posted.pool : posted.byLine[view];
-  // A team that writes the line but whose posted summary has no slice for it is
-  // pending rather than absent — the summary predates the line, not the team.
-  if (!figures) return { kind: 'pending' };
-  // The pool's rate cell lists each line's, so the pool row carries the lines' figures.
-  return { kind: 'reported', figures, pool: view === 'pool' ? posted.byLine : undefined };
-}
-
-/** "$3.20 (+2.1%)": a line's rate per $100 and its change on the year before. */
-function rateText(f: StandingFigures | undefined): string | undefined {
-  if (f?.ratePer100 === undefined) return undefined;
-  const change = f.rateChange === undefined ? ''
-    : ` (${f.rateChange >= 0 ? '+' : '−'}${Math.abs(f.rateChange * 100).toFixed(1)}%)`;
-  return `$${f.ratePer100.toFixed(2)}${change}`;
-}
 
 export interface StandingsTableProps {
   teams: readonly StandingTeam[];
@@ -103,7 +60,7 @@ export default function StandingsTable({
 
   // The latest known year (utils/knownYears): the year just completed — the
   // opening before the first advance, then each year as it is played.
-  const reportingYear = Math.min(latestKnownRoomYear({ currentYear, yearCount }), currentYear - 1);
+  const reportingYear = reportingYearOf(currentYear, yearCount);
 
   // ⚠ THE RIPPLE SCORE IS A PLACEHOLDER (utils/rippleScore): each team's rank by
   // the pool's net surplus for the year shown, ties sharing a rank — the pool's
@@ -229,15 +186,12 @@ export default function StandingsTable({
                       premium over the room's. */}
                   <td data-testid={`share-${t.name}`} className="px-5 py-2.5 font-mono text-sky-700">
                     {(() => {
-                      const share = marketShares?.byTeam[t.name];
-                      const v = share === undefined ? undefined
-                        : effectiveView === 'pool' ? share.pool : share.byLine[effectiveView];
-                      if (v === undefined) return <span className="text-black">—</span>;
+                      const share = shareOf(marketShares, t.name, effectiveView);
+                      if (!share) return <span className="text-black">—</span>;
                       // The heading names the results' year; a share worked out for an
                       // earlier one (a locked team not yet posted) says which.
-                      const sy = marketShares!.year;
-                      return sy === reportingYear ? formatPct(v)
-                        : <>{formatPct(v)} <span className="text-[10px] text-black">({startingYear + sy - 1})</span></>;
+                      return share.year === reportingYear ? formatPct(share.value)
+                        : <>{formatPct(share.value)} <span className="text-[10px] text-black">({startingYear + share.year - 1})</span></>;
                     })()}
                   </td>
                   {market && (() => {
