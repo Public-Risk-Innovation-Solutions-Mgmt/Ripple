@@ -1886,8 +1886,10 @@ const BASELINE = process.env.RENDER_BASELINE
 // moves (the save key v52 -> v53 on the Year Walkthrough) are already in v133,
 // so none shows here. No key added or removed.
 // v136: THE ANNUAL STATEMENT'S MARKET SURVEY SECTION (pr/statement-market-
-// survey, from aws ee29d9f; numbered past v135, left for pr/top-bar-logo-size,
-// #96, open). aws ee29d9f reproduced v134 174 of 174 here first. 26 of 174
+// survey, from aws ee29d9f, merged with aws fabff9b (#96, the top bar); numbered
+// past v135, which was left for #96 while it was open — it merged needing none).
+// aws ee29d9f and aws fabff9b each reproduced v134 174 of 174 here first, and
+// the merged tree reproduces v136. 26 of 174
 // keys move — every Annual Statement screen, each word-diffed against the
 // control (RENDER_TEXT_DIR both sides), and each by two insertions and nothing
 // else: the sticky index's "Market Survey" entry, before Decisions; and the
