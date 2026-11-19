@@ -321,6 +321,12 @@ const activeView = page => page.$$eval('nav button', bs =>
   ok(cPool.length === 4, 'switching the view back does not repaint the survivors — same hue, same team');
 
   // ---- the numbers on the chart are the numbers in the record ---------
+  // ⚠ INTO VIEW FIRST. The view buttons clicked above leave the page scrolled
+  // (538px here), so the surplus chart sat ABOVE the viewport: its box read
+  // y = -208 and the hover point landed off-screen, so no tooltip ever showed.
+  // A player hovers what is on screen; so does the driver.
+  await host.locator('[data-testid="chart-surplus"]').scrollIntoViewIfNeeded();
+  await host.waitForTimeout(200);
   const box = await host.$eval('[data-testid="chart-surplus"]', e => {
     const b = e.getBoundingClientRect();
     return { x: b.x, y: b.y, w: b.width, h: b.height };
