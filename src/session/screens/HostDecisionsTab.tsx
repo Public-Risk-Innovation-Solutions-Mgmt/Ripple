@@ -202,7 +202,7 @@ export default function HostDecisionsTab({ room }: Props) {
         tabs={linesInPlay.map(l => ({ id: l, label: LINE_FULL_NAME[l], icon: LINE_VIEW_ICONS[l] }))}
         activeTab={effectiveLine}
         onSelect={setLine}
-        stickyTop={0}
+        stickyTop="var(--content-top, 0px)"
         zIndex={10}
       />
 

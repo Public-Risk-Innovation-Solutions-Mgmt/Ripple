@@ -243,7 +243,7 @@ export default function GameShell({
   const shownTab: TabId = activeTab === 'setup' || !hidden(activeTab) ? activeTab : (tabs[0]?.id ?? activeTab);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 game-content-top">
       {banner}
       <Header
         gameState={known}
@@ -264,6 +264,8 @@ export default function GameShell({
           tabs={tabs}
           activeTab={shownTab}
           onSelect={onSelectTab}
+          topClass="game-tabs-top"
+          heightVar="--game-tabs-h"
         />
       )}
 
@@ -276,7 +278,7 @@ export default function GameShell({
           activeTab={lineView}
           onSelect={onSelectLineView}
           onNext={onLineReviewed}
-          stickyTop={108}
+          topClass="game-line-tabs-top"
           zIndex={20}
           showArrows
           trailing={lineActivity && (

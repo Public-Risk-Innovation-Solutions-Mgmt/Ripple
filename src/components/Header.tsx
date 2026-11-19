@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
 import type { TeamMarketShare } from '../session/contract';
 import { buildAnnualStatement, newestCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
-import RippleBrandLogo from './RippleBrandLogo';
+import RippleBrandLogo, { LOGO_ASPECT } from './RippleBrandLogo';
+import { useTopBar, useWide } from './useTopBar';
 
 interface HeaderProps {
   gameState: GameState | null;
@@ -31,6 +32,52 @@ interface HeaderProps {
    * none), and the chip is left out. Absent (single player): no chip.
    */
   roomMarketShare?: TeamMarketShare | null;
+}
+
+/** Today's logo height, the bar's size once scrolled and on a phone. */
+const LOGO_BASE = 44;
+/** The logo at the top of the page on a desktop, when the bar has the room. */
+const LOGO_TOP = 76;
+
+/**
+ * HOW BIG THE BAR CAN GROW AT THE TOP OF THE PAGE, measured: the logo toward
+ * 76px and the chips toward the logo's own rate (76/44), but only as far as the
+ * bar stays on ONE ROW at this width. The chips are 600px wide at today's size,
+ * so the logo's full rate would need about 440px more than a 1440px screen has;
+ * there they grow as far as the room allows. A very narrow desktop (1280) has
+ * no room at all, and the bar stays at today's size even at the top.
+ *
+ * Every chip size is a multiple of --bar-s, so a group's width at --bar-s 1 is
+ * its width now divided by --bar-s now — exact mid-animation too.
+ */
+function useBarFit(row: React.RefObject<HTMLDivElement | null>, left: React.RefObject<HTMLDivElement | null>,
+  chips: React.RefObject<HTMLDivElement | null>, right: React.RefObject<HTMLDivElement | null>, deps: unknown[]) {
+  const [fit, setFit] = useState({ logo: LOGO_TOP, scale: LOGO_TOP / LOGO_BASE });
+  useLayoutEffect(() => {
+    const measure = () => {
+      const r = row.current, l = left.current, c = chips.current, b = right.current;
+      if (!r || !l || !b) return;
+      const logo = l.querySelector('img');
+      const logoNow = logo ? logo.getBoundingClientRect().height : LOGO_BASE;
+      const sNow = parseFloat(getComputedStyle(r).getPropertyValue('--bar-s')) || 1;
+      const leftAtBase = l.getBoundingClientRect().width - (logoNow - LOGO_BASE) * LOGO_ASPECT;
+      const chipsAtBase = c ? c.getBoundingClientRect().width / sNow : 0;
+      const gaps = c ? 32 : 16; // gap-4 between the groups
+      const free = r.clientWidth - leftAtBase - chipsAtBase - b.getBoundingClientRect().width - gaps - 4;
+      const logoTop = LOGO_BASE + Math.max(0, Math.min(LOGO_TOP - LOGO_BASE, free / LOGO_ASPECT));
+      const remain = free - (logoTop - LOGO_BASE) * LOGO_ASPECT;
+      const scale = chipsAtBase > 0 ? Math.min(logoTop / LOGO_BASE, 1 + Math.max(0, remain) / chipsAtBase) : logoTop / LOGO_BASE;
+      setFit(f => (Math.abs(f.logo - logoTop) < 0.5 && Math.abs(f.scale - scale) < 0.005 ? f : { logo: logoTop, scale }));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (row.current) ro?.observe(row.current);
+    if (right.current) ro?.observe(right.current);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return fit;
 }
 
 export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
@@ -98,15 +145,29 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   const calendarYear = programYear !== undefined ? programYear - 1 : '—';
   const isStarted = gameState?.isStarted ?? false;
   const isComplete = gameState?.isComplete ?? false;
+  const topBar = useTopBar<HTMLElement>();
+  const wide = useWide();
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const leftRef = useRef<HTMLDivElement | null>(null);
+  const chipsRef = useRef<HTMLDivElement | null>(null);
+  const rightRef = useRef<HTMLDivElement | null>(null);
+  const fit = useBarFit(rowRef, leftRef, chipsRef, rightRef, [isStarted, isComplete, poolName]);
+  // ⚠ A PHONE KEEPS TODAY'S BAR: no growing at the top, no shrinking on scroll.
+  const grown = wide && !topBar.compact;
+  const logoHeight = grown ? fit.logo : LOGO_BASE;
+  const barScale = grown ? fit.scale : 1;
 
   return (
-    <header className="bg-slate-900 text-white shadow-xl sticky top-0 z-40">
+    <header ref={topBar.ref} data-testid="top-bar" data-compact={topBar.compact ? 'true' : 'false'} className="bg-slate-900 text-white shadow-xl sticky top-0 z-40">
       <div className="max-w-screen-2xl mx-auto px-4 py-3">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div ref={rowRef} data-testid="top-bar-row" className="bar-scale flex items-center justify-between gap-4 flex-wrap" style={{ ['--bar-s' as string]: barScale } as CSSProperties}>
           {/* Left: branding */}
-          <div className="flex items-center gap-3 min-w-0">
+          <div ref={leftRef} className="flex items-center gap-3 min-w-0">
             {/* The full logo on a white tile: its own background is white and its lettering black. */}
-            <RippleBrandLogo tile className="h-11" />
+            {/* On a desktop, readable at the top of the page (76px where the bar has the
+                room, "Powered by PRISM" included) and today's 44px once scrolled
+                (useTopBar, useBarFit). On a phone, today's 44px throughout. */}
+            <RippleBrandLogo tile className="transition-[height] duration-200 ease-out" height={logoHeight} />
             <span className="text-slate-500 flex-shrink-0">|</span>
             {/* Same slot, two occupants that never overlap: the tagline
                 before a game exists, the SIMULATED pool's own name once one
@@ -121,7 +182,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
 
           {/* Center: game state chips */}
           {isStarted && (
-            <div className="flex items-center gap-3 flex-wrap">
+            <div ref={chipsRef} data-testid="top-bar-chips" className="flex items-center flex-wrap" style={{ gap: 'calc(12px * var(--bar-s))' }}>
               <Chip label="Year" value={`${yearNumber}`} />
               <Chip label="Calendar" value={`${calendarYear}`} testId="header-calendar" />
               <Chip label="Scenario" value={instanceId} mono />
@@ -160,7 +221,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
           )}
 
           {/* Right: actions */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div ref={rightRef} className="flex items-center gap-2 flex-shrink-0">
             {onNewGame && (
               <button
                 onClick={onNewGame}
@@ -193,6 +254,11 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   );
 }
 
+const BS = (px: number) => `calc(${px}px * var(--bar-s, 1))`;
+const CHIP_STYLE: CSSProperties = { padding: `${BS(6)} ${BS(12)}`, minWidth: BS(80), borderRadius: BS(8) };
+const CHIP_LABEL: CSSProperties = { fontSize: BS(12), lineHeight: BS(16) };
+const CHIP_VALUE: CSSProperties = { fontSize: BS(14), lineHeight: BS(20), minHeight: BS(20) };
+
 function Chip({
   label,
   value,
@@ -207,9 +273,11 @@ function Chip({
   testId?: string;
 }) {
   return (
-    <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
-      <span className="text-white text-xs">{label}</span>
-      <span data-testid={testId} className={`text-sm font-bold min-h-[1.25rem] ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
+    // Every size a multiple of --bar-s (1 is today's: px-3 py-1.5, min-w 80px, text-xs over text-sm),
+    // so the chips grow and shrink with the logo (useBarFit).
+    <div className="bg-slate-800 rounded-lg flex flex-col items-center" style={CHIP_STYLE}>
+      <span className="text-white" style={CHIP_LABEL}>{label}</span>
+      <span data-testid={testId} className={`font-bold ${valueClass} ${mono ? 'font-mono' : ''}`} style={CHIP_VALUE}>{value}</span>
     </div>
   );
 }

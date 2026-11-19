@@ -700,7 +700,7 @@ export default function HostChartsTab({ room }: Props) {
         ]}
         activeTab={effectiveView}
         onSelect={setView}
-        stickyTop={0}
+        stickyTop="var(--content-top, 0px)"
         zIndex={10}
       />
 
