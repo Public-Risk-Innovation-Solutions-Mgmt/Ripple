@@ -22,7 +22,14 @@ const SRC = `${BASE}ripple-logo.png`;
 const WIDTH = 263;
 const HEIGHT = 284;
 
-export default function RippleBrandLogo({ tile = false, className = '' }: { tile?: boolean; className?: string }) {
+/** The logo's width per pixel of height: the file's own proportions. */
+export const LOGO_ASPECT = WIDTH / HEIGHT;
+
+export default function RippleBrandLogo({ tile = false, className = '', height }: {
+  tile?: boolean; className?: string;
+  /** A height in px, when the bar sets one it has measured; otherwise the className sizes it. */
+  height?: number;
+}) {
   const img = (
     <img
       src={SRC}
@@ -32,6 +39,7 @@ export default function RippleBrandLogo({ tile = false, className = '' }: { tile
       data-testid="ripple-logo"
       decoding="async"
       className={`block w-auto ${className}`}
+      style={height !== undefined ? { height } : undefined}
     />
   );
   return tile ? <span className="flex-shrink-0 rounded-md bg-white p-0.5">{img}</span> : <span className="flex-shrink-0">{img}</span>;

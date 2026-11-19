@@ -325,75 +325,79 @@ export default function HostRoomScreen({ code }: Props) {
                   : `${teams.length} of ${expectedTeams} joined — waiting for ${expectedTeams - teams.length} more`}
             </p>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-black">
-                <th className="px-5 py-2 font-medium">Team number</th>
-                <th className="px-5 py-2 font-medium">Team</th>
-                <th className="px-5 py-2 font-medium">Lines</th>
-                <th className="px-5 py-2 font-medium">Joined</th>
-                <th className="px-5 py-2 font-medium">Locked</th>
-                <th className="px-5 py-2 font-medium">Reported</th>
-              </tr>
-            </thead>
-            <tbody data-testid="team-table">
-              {teams.length === 0 && (
-                <tr>
-                  <td colSpan={6} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-black">
-                    Waiting for teams to join at /join/{code}. Each names itself and picks its own lines.
-                    {expectedTeams !== null && ` Expecting ${expectedTeams}.`}
-                  </td>
+          {/* Its own sideways scroll on a phone: the table is wider than the screen, and
+              left in the page it widened the whole page (544px on a 390px phone). */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-black">
+                  <th className="px-5 py-2 font-medium">Team number</th>
+                  <th className="px-5 py-2 font-medium">Team</th>
+                  <th className="px-5 py-2 font-medium">Lines</th>
+                  <th className="px-5 py-2 font-medium">Joined</th>
+                  <th className="px-5 py-2 font-medium">Locked</th>
+                  <th className="px-5 py-2 font-medium">Reported</th>
                 </tr>
-              )}
-              {teams.map(t => (
-                <tr key={t.name} data-testid={`team-row-${t.name}`} className="border-t border-slate-50">
-                  <td data-testid={`setup-number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-black">Team {t.teamNumber}</td>
-                  <td className="px-5 py-2.5 text-slate-700">{t.name}</td>
-                  {/* ⚠ THE HOST IS NOW READING A TABLE OF DIFFERENT GAMES, not
-                      of seats at one. Two teams' numbers are not comparable
-                      unless this column matches, so it sits beside the name
-                      rather than behind a hover. */}
-                  <td className="px-5 py-2.5">
-                    <span data-testid={`lines-${t.name}`} className="font-mono text-xs text-black">
-                      {t.lines.join(' + ')}
-                    </span>
-                  </td>
-                  <td className="px-5 py-2.5">
-                    {t.joined
-                      ? <span data-testid={`joined-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> in</span>
-                      : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> waiting</span>}
-                  </td>
-                  <td className="px-5 py-2.5">
-                    {t.locked
-                      ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600">
-                          <CheckCircle2 size={14} /> locked
-                          {/* ⚠ INSTANTLY REVERSIBLE, NO CONFIRM STEP — unlike
-                              the lock itself, which other teams and the
-                              host's own advance decision rely on. The team
-                              locking again is the only "undo" an undo needs. */}
-                          <button
-                            type="button"
-                            data-testid={`undo-lock-${t.name}`}
-                            disabled={undoingTeam === t.name}
-                            onClick={() => void handleUndoLock(t.name)}
-                            className="ml-1 text-xs font-medium text-brand-600 disabled:opacity-50"
-                          >
-                            {undoingTeam === t.name ? 'Unlocking…' : 'Unlock'}
-                          </button>
-                        </span>
-                      : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> open</span>}
-                  </td>
-                  <td className="px-5 py-2.5">
-                    {t.resultYear !== null
-                      ? <span data-testid={`reported-${t.name}`} className="flex items-center gap-1.5 text-black">
-                          <CheckCircle2 size={14} className="text-emerald-600" /> year {t.resultYear}
-                        </span>
-                      : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> —</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody data-testid="team-table">
+                {teams.length === 0 && (
+                  <tr>
+                    <td colSpan={6} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-black">
+                      Waiting for teams to join at /join/{code}. Each names itself and picks its own lines.
+                      {expectedTeams !== null && ` Expecting ${expectedTeams}.`}
+                    </td>
+                  </tr>
+                )}
+                {teams.map(t => (
+                  <tr key={t.name} data-testid={`team-row-${t.name}`} className="border-t border-slate-50">
+                    <td data-testid={`setup-number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-black">Team {t.teamNumber}</td>
+                    <td className="px-5 py-2.5 text-slate-700">{t.name}</td>
+                    {/* ⚠ THE HOST IS NOW READING A TABLE OF DIFFERENT GAMES, not
+                        of seats at one. Two teams' numbers are not comparable
+                        unless this column matches, so it sits beside the name
+                        rather than behind a hover. */}
+                    <td className="px-5 py-2.5">
+                      <span data-testid={`lines-${t.name}`} className="font-mono text-xs text-black">
+                        {t.lines.join(' + ')}
+                      </span>
+                    </td>
+                    <td className="px-5 py-2.5">
+                      {t.joined
+                        ? <span data-testid={`joined-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> in</span>
+                        : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> waiting</span>}
+                    </td>
+                    <td className="px-5 py-2.5">
+                      {t.locked
+                        ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600">
+                            <CheckCircle2 size={14} /> locked
+                            {/* ⚠ INSTANTLY REVERSIBLE, NO CONFIRM STEP — unlike
+                                the lock itself, which other teams and the
+                                host's own advance decision rely on. The team
+                                locking again is the only "undo" an undo needs. */}
+                            <button
+                              type="button"
+                              data-testid={`undo-lock-${t.name}`}
+                              disabled={undoingTeam === t.name}
+                              onClick={() => void handleUndoLock(t.name)}
+                              className="ml-1 text-xs font-medium text-brand-600 disabled:opacity-50"
+                            >
+                              {undoingTeam === t.name ? 'Unlocking…' : 'Unlock'}
+                            </button>
+                          </span>
+                        : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> open</span>}
+                    </td>
+                    <td className="px-5 py-2.5">
+                      {t.resultYear !== null
+                        ? <span data-testid={`reported-${t.name}`} className="flex items-center gap-1.5 text-black">
+                            <CheckCircle2 size={14} className="text-emerald-600" /> year {t.resultYear}
+                          </span>
+                        : <span className="flex items-center gap-1.5 text-black"><Circle size={14} /> —</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* ---- advance ---- */}
