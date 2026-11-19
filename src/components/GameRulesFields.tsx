@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
 import { DEVELOPMENT_LEVELS, type DevelopmentSetting } from '../data/pricingParameters';
 import { drawShockSchedule, drawableShocks } from '../session/shockDraw';
+import { hostShockLabel } from '../utils/shockLosses';
 import type { ScheduledShockSpec } from '../session/contract';
 import type { CoverageLine } from '../types/simulation';
 
@@ -16,12 +17,8 @@ import type { CoverageLine } from '../types/simulation';
 // the same list Randomise draws from (session/shockDraw.ts).
 const SCHEDULABLE = drawableShocks();
 
-/** '#2 Winterstorm/Rainstorm' — an id that is not one of the twelve shows as itself. */
-function shockLabel(id: string): string {
-  const name = SCHEDULABLE.find(s => s.id === id)?.name;
-  if (!name) return id;
-  return id.startsWith('#') ? `${id} ${name}` : name;
-}
+/** '#2 Winterstorm/Rainstorm' — the one host format (shockLosses.hostShockLabel). */
+const shockLabel = hostShockLabel;
 
 /**
  * A line's adverse development level: None, Low, Mid or High
@@ -132,7 +129,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
             value={shockId}
             onChange={e => setShockId(e.target.value)}
           >
-            {SCHEDULABLE.map(s => <option key={s.id} value={s.id}>{s.id} — {s.name}</option>)}
+            {SCHEDULABLE.map(s => <option key={s.id} value={s.id}>{hostShockLabel(s.id)}</option>)}
           </select>
         </label>
         <label className="block">

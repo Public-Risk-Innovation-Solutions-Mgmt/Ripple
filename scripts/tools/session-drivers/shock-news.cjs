@@ -29,6 +29,9 @@
 // first advance; on the advance into 2028 the team's banner names the
 // Earthquake on its OWN lines — Workers' Compensation and General Liability,
 // never Property, which the Earthquake strikes but this team does not write.
+// Then the host's Charts: the tick under year 2 reads "#1" and the Events key
+// "#1 Earthquake (year 2)" (pr/shock-events-display; SHOCK_NEWS_SHOTS=DIR
+// saves the screen).
 // ============================================================================
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
@@ -193,6 +196,20 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
           'hosted: on the team\'s own lines only — not Property, which it does not write', lines.join(', '));
         ok(!/\$/.test(t[0] ?? ''), 'hosted: no dollars');
       }
+    }
+    // The host's Charts (pr/shock-events-display): the tick under year 2 is
+    // the event's number, and the Events key above the charts names it in
+    // full, in the host's one format, with its year — no 13-character cut.
+    await host.click('[data-testid="host-tab-charts"]');
+    await host.waitForSelector('[data-testid="charts-events"]', { timeout: 30000 });
+    const key = (await host.locator('[data-testid="charts-event"]').allInnerTexts()).map(x => x.trim().replace(/^·\s*/, ''));
+    ok(key.length === 1 && key[0] === '#1 Earthquake (year 2)', 'hosted Charts: the Events key names it "#1 Earthquake (year 2)"', key.join(' | '));
+    const tick = await host.locator('[data-testid="chart-surplus"] [data-testid="chart-shock-2"]').textContent();
+    ok((tick ?? '').startsWith('#1'), 'hosted Charts: the tick under year 2 is its number, with its full name on hover', (tick ?? '').replace('#1', '#1 / hover: '));
+    if (process.env.SHOCK_NEWS_SHOTS) {
+      await host.setViewportSize({ width: 1280, height: 900 });
+      await host.locator('[data-testid="charts-events"]').scrollIntoViewIfNeeded();
+      await host.screenshot({ path: require('node:path').join(process.env.SHOCK_NEWS_SHOTS, 'host-charts-events.png') });
     }
     ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
     await hb.close();

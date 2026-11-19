@@ -59,7 +59,8 @@ import type {
 } from '../types/simulation';
 import {
   ADMIN_SHARE_OF_PREMIUM, ADVERSE_DEVELOPMENT, MEMBER_LUCK_CV, MEMBER_RISK_CV, NEW_BUSINESS_PENALTY,
-  NON_RENEWAL_LOSS_RELIEF, RISK_CONTROL_CUT, ROUTINE_LARGE_LOSSES, SHOCK_FREE_PRICING, UNDERWRITING_MEMBERS,
+  INVESTMENT_LOSS_BY_ASSET, NON_RENEWAL_LOSS_RELIEF, R_MODEL, RISK_CONTROL_CUT, ROUTINE_LARGE_LOSSES, SHOCK_FREE_PRICING,
+  UNDERWRITING_MEMBERS,
 } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS, LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -75,7 +76,7 @@ import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment
 import { simulateMarketReturns } from './investmentEngine';
 import { deriveSubRng } from './random';
 import {
-  applyMarketShock, catalogueDisplayName, eventLines, gameShocksOn, poolShare, resolveShockYear, shockTimingOf, SHOCK_EVENTS,
+  applyMarketShock, catalogueDisplayName, eventLines, POOL_WIDE_EVENTS, gameShocksOn, poolShare, resolveShockYear, shockTimingOf, SHOCK_EVENTS,
   type ShockYear,
 } from './shockLosses';
 import { shockCostFactor } from './shockCost';
@@ -369,6 +370,19 @@ interface WorldLoss {
   gross: number;
 }
 
+const signedPct = (x: number) => `${x < 0 ? '−' : '+'}${Math.abs(x * 100).toFixed(0)}%`;
+/** What a pool-wide event does, in place of its map levels (it has none). */
+function poolWideEffect(key: string): string {
+  if (key === 'Investment Loss') {
+    const m = INVESTMENT_LOSS_BY_ASSET;
+    return `pool-wide: returns this year cash ${signedPct(m.cash)}, bonds ${signedPct(m.bonds)}, equities ${signedPct(m.equities)}`;
+  }
+  if (key === 'Member Withdrawal') {
+    return `pool-wide: ${(R_MODEL.memberWithdrawalReduction * 100).toFixed(0)}% of each line's exposure leaves at next year's renewal`;
+  }
+  return 'pool-wide';
+}
+
 /**
  * Each world's losses, re-read with the engine's own draws (processLineYear's
  * new-loss-engine path). `riskControlPer100` is the struck rate's risk control
@@ -613,11 +627,15 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
   for (const { firing } of inForce) {
     const e = firing.event;
     const lv = eventLines(e.name).find(r => r.line === l);
-    if (!lv && !['Economic Inflation', 'Large Investment Loss', 'Large Member Withdrawal'].includes(e.name)) continue;
+    // ⚠ BY CATALOGUE KEY, THE ENGINE'S OWN LIST (POOL_WIDE_EVENTS). This read
+    // ['Economic Inflation', 'Large Investment Loss', 'Large Member Withdrawal']
+    // against e.name, the catalogue key ('Investment Loss', 'Member
+    // Withdrawal'), so those two never matched and got no rows.
+    if (!lv && !POOL_WIDE_EVENTS.includes(e.name)) continue;
     const surge = mean(s.shockYears.map(sy => sy.byLine[l].byFiring.filter(b => b.firing.event.id === e.id).reduce((t, b) => t + b.uplift, 0)));
     const sizes = s.shockYears.flatMap(sy => sy.byLine[l].arrivals.filter(t => t.firing.event.id === e.id).map(t => t.size));
     drawRows.push(
-      { label: `${catalogueDisplayName(e.name)}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : 'pool-wide', kind: 'text' },
+      { label: `${catalogueDisplayName(e.name)}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : poolWideEffect(e.name), kind: 'text' },
       { label: `${catalogueDisplayName(e.name)}: region`, value: firing.region ?? 'pool-wide', kind: 'text' },
       { label: `${catalogueDisplayName(e.name)}: surge % (average across the worlds)`, value: surge, kind: 'pct' },
       { label: `${catalogueDisplayName(e.name)}: large-claim size drawn (average)`, value: sizes.length ? mean(sizes) : 0, kind: 'usd' },

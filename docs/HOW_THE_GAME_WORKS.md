@@ -291,6 +291,22 @@ $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate dro
   has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
   is pinned at the first edit so replays agree).
 - **Large claims** come only from those events.
+- **What players are told about an event:** every event, in the year it fires, gets a news banner and an entry under
+  *Events so far* (Decisions page) naming it, saying what it does and which of the team's lines it touches — never
+  how big. That includes *Large Investment Loss* ("investment returns fall sharply this year"; it touches the
+  invested assets, not the lines) and *Large Member Withdrawal* ("a quarter of each line's book from next year"),
+  which used to reach neither. A regional event (Earthquake, Winterstorm, Wildfire) names the region its large claim
+  lands in and says the whole line's costs rise, not only there. Recession and Pandemic say they act in their year
+  alone; Pandemic says it brings a large liability claim as well as WC's.
+  - **Lasting effects:** an event that also raises older claims (an R on the shock map) says so on its banner, for
+    as long as the catalogue keeps it in force. *Social Inflation* (three years): "older liability claims will keep
+    growing for three years", and *Events so far* adds a note in each of the next two years ("still growing: year 2
+    of 3"). *Nuclear Verdict* is in force one year, so its banner says older liability claims grow "in this year
+    only" and it gets no later note. The two law changes keep their own wording (#94).
+  - **Names:** each event has one player name — the banner, *Events so far*, the Year Walkthrough, the statements
+    and the claims download all use it (*Large Investment Loss*, *Economic Recession*, …). Hosts keep their own
+    names, written one way on every host screen: "#5 Workers Comp Legislation". On Charts the tick under a year
+    shows the event's number and an *Events* key above the charts gives each in full with its year.
 - **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate
   (plus 2–3 points on a line once Legislation Change or Workers Comp Legislation has fired, above).
 - **Per-claim covers** pay on large claims; **the aggregate cover** pays on the year's attritional losses (normal

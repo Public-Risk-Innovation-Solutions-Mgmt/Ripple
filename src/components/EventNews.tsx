@@ -21,13 +21,16 @@ import { eventNewsByYear, type EventNews } from '../utils/yearEvents';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
 
 const linesText = (n: EventNews) => n.lines.map(l => LINE_FULL_NAME[l]).join(', ');
+/** The banner's "what it touched": the team's lines, or what it touched instead (Investment Loss: the invested assets). */
+const affectedText = (n: EventNews) => (n.affects ? `Affects ${n.affects}.` : `Your lines affected: ${linesText(n)}.`);
 
 /** The banner: the events new in the year just played, until dismissed. */
 export function EventNewsBanner({ played, startingYear }: { played: ResultSet[]; startingYear: number }) {
   const [dismissed, setDismissed] = useState<number | null>(null);
   const latest = played.at(-1);
   if (!latest || latest.yearNumber < 1 || dismissed === latest.yearNumber) return null;
-  const news = eventNewsByYear(played).get(latest.yearNumber) ?? [];
+  // News only: a lasting effect's later-year notes are for Events so far.
+  const news = (eventNewsByYear(played).get(latest.yearNumber) ?? []).filter(n => !n.continuing);
   if (news.length === 0) return null;
   const year = startingYear + latest.yearNumber - 1;
   return (
@@ -40,7 +43,8 @@ export function EventNewsBanner({ played, startingYear }: { played: ResultSet[];
             <p key={n.key} data-testid="event-news-item">
               <span className="font-medium">{n.label}.</span>{' '}
               {n.description}{' '}
-              <span className="text-amber-700">Your lines affected: {linesText(n)}.</span>
+              {n.lasting && <span data-testid="event-news-lasting">{n.lasting}{' '}</span>}
+              <span className="text-amber-700">{affectedText(n)}</span>
             </p>
           ))}
           <p className="text-xs text-amber-700">Its effect is in your {year} results.</p>
@@ -64,10 +68,12 @@ export function EventsPanel({ played, startingYear }: { played: ResultSet[]; sta
         <h3 className="text-sm font-semibold text-gray-800">Events so far</h3>
         <ul className="mt-1.5 space-y-1 text-sm text-gray-700">
           {rows.map(({ year, n }) => (
-            <li key={`${year}-${n.key}`} data-testid="events-panel-item">
+            <li key={`${year}-${n.key}`} data-testid="events-panel-item" data-continuing={n.continuing ? 'true' : undefined}>
               <span className="font-mono text-gray-500">{year}</span>{' '}
-              <span className="font-medium">{n.label}</span> — {n.description}{' '}
-              <span className="text-gray-500">({linesText(n)})</span>
+              <span className="font-medium">{n.label}</span>
+              {n.continuing && <span className="text-gray-500"> (since {startingYear + n.continuing.sinceYear - 1})</span>}
+              {' '}— {n.description}{n.lasting ? ` ${n.lasting}` : ''}{' '}
+              <span className="text-gray-500">({n.affects ? 'investments' : linesText(n)})</span>
             </li>
           ))}
         </ul>
