@@ -20,11 +20,14 @@ game an "Edit game" button opens the host's mid-game panel (section 2), with the
 Both show: Introduction · Rate Indication · Annual Statement · Decisions · Decision History · Year Walkthrough.
 
 **The Annual Statement** (every mode) lays out the template's sections — Net Income Statement, Balance Sheet,
-Underwriting, Contributions, Program Year Totals, Reinsurance — over Prior and five years, then a **Decisions**
-section over the same years: funding level, Non-Renewal, New Members, per-claim cover, aggregate cover, risk control
+Underwriting, Contributions, Program Year Totals, Reinsurance — over Prior and five years, then a **Market Survey**
+section and a **Decisions** section. The Market Survey is the Market Survey tab's table for the statement's year and
+view: in a hosted game every team in the room, the viewing team's row highlighted, from the same standings (when the
+statement is turned back to an earlier year it says the room's standings are for its latest year); in single player
+and Test player one row, the player's own pool. The Decisions section runs over the same years as the statement: funding level, Non-Renewal, New Members, per-claim cover, aggregate cover, risk control
 and dividend / (assessment) per line, and on the Pool view the asset mix and each line's. Every value is the year's
 recorded decision; the history years before play show the prior board's. A sticky index links each section and
-marks the one in view. The Excel and PDF downloads carry the Decisions section too.
+marks the one in view. The Excel and PDF downloads carry the Market Survey and Decisions sections too.
 
 **Hosted.** A host runs an event for teams on their own devices; viewers watch a team.
 

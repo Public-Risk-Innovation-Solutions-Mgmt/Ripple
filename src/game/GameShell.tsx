@@ -60,6 +60,7 @@ import { lockSummary } from '../utils/lockSummary';
 import { walkthroughHeader, walkthroughSheetRows } from '../utils/yearWalkthrough';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import ResultsStatementPage from '../pages/ResultsStatementPage';
+import type { MarketSurveyStandings } from '../utils/statementMarketSurvey';
 import IntroductionPage from '../pages/IntroductionPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
 import InvestmentsPage from '../pages/InvestmentsPage';
@@ -143,6 +144,13 @@ export interface GameShellProps {
    */
   marketSurvey?: React.ReactNode;
   /**
+   * A hosted session's standings for the Annual Statement's Market Survey
+   * section — the same RoomView.standings the Market Survey tab reads, with the
+   * viewing team. Absent in single player and Test player, whose section shows
+   * the player's own pool.
+   */
+  statementStandings?: MarketSurveyStandings;
+  /**
    * ⚠ A FIRST SLICE, NOT THE FINISHED RULE — per-tab "has this tab had
    * activity", driving the Decisions sub-menu's "n of N" badge, keyed by
    * LineView so Pool ('pool') and each line share one map. Today a caller
@@ -167,7 +175,7 @@ export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey, statementStandings,
   lineActivity, onLineReviewed,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
@@ -341,7 +349,7 @@ export default function GameShell({
         )}
 
         {shownTab === 'statement' && known && (
-          <ResultsStatementPage gameState={known} lineView={lineView} />
+          <ResultsStatementPage gameState={known} lineView={lineView} standings={statementStandings} />
         )}
 
         {shownTab === 'decisions' && gameState && (

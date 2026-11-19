@@ -1243,7 +1243,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   reinsurance least: the cover takes much of the claim).
 // No row is added or removed; no realised figure moves (none of the guard's
 // games fires either event).
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v131.json');
+// v132: THE ANNUAL STATEMENT'S MARKET SURVEY SECTION (pr/statement-market-
+// survey, from aws ee29d9f). aws ee29d9f reproduces v131 here 48 of 48 first.
+// 24 of 48 keys move — every statement workbook, def and sqz — each text-diffed
+// against the control (GUARD_TEXT_DIR both sides), and the 24 Results
+// workbooks are byte-identical: on each sheet, between the template's last row
+// and the Decisions section, the Market Survey section — a blank, its title
+// ("Market Survey — Pool" or the line's name) with the year it shows ("Results
+// for 2030"), a blank, its nine heads, the guard's single-player pool as its one
+// row ("—, G, 1st, 1.53, WC $4.62 (+7.3%), 20.4%, 104.8%, $26.98M, —" on a
+// WC-only pool), and the tab's note — 13 rows a sheet with the pool's rate lines
+// joined; the sheet's border digest gains the section's lined rows, and the
+// sheet is a column wider (J). Every statement row and every Decisions row
+// reads as before, the Decisions section starting below the new one. No value
+// moves (VALUE_IDENTITY holds).
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v132.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

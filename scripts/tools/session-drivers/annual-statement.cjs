@@ -17,7 +17,8 @@
 //     blank, and the columns are the statement's own.
 //   - A line's view shows that line's decisions alone; the Pool view the asset
 //     mix and each line's.
-//   - THE INDEX: one link per section, in order, Decisions last; each click
+//   - THE INDEX: one link per section, in order — the Market Survey just
+//     before Decisions (pr/statement-market-survey), Decisions last; each click
 //     brings its section's top to just under the app's bars (and the index),
 //     marks that link current, and the index stays where it is while the page
 //     scrolls. At the bottom, Decisions is the one marked. On a phone-width
@@ -37,9 +38,9 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 
-const SECTIONS = ['statement-operating', 'statement-balance', 'statement-underwriting', 'statement-contributions', 'statement-program', 'statement-reinsurance', 'statement-decisions'];
+const SECTIONS = ['statement-operating', 'statement-balance', 'statement-underwriting', 'statement-contributions', 'statement-program', 'statement-reinsurance', 'statement-market-survey', 'statement-decisions'];
 const TITLES = ['Net Income Statement For The Year', 'Balance Sheet at Year-End', 'Underwriting', 'Contributions To The Current Calendar Year - Net of Reinsurance',
-  'Program Year Totals - Net of Reinsurance', 'Reinsurance Information - Program Year Totals', 'Decisions'];
+  'Program Year Totals - Net of Reinsurance', 'Reinsurance Information - Program Year Totals', 'Market Survey', 'Decisions'];
 const FULL = { WC: "Workers' Compensation", GL: 'General Liability', Property: 'Property' };
 const AGG = { 'agg-110-50': '110% / 50%', 'agg-125-50': '125% / 50%', 'agg-150-50': '150% / 50%' };
 
