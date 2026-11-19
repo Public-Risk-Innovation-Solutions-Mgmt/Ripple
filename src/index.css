@@ -21,3 +21,16 @@
   .game-line-tabs-top { top: calc(var(--top-bar-h, 60px) + var(--game-tabs-h, 48px)); }
   .game-content-top { --content-top: calc(var(--top-bar-h, 60px) + var(--game-tabs-h, 48px)); }
 }
+
+/* ============================================================================
+   THE TOP BAR'S SCALE (components/Header.tsx, session/screens/HostShell.tsx).
+   --bar-s scales the bar's boxes and text with the logo: 1 is today's size.
+   Registered so that it animates: the boxes shrink and grow with the logo,
+   over the same 200ms, rather than jumping.
+   ========================================================================== */
+@property --bar-s {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+.bar-scale { transition: --bar-s 200ms ease-out; }

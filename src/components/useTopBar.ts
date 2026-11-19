@@ -49,3 +49,16 @@ export function useTopBar<T extends HTMLElement>() {
 
   return { ref, compact };
 }
+
+/** Desktop and tablet (Tailwind's sm and up): the bar grows at the top and shrinks on scroll. A phone keeps today's bar. */
+export function useWide(): boolean {
+  const query = '(min-width: 640px)';
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setWide(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return wide;
+}

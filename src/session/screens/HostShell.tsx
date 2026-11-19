@@ -16,12 +16,12 @@
 // a game is started.
 // ============================================================================
 
-import React from 'react';
+import React, { type CSSProperties } from 'react';
 import { Home, Shield } from 'lucide-react';
 import { HOST_TABS, type HostTabId } from './hostTabs';
 import { navigate } from '../client/navigation';
 import RippleBrandLogo from '../../components/RippleBrandLogo';
-import { useTopBar } from '../../components/useTopBar';
+import { useTopBar, useWide } from '../../components/useTopBar';
 import type { WalkthroughHeader } from '../../utils/yearWalkthrough';
 
 interface Props {
@@ -43,6 +43,13 @@ interface Props {
 
 export default function HostShell({ activeTab, onSelectTab, hasRoom, code, eventName, version, children }: Props) {
   const topBar = useTopBar<HTMLElement>();
+  // ⚠ A DESKTOP'S BAR GROWS AT THE TOP OF THE PAGE AND SHRINKS ON SCROLL; A PHONE
+  // KEEPS TODAY'S (a 48px logo, no change on scroll). On a desktop the event's
+  // name and details beside the logo scale at the logo's own rate (76/56), via
+  // --bar-s, so they stay in proportion with it at every size.
+  const wide = useWide();
+  const logoHeight = !wide ? 48 : topBar.compact ? 56 : 76;
+  const barScale = wide ? logoHeight / 56 : 1;
   return (
     // --content-top: the host tabs' own sticky strips (Charts, Decisions, Teams) start under the bar.
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30" style={{ ['--content-top' as string]: 'var(--top-bar-h, 0px)' }}>
@@ -55,17 +62,17 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
             (their names kept for screen readers and as tooltips) — so the logo
             does not add a row to a bar that already wrapped into five. */}
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="bar-scale flex min-w-0 items-center gap-3" style={{ ['--bar-s' as string]: barScale } as CSSProperties}>
             {/* The full logo, no tile: the bar is white, as the logo's own background is. */}
-            {/* Readable at the top (60px on a phone, 76px from tablet width up); today's 48 / 56px once scrolled. */}
-            <RippleBrandLogo className={`transition-[height] duration-200 ease-out ${topBar.compact ? 'h-12 sm:h-14' : 'h-[60px] sm:h-[76px]'}`} />
+            {/* On a desktop 76px at the top and today's 56px once scrolled; on a phone today's 48px throughout. */}
+            <RippleBrandLogo className="transition-[height] duration-200 ease-out" height={logoHeight} />
             <span className="hidden h-10 w-px bg-slate-200 sm:block" aria-hidden="true" />
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold text-slate-800 sm:text-lg">
+              <h1 className="truncate text-base font-semibold text-slate-800 sm:text-lg" style={wide ? { fontSize: 'calc(18px * var(--bar-s, 1))', lineHeight: 'calc(28px * var(--bar-s, 1))' } : undefined}>
                 {eventName || 'Host a session'}
               </h1>
               {(code || version) && (
-                <p className="flex flex-wrap items-baseline gap-x-3 text-xs sm:text-sm">
+                <p className="flex flex-wrap items-baseline gap-x-3 text-xs sm:text-sm" style={wide ? { fontSize: 'calc(14px * var(--bar-s, 1))', lineHeight: 'calc(20px * var(--bar-s, 1))' } : undefined}>
                   {code && (
                     <span className="text-black">
                       room <span className="font-mono font-medium text-black">{code}</span>
