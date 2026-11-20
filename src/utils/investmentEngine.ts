@@ -14,8 +14,8 @@
 
 import { deriveSubRng, SeededRandom } from './random';
 import type { AssetAllocation } from '../types/simulation';
-import { ASSET_ALLOCATION_DEFAULT, ASSET_CLASS_ASSUMPTIONS, type AssetClassAssumption } from '../data/defaultAssumptions';
-import { PRE_GAME_MARKET_DRAWS } from '../data/pricingParameters';
+import { ASSET_CLASS_ASSUMPTIONS, type AssetClassAssumption } from '../data/defaultAssumptions';
+import { PRE_GAME_MARKET_DRAWS, PRIOR_BOARD } from '../data/pricingParameters';
 
 export interface InvestmentResult {
   returnRate: number;
@@ -81,15 +81,15 @@ export function simulateMarketReturns(rng: SeededRandom): MarketReturns {
 }
 
 /**
- * THE PRE-GAME'S PORTFOLIO — cash and bonds only: the default allocation with
- * equities removed and the rest scaled up to 100% (10/80 -> about 11% cash,
- * 89% bonds). The played years keep the default, equities included. See
- * PRE_GAME_MARKET_DRAWS.
+ * THE PRE-GAME'S PORTFOLIO — the prior board's mix, 20% cash / 75% bonds / 5%
+ * equities, every year 2021–2026 (PRIOR_BOARD.assetAllocation), recorded on its
+ * decisions. The played years default to the same mix (ASSET_ALLOCATION_DEFAULT).
+ * Was cash and bonds only, the old 10/80/10 default with its equities removed
+ * (about 11/89). Its equities earn the average of PRE_GAME_MARKET_DRAWS equity
+ * draws, as cash and bonds earn theirs (preGameMarketReturns).
  */
 export function preGameAllocation(): AssetAllocation {
-  const { cashPct, bondsPct } = ASSET_ALLOCATION_DEFAULT;
-  const total = cashPct + bondsPct;
-  return { cashPct: (100 * cashPct) / total, bondsPct: (100 * bondsPct) / total, equitiesPct: 0 };
+  return { ...PRIOR_BOARD.assetAllocation };
 }
 
 /**

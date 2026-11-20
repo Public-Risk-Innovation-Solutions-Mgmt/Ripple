@@ -59,7 +59,7 @@ const byLine = Object.fromEntries(LINES.map(l => [l, {
 // year on the same assets. The difference in investment income, summed over
 // lines and averaged over worlds, is what the event cost.
 if (process.argv.includes('--invest')) {
-  const ALLOCS: Record<string, [number, number, number]> = { 'default 10/80/10': [10, 80, 10], 'equity-heavy 10/30/60': [10, 30, 60], 'cash-heavy 70/30/0': [70, 30, 0] };
+  const ALLOCS: Record<string, [number, number, number]> = { 'default 20/75/5': [20, 75, 5], 'equity-heavy 10/30/60': [10, 30, 60], 'cash-heavy 70/30/0': [70, 30, 0] };
   const incomeY3 = (sc: number, schedule: { shockId: string; yearNumber: number }[], alloc: [number, number, number]) => {
     const settings = { poolName: 'R', gameLength: YEARS, startingYear: 2026, instanceId: String(sc), activeLines: LINES } as GameSetupSettings;
     const opened = openSoloInstance(settings);

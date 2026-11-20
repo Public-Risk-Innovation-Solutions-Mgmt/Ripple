@@ -3599,8 +3599,9 @@ export function processYear(
   // own stream ('pregame_invest') from the game's seed.
   // ⚠ AND SINCE PRE_GAME_MARKET_DRAWS, A SIMULATED PRE-GAME YEAR'S MARKET IS
   // THE AVERAGE OF TEN DRAWS, each on its own stream ('pregame_invest_<k>').
-  // The pre-game's portfolio is cash and bonds only
-  // (preGameAllocation, set on its decisions). Played years are untouched.
+  // The pre-game's portfolio is the prior board's 20/75/5 (preGameAllocation,
+  // set on its decisions); each class earns its own ten-draw average, equities
+  // included. Played years are untouched.
   const flatPreGame = overrides?.flatPreGame ?? FLAT_PRE_GAME.enabled;
   const preGameMarket = overrides?.preGameMarket ?? (FLAT_PRE_GAME.enabled ? 'flat' : 'drawn');
   const drawnMarket = yearNumber > 0

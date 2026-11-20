@@ -345,7 +345,8 @@ function preGameDecisionSet(yearNumber: number, shocks: boolean, seed: number): 
     if (hasStaticClf(line)) d.byLine[line].fundingConfidenceLevel = PRIOR_BOARD.fundingLevel;
     d.byLine[line].nonRenewal = PRIOR_BOARD.nonRenewal;
     d.byLine[line].newMembers = preGameNewMembers(seed, line, yearNumber);
-    // ⚠ THE PRE-GAME HOLDS CASH AND BONDS ONLY (PRE_GAME_MARKET_DRAWS).
+    // The prior board's mix, 20/75/5 (PRIOR_BOARD.assetAllocation), earned on the
+    // average of PRE_GAME_MARKET_DRAWS markets.
     d.byLine[line].assetAllocation = preGameAllocation();
   }
   d.assetAllocation = preGameAllocation();
