@@ -118,15 +118,54 @@ export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
 
 /**
  * AN EVENT AS A PLAYER READS IT, FROM ITS CATALOGUE KEY — for the screens that
- * work from the catalogue (the Year Walkthrough, the audit's description). The
- * catalogue's own name everywhere except an event renamed on screen since: its
- * key stays (R_MODEL, eventLines), its player name is SHOCK_EVENT_LABELS'.
+ * work from the catalogue (the Year Walkthrough, the audit's description).
+ *
+ * ⚠ ONE PLAYER NAME PER EVENT, EVERY KEY (pr/shock-events-display). This
+ * renamed only 'WC Reform' and passed every other key through as itself, so
+ * the Year Walkthrough read 'Legislation', 'Recession', 'Investment Loss' and
+ * 'Member Withdrawal' where the news, Events so far and the statements read
+ * SHOCK_EVENT_LABELS' 'Legislation Change', 'Economic Recession', 'Large
+ * Investment Loss' and 'Large Member Withdrawal'. Every key now goes through its
+ * id to the one player name; the keys themselves (R_MODEL, eventLines, the
+ * engine) are unchanged. A key that is not one of the twelve shows as itself.
  */
-const RENAMED_CATALOGUE_KEYS: Readonly<Record<string, string>> = { 'WC Reform': '#5' };
 export function catalogueDisplayName(key: string): string {
-  const id = RENAMED_CATALOGUE_KEYS[key];
-  return id ? SHOCK_EVENT_LABELS[id].eventName : key;
+  const id = SHOCK_EVENTS.find(e => e.name === key)?.id;
+  return (id ? SHOCK_EVENT_LABELS[id]?.eventName : undefined) ?? key;
 }
+
+/**
+ * THE NAME A FIRING'S RECORD CARRIES IN ITS DESCRIPTION — kept exactly as it
+ * was written before every key got its player name (catalogueDisplayName):
+ * 'WC Reform' renamed, every other key as itself. The description is stored on
+ * every result and in saves, so this keeps every result byte-identical; no
+ * player screen reads it (the news, Events so far and the Year Walkthrough read
+ * the player name).
+ */
+export function recordCatalogueName(key: string): string {
+  return key === 'WC Reform' ? SHOCK_EVENT_LABELS['#5'].eventName : key;
+}
+
+/**
+ * AN EVENT AS A HOST READS IT — one format on every host screen (pr/shock-
+ * events-display): '#5 Workers Comp Legislation'. The host keeps the host's
+ * name (SHOCK_EVENT_LABELS' `name`), never the player's; an id that is not one
+ * of the twelve shows as itself.
+ */
+export function hostShockLabel(id: string): string {
+  const name = SHOCK_EVENT_LABELS[id]?.name;
+  return name ? `${id} ${name}` : id;
+}
+
+/**
+ * THE EVENTS THAT ACT OFF THE SHOCK MAP, on the whole pool (by catalogue key):
+ * Economic Inflation's surge on every line, Investment Loss's hit to the
+ * returns, Member Withdrawal's exposure leaving. Moved here from the engine
+ * unchanged, so the Year Walkthrough reads the same list the engine does —
+ * it had its own copy, written in player names that no catalogue key matches,
+ * and gave Investment Loss and Member Withdrawal no rows.
+ */
+export const POOL_WIDE_EVENTS: readonly string[] = ['Economic Inflation', 'Investment Loss', 'Member Withdrawal'];
 
 const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
 

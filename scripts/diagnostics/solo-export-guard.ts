@@ -1257,7 +1257,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // sheet is a column wider (J). Every statement row and every Decisions row
 // reads as before, the Decisions section starting below the new one. No value
 // moves (VALUE_IDENTITY holds).
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v132.json');
+// v133: ONE PLAYER NAME PER EVENT IN THE YEAR WALKTHROUGH (pr/shock-events-
+// display, from aws a509c23b). aws a509c23b reproduces v132 here 48 of 48 first.
+// 6 of 48 keys move — the Results workbooks of MAMC6EA4 (def and sqz; WC, GL and
+// three lines), the one seed here whose schedule fires a Recession in a year
+// they export. Text-diffed against the control (GUARD_TEXT_DIR both sides): on
+// the Year Walkthrough sheet alone, "Recession" reads "Economic Recession" (the
+// player name the news and the statements use), and the walk codes that hash
+// those rows' text move with it — Year, Draws and Losses codes. With the name
+// and the codes normalised all 48 are identical to the control; every figure
+// reads as before. The statement workbooks are byte-identical. No value moved.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v133.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

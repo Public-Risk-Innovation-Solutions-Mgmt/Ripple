@@ -44,6 +44,12 @@
 //                         full "...: Increased Medical Fee Schedule" on the news
 //                         banner, Events so far and the Year Walkthrough; and
 //                         "WC Reform" nowhere — Test player and hosted.
+//   event-news-all    92  every event in the catalogue, one Test player game each:
+//                         the banner names it, says what happened and on which
+//                         lines, with no figure, and Events so far lists it;
+//                         Social Inflation's later-year notes, Nuclear Verdict's
+//                         none (pr/shock-events-display). --shots DIR saves each
+//                         banner.
 //   replay-fidelity    8  vary decisions across three years, reload, and require
 //                         the rebuilt results to match what was posted AT THE TIME.
 //   downloads          7  clicks all three export buttons and requires a file to
