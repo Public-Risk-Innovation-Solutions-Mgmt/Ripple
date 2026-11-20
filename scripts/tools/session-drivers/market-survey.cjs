@@ -13,7 +13,7 @@
 //   - no team's survey shows decisions: the page carries no funding level, no
 //     cover, no dividend, no decision word at all;
 //   - a viewer of a team sees the same table, that team's row highlighted;
-//   - the Ripple Score (a placeholder, utils/rippleScore) is each team's rank by
+//   - the Ripple Ranking (a placeholder, utils/rippleScore) is each team's rank by
 //     the pool's net surplus, ties sharing a rank, the ordinal alone, the same
 //     on every line view — and, the tables matching cell for cell, the same on
 //     the host's screen and every team's. Tri-County buys a per-claim cover
@@ -225,13 +225,13 @@ async function viewOf(page, scope, label) {
     const pr = await readRanks(host, HOST_SCOPE);
     const probs = rankProblems(pr);
     ok(probs.length === 0 && pr.every(r => r.rank !== null),
-      `${phase}: the Ripple Score is each team's rank by the pool's net surplus, as an ordinal alone (${pr.map(r => `${r.name} ${r.text}`).join(', ')})`, probs.join('; '));
+      `${phase}: the Ripple Ranking is each team's rank by the pool's net surplus, as an ordinal alone (${pr.map(r => `${r.name} ${r.text}`).join(', ')})`, probs.join('; '));
     const ranks = pr.map(r => r.rank);
     rippleSeen.push({ phase, ranks, tie: new Set(ranks).size < ranks.length, distinct: new Set(ranks).size > 1 });
     for (const v of VIEWS.slice(1)) {
       await viewOf(host, HOST_SCOPE, v);
       const lr = await readRanks(host, HOST_SCOPE);
-      ok(JSON.stringify(lr.map(r => r.rank)) === JSON.stringify(ranks), `${phase}, ${v}: the Ripple Score is the pool's rank on this line view too`, lr.map(r => r.text).join(', '));
+      ok(JSON.stringify(lr.map(r => r.rank)) === JSON.stringify(ranks), `${phase}, ${v}: the Ripple Ranking is the pool's rank on this line view too`, lr.map(r => r.text).join(', '));
     }
     // CONTROL: ranks by row order (no ties) are refused whenever the rows tie.
     if (new Set(ranks).size < ranks.length) {
@@ -332,6 +332,12 @@ async function viewOf(page, scope, label) {
         JSON.stringify(xl) === JSON.stringify(want) ? `${xl.rows.length} teams` : `got ${JSON.stringify(xl).slice(0, 300)} | tab ${JSON.stringify(want).slice(0, 300)}`);
       // The PDF writes each cell as a run, the pool's rate lines joined by " · " (the tab's run them together).
       const pdf = await pdfSection(await downloaded(page, 'statement-download-pdf'), scope);
+      // RENAMED (wip/ripple-ranking): the column is "Ripple Ranking" on the tab, the Excel and the PDF; "Ripple Score" nowhere.
+      ok(want.heads[2] === 'Ripple Ranking' && (xl?.heads ?? [])[2] === 'Ripple Ranking' && (pdf?.heads ?? [])[2] === 'Ripple Ranking'
+        && ![...want.heads, ...(xl?.heads ?? []), ...(pdf?.heads ?? [])].some(h => /Ripple Score/.test(h))
+        && !/Ripple Score/.test(await page.locator('main').innerText()),
+        `downloads, ${who}, ${v}: the column reads "Ripple Ranking" on the tab, the Excel and the PDF, and "Ripple Score" appears nowhere`,
+        `${want.heads[2]} | ${(xl?.heads ?? [])[2]} | ${(pdf?.heads ?? [])[2]}`);
       const flat = c => c.replace(/ · /g, '').replace(/−/g, '-');
       const pdfRows = pdf ? pdf.rows.map(r => r.map(flat)) : null;
       const wantPdf = want.rows.map(r => r.filter(c => c !== '').map(c => c.replace(/−/g, '-')));
@@ -378,7 +384,7 @@ async function viewOf(page, scope, label) {
   // the rate and, with no shocks, it recovers nothing), so its surplus first
   // differs after year 2 — a tie and a distinct rank there.
   ok(rippleSeen.length === 3 && rippleSeen[0].ranks.every(r => r === 1) && rippleSeen.every(r => r.tie) && rippleSeen[2].distinct,
-    'Ripple Score: every team 1st at the opening, a tie at every phase, and a distinct rank after year 2', rippleSeen.map(r => `${r.phase}: ${r.ranks.join(',')}`).join(' | '));
+    'Ripple Ranking: every team 1st at the opening, a tie at every phase, and a distinct rank after year 2', rippleSeen.map(r => `${r.phase}: ${r.ranks.join(',')}`).join(' | '));
   ok(errs.length === 0, 'no page errors', errs[0] ?? '');
   await browser.close();
   console.log(`\nmarket-survey: ${checks - fails.length}/${checks} checks passed`);

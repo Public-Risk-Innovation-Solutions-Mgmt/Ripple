@@ -1257,7 +1257,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // sheet is a column wider (J). Every statement row and every Decisions row
 // reads as before, the Decisions section starting below the new one. No value
 // moves (VALUE_IDENTITY holds).
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v132.json');
+// v133: "RIPPLE SCORE" RENAMED "RIPPLE RANKING" (wip/ripple-ranking), on aws
+// 0896b44, which reproduces v132 here 48 of 48. Word-diffed (both sides' text,
+// GUARD_TEXT_DIR), the 24 `stmt|...` files move and nothing else: in each, the
+// Market Survey section's column head "Ripple Score" -> "Ripple Ranking" and
+// its footnote "Ripple Score is for now each team's rank … the full score is
+// still being designed" -> "Ripple Ranking … the full ranking …". The 24
+// Results files and every figure match.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v133.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

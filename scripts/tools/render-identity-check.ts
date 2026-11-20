@@ -1898,7 +1898,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // nine heads, the harness's single-player pool as its one row ("—, Render
 // Identity Pool, 1st, 1.30, $5.91 (+4.1%), 20.4%, 104.4%, $27.09M, —" on GL
 // at y2) and the tab's note. No other screen moves; no key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v136.json');
+// v137: "RIPPLE SCORE" RENAMED "RIPPLE RANKING" (wip/ripple-ranking), on aws
+// 0896b44, which reproduces v136 here 174 of 174. Word-diffed (RENDER_TEXT_DIR
+// both sides), 26 move — every Annual Statement, each in its Market Survey
+// section only: the column head "Ripple Score" -> "Ripple Ranking" and the
+// note "Ripple Score is for now … the full score is still being designed" ->
+// "Ripple Ranking … the full ranking …" (two "Score" and one "score" a
+// screen). No figure moves. 148 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v137.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

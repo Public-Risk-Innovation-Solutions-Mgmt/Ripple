@@ -146,10 +146,10 @@ figures, the decisions played). Full results, claims and the worlds are never st
 ## 4. What teams and the host see of each other
 
 **Market Survey (teams, viewers) and the Teams tab (host)** are one table, for the latest known year, on the pool
-or a line: team, Ripple Score, premium to surplus, rate and change, admin expense, combined ratio, net surplus,
+or a line: team, Ripple Ranking, premium to surplus, rate and change, admin expense, combined ratio, net surplus,
 market share. A team's own row is highlighted.
 
-**Ripple Score** is a placeholder until the real score is designed: rank by the pool's net surplus ("1st",
+**Ripple Ranking** is a placeholder until the real ranking is designed: rank by the pool's net surplus ("1st",
 "2nd"…), ties sharing a rank, the same on every line view (`utils/rippleScore.ts`).
 
 **Market share** is a team's exposure over the room's on a line, and its premium over the room's for the pool,

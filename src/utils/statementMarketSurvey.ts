@@ -143,14 +143,14 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
   return {
     scopeName: view === 'pool' ? 'Pool' : lineDisplayName(view),
     yearText: reportingYear < 0 ? 'No results known yet' : `Results for ${calendar}`,
-    heads: ['Team number', 'Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense',
+    heads: ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense',
       reportingYear < 0 ? 'Combined ratio' : `Combined ratio ${calendar}`, 'Net surplus', 'Market share'],
     rows,
     ...(note ? { note } : {}),
     footnote: (view === 'pool'
       ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
       : `Every figure is ${view}, so the column compares like with like.`)
-      + ' Ripple Score is for now each team’s rank by the pool’s net surplus; the full score is still being designed.',
+      + ' Ripple Ranking is for now each team’s rank by the pool’s net surplus; the full ranking is still being designed.',
   };
 }
 

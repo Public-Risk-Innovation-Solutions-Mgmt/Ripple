@@ -105,7 +105,7 @@ export default function StandingsTable({
             <tr className="text-left text-xs uppercase tracking-wide text-black">
               <th data-testid="teams-number-head" className="px-5 py-2 font-medium">Team number</th>
               <th className="px-5 py-2 font-medium">Team</th>
-              <th className="px-5 py-2 font-medium">Ripple Score</th>
+              <th className="px-5 py-2 font-medium">Ripple Ranking</th>
               <th className="px-5 py-2 font-medium">Premium to surplus</th>
               <th className="px-5 py-2 font-medium" title="Per $100 of exposure, with this year's change">Rate</th>
               <th className="px-5 py-2 font-medium" title="This year's admin expense, as a share of premium">Admin expense</th>
@@ -147,7 +147,7 @@ export default function StandingsTable({
 
                   {state.kind === 'reported' && (
                     <>
-                      {/* The placeholder Ripple Score: the rank alone, an ordinal, no figure beside it. */}
+                      {/* The placeholder Ripple Ranking: the rank alone, an ordinal, no figure beside it. */}
                       <td data-testid={`ripple-${t.name}`} data-rank={rippleRanks[t.name]} className="px-5 py-2.5 font-mono text-slate-700">
                         {rippleRanks[t.name] !== undefined ? ordinal(rippleRanks[t.name]) : <span className="text-black">—</span>}
                       </td>
@@ -233,7 +233,7 @@ export default function StandingsTable({
           {effectiveView === 'pool'
             ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
             : `Every figure is ${effectiveView}, so the column compares like with like.`}
-          {' '}Ripple Score is for now each team&rsquo;s rank by the pool&rsquo;s net surplus; the full score is still being designed.
+          {' '}Ripple Ranking is for now each team&rsquo;s rank by the pool&rsquo;s net surplus; the full ranking is still being designed.
         </p>
       </div>
 
