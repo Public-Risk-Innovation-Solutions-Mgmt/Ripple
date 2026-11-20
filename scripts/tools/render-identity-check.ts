@@ -1898,7 +1898,25 @@ const BASELINE = process.env.RENDER_BASELINE
 // nine heads, the harness's single-player pool as its one row ("—, Render
 // Identity Pool, 1st, 1.30, $5.91 (+4.1%), 20.4%, 104.4%, $27.09M, —" on GL
 // at y2) and the tab's note. No other screen moves; no key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v136.json');
+// v137: THE ASSET MIX 20/75/5 EVERYWHERE (pr/asset-mix-20-75-5). aws a509c23b,
+// served on 4174, reproduced v136 174 of 174 here first. 154 of 174 keys move —
+// every screen that shows a surplus, an investment figure or the allocation,
+// each word-diffed against the control (RENDER_TEXT_DIR both sides). 985 of the
+// 1,105 changed runs are numbers, every one on one of: the top bar's Surplus;
+// the Introduction's opening surplus ("closed last year with about") and its
+// "currently holds 20% cash, 75% bonds and 5% equities"; the Decisions page's
+// allocation (Cash / Bonds / Equities) and "Surplus available" beside the
+// dividend; Decision History's allocation; the Annual Statement's Investment
+// Income, Net Operating Income, Operating Ratio, Invested assets, Net Worth,
+// Earned Surplus, Premium to Surplus, Reserve to Surplus and its Asset Mix, and
+// the Market Survey row's premium to surplus and net surplus (its rate, "GL
+// $5.91 (+4.1%)", does not move); the Year Walkthrough's investment, surplus
+// and capital figures. The other 120 are words, and only: the Year
+// Walkthrough's save key (riskpool_gamestate_v53 -> v54, all 26), its Year and
+// Decisions codes and "Depends on your decisions" codes, and "Asset mix
+// 10/80/10" -> "20/75/5". No rate, premium, loss or reserve figure moves; no
+// key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v137.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
