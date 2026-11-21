@@ -213,7 +213,7 @@ function drawDecisions(doc: Doc, table: DecisionsTable, lines: PdfDecisionLine[]
 
 /**
  * THE MARKET SURVEY SECTION'S NINE COLUMNS, 732pt across as the statement's
- * eight: Team number, Team, Ripple Score, Premium to surplus, Rate, Admin
+ * eight: Team number, Team, Ripple Ranking, Premium to surplus, Rate, Admin
  * expense, Combined ratio, Net surplus, Market share.
  */
 export const PDF_SURVEY_WIDTHS = [56, 128, 56, 66, 144, 66, 84, 70, 62] as const;

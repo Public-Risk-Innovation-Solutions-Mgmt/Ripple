@@ -1916,7 +1916,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // Decisions codes and "Depends on your decisions" codes, and "Asset mix
 // 10/80/10" -> "20/75/5". No rate, premium, loss or reserve figure moves; no
 // key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v137.json');
+// v138: "RIPPLE SCORE" RENAMED "RIPPLE RANKING" (wip/ripple-ranking), on aws
+// eb46264, which reproduces v137 here 174 of 174. Word-diffed (RENDER_TEXT_DIR
+// both sides), 26 move — every Annual Statement, each in its Market Survey
+// section only and in no other word: the column head "Ripple Score" ->
+// "Ripple Ranking" and the note "Ripple Score is for now … the full score is
+// still being designed" -> "Ripple Ranking … the full ranking …" (two
+// "Score" and one "score" a screen). No figure moves. 148 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v138.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
