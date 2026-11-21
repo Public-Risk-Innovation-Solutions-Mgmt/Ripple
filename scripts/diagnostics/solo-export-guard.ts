@@ -1282,12 +1282,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   THE SAVE KEY, v53 -> v54: the Version row on the Results workbooks.
 // No premium, rate, loss, reserve or exposure row moves.
 // v135: "RIPPLE SCORE" RENAMED "RIPPLE RANKING" (wip/ripple-ranking), on aws
-// 0896b44, which reproduces v132 here 48 of 48. Word-diffed (both sides' text,
-// GUARD_TEXT_DIR), the 24 `stmt|...` files move and nothing else: in each, the
-// Market Survey section's column head "Ripple Score" -> "Ripple Ranking" and
-// its footnote "Ripple Score is for now each team's rank … the full score is
-// still being designed" -> "Ripple Ranking … the full ranking …". The 24
-// Results files and every figure match.
+// eb46264, which reproduces v134 here 48 of 48. Word-diffed (both sides' text,
+// GUARD_TEXT_DIR), the 24 `stmt|...` files move and nothing else — 168 rows,
+// each the control's row with "Ripple Score" -> "Ripple Ranking" and "the
+// full score" -> "the full ranking", exactly: the Market Survey section's
+// column head and its footnote. The 24 Results files and every figure match.
 const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v135.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
