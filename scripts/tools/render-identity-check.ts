@@ -1898,14 +1898,32 @@ const BASELINE = process.env.RENDER_BASELINE
 // nine heads, the harness's single-player pool as its one row ("—, Render
 // Identity Pool, 1st, 1.30, $5.91 (+4.1%), 20.4%, 104.4%, $27.09M, —" on GL
 // at y2) and the tab's note. No other screen moves; no key added or removed.
-// v137: "RIPPLE SCORE" RENAMED "RIPPLE RANKING" (wip/ripple-ranking), on aws
+// v137: THE ASSET MIX 20/75/5 EVERYWHERE (pr/asset-mix-20-75-5). aws a509c23b,
+// served on 4174, reproduced v136 174 of 174 here first. 154 of 174 keys move —
+// every screen that shows a surplus, an investment figure or the allocation,
+// each word-diffed against the control (RENDER_TEXT_DIR both sides). 985 of the
+// 1,105 changed runs are numbers, every one on one of: the top bar's Surplus;
+// the Introduction's opening surplus ("closed last year with about") and its
+// "currently holds 20% cash, 75% bonds and 5% equities"; the Decisions page's
+// allocation (Cash / Bonds / Equities) and "Surplus available" beside the
+// dividend; Decision History's allocation; the Annual Statement's Investment
+// Income, Net Operating Income, Operating Ratio, Invested assets, Net Worth,
+// Earned Surplus, Premium to Surplus, Reserve to Surplus and its Asset Mix, and
+// the Market Survey row's premium to surplus and net surplus (its rate, "GL
+// $5.91 (+4.1%)", does not move); the Year Walkthrough's investment, surplus
+// and capital figures. The other 120 are words, and only: the Year
+// Walkthrough's save key (riskpool_gamestate_v53 -> v54, all 26), its Year and
+// Decisions codes and "Depends on your decisions" codes, and "Asset mix
+// 10/80/10" -> "20/75/5". No rate, premium, loss or reserve figure moves; no
+// key added or removed.
+// v138: "RIPPLE SCORE" RENAMED "RIPPLE RANKING" (wip/ripple-ranking), on aws
 // 0896b44, which reproduces v136 here 174 of 174. Word-diffed (RENDER_TEXT_DIR
 // both sides), 26 move — every Annual Statement, each in its Market Survey
 // section only: the column head "Ripple Score" -> "Ripple Ranking" and the
 // note "Ripple Score is for now … the full score is still being designed" ->
 // "Ripple Ranking … the full ranking …" (two "Score" and one "score" a
 // screen). No figure moves. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v137.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v138.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

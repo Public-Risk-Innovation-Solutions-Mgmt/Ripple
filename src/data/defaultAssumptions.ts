@@ -4,7 +4,7 @@
 import type { Region, CoverageLine } from '../types/simulation';
 import type { PayoutPattern } from '../utils/payoutPattern';
 import type { ClosureCurve } from '../utils/claimClosure';
-import { DIVIDEND_ASSESSMENT_RANGE, FUNDING_SLIDER_RANGE } from './pricingParameters';
+import { DIVIDEND_ASSESSMENT_RANGE, FUNDING_SLIDER_RANGE, PLAY_DEFAULTS } from './pricingParameters';
 
 // Administrative expense is 15% of Pure Premium at CLF 1.000. It is added
 // after the selected CLF is applied and is not itself multiplied by the CLF.
@@ -1257,7 +1257,8 @@ export const FUNDING_CLF_TABLE: Record<number, number> = {
 //
 // ============================================================================
 // WHAT THESE ACTUALLY DELIVER, MEASURED — 200,000 draws through the real
-// simulateMarketReturns/blendInvestmentReturn path, at the default 10/80/10:
+// simulateMarketReturns/blendInvestmentReturn path, at 10/80/10 (the default
+// until pr/asset-mix-20-75-5; now 20/75/5, ASSET_ALLOCATION_DEFAULT):
 //
 //     net mean 5.28%      SD 3.71%      (analytic: 5.289% / 3.712%)
 //     p5 -0.83%   p25 2.78%   p75 7.79%   p95 11.37%
@@ -1381,7 +1382,7 @@ export interface AssetClassAssumption {
  * start to make results look random.
  *
  * ⚠ WHAT IT LANDS AT, AND WHY IT IS NOT 3.53%. Scaling the GROSS means while
- * holding the fees puts the default 10/80/10 blend at 3.4877% net, against
+ * holding the fees puts the then-default 10/80/10 blend at 3.4877% net, against
  * 5.2894% before — down 1.80 points. 3.53% is what the blend would be if the
  * FEES scaled too (5.2894 x 2/3 = 3.5263), and they do not: a fee is a charge on
  * assets under management, not a share of the return, so it does not fall
@@ -1428,8 +1429,12 @@ export const ASSET_CLASS_ASSUMPTIONS: Record<'cash' | 'bonds' | 'equities', Asse
   },
 };
 
-// Default shared-portfolio allocation — a bonds-heavy, realistic pool posture.
-export const ASSET_ALLOCATION_DEFAULT = { cashPct: 10, bondsPct: 80, equitiesPct: 10 };
+// Default shared-portfolio allocation, every mode — 20% cash / 75% bonds / 5%
+// equities, THE PRIOR BOARD'S MIX carried into play (PLAY_DEFAULTS.assetAllocation,
+// PRIOR_BOARD's note says why and what it measured). Was 10/80/10 while the
+// history held 11/89 cash and bonds; one mix now runs from 2021 into play.
+// At the scaled rates its blend nets about 3.33% a year (10/80/10: 3.49%).
+export const ASSET_ALLOCATION_DEFAULT: { cashPct: number; bondsPct: number; equitiesPct: number } = { ...PLAY_DEFAULTS.assetAllocation };
 
 // Reinsurance program table indexed by level (0-4)
 // Aggregate quota-share reinsurance, above the pool's own expected loss.

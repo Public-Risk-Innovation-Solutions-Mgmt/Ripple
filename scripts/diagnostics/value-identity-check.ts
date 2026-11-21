@@ -1600,7 +1600,30 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   was never in the expectation), no realised loss, development, reserve,
 //   rate or surplus — none of the harness's games fires either event. No
 //   field is added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v97.json');
+// v98: THE ASSET MIX 20/75/5 EVERYWHERE (pr/asset-mix-20-75-5;
+// PRIOR_BOARD.assetAllocation, ASSET_ALLOCATION_DEFAULT). Captured with --write
+// after the control: aws a509c23b against v97 HOLDS. Diffed field by field
+// against v97 — 5,403 of 39,600 move, in 19 fields, every one the investment
+// chain, on every line and the pool, both arms, Y1–Y5:
+//   THE RETURN: investmentReturnRate (300) −1.50 to +0.20 points in Y1 and
+//     −1.43 to +1.43 points after — 20/75/5 against 10/80/10 on the same
+//     market draw (less equity, more cash); investmentIncome (300) with it,
+//     −$3.3M to +$3.7M a line-year.
+//   THE OPENING: the history's own income moves at 20/75/5 against 11/89, so
+//     Y1's beginingSurplus and beginningInvestments (60 each) move −$0.90M to
+//     +$0.99M, and so investedAssets, beginning/endingInvestments and
+//     totalAssets (300 each, −2.7% to +1.3%) every year after.
+//   THE SURPLUS AND ITS RATIOS: netIncome, endingSurplus, surplusFromIncome,
+//     availableFunding/availableSurplus, fundingGap, capitalFundingGap,
+//     excessAvailableSurplus, excessCapitalRatio, capitalAdequacyRatio (300
+//     each) — endingSurplus −$5.8M to +$2.2M.
+//   FLOAT NOISE: surplusTieOutDifference (268, ±3e-8 dollars) and
+//     beginningCash (35, ±1e-8 dollars on ~$5–16M), the last bits of sums whose
+//     terms moved.
+//   NOTHING ELSE: no premium, rate, charge, expected or incurred loss,
+//   reserve, exposure, cover cost or recovery moves (pricing reads no
+//   investment income), and no field is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v98.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -184,13 +184,14 @@ and a cap at the market's size.
 
 **The prior board** (the pre-game, 2021–2026, `PRIOR_BOARD`). Each history year it funds at 65% on each line's
 table, adds New Members drawn around 5% (2% spread, seeded per scenario; 2021 adds none; new exposure at the 20%
-penalty that year), renews everyone (Non-Renewal 0%), and buys the $19M xs $1M per-claim cover and the 125/50
-aggregate cover. These are recorded as the year's decisions, so the Annual Statement's Decisions section shows
+penalty that year), renews everyone (Non-Renewal 0%), buys the $19M xs $1M per-claim cover and the 125/50
+aggregate cover, and holds its invested assets at 20% cash / 75% bonds / 5% equities. These are recorded as the year's decisions, so the Annual Statement's Decisions section shows
 them. The history ends on today's 2026 book: each earlier year is the next year's book over (1 + its New Members).
 Each line starts the pre-game on its paid-in capital — WC $0, GL $8.06M, Property $8.53M — and opens where the
-history ends. Each scenario plays one fixed seed, picked from 1–120,000 so its opening lands within 5% of the
+history ends. Each scenario plays one fixed seed, picked from 1–120,000 so its opening landed within 5% of the
 scenario's premium-to-surplus targets on every line (measured at Expected with no cover) and its ten years run
-steadily.
+steadily. The board's mix moving to 20/75/5 shifted every opening surplus by up to about 3.6%; the seeds were kept,
+so 13 of the 20 now open within 5% on every line and the worst is 7.3% off (scenario 6's WC).
 
 **Member risk.** Inside the loss draw the book is split into 100 notional members with random risk scores (30%
 spread), redrawn yearly. They only shape the year's randomness; nothing selects on them.
@@ -268,8 +269,9 @@ struck on its book before the moves, so the rate it locked with is the rate it i
 **Decisions, per line:** funding; non-renewal and new members; dividend or assessment (−$15M to +$15M); risk
 control (0–5% of the rate before reinsurance); a per-claim cover (None or one of eight layers, e.g. $9M xs $1M);
 an aggregate cover (none, 110/50, 125/50, 150/50); loan repayment while a loan is open. Pool-wide: the asset mix
-(default 10% cash, 80% bonds, 10% equities). Funding defaults to 65% and the covers to the prior board's ($19M xs
-$1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate drop; the rest to none or zero.
+(default 20% cash, 75% bonds, 5% equities — the prior board's, in every mode). Funding defaults to 65% and the covers
+to the prior board's ($19M xs $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate drop; the
+rest to none or zero.
 
 **Where the rest comes in:**
 
@@ -298,6 +300,13 @@ $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate dro
 - **Risk control** is charged in the rate and booked as an expense; it cuts that year's normal losses by,
   on average, its cost. It never touches surges, large claims or older years.
 - **Investments** earn by asset mix; a line ending negative may borrow from the others (single player only).
+  One mix, 20% cash / 75% bonds / 5% equities, runs from the prior board's 2021 into the played years' default
+  (`PRIOR_BOARD.assetAllocation`, `ASSET_ALLOCATION_DEFAULT`): a public pool's posture — cash for liquidity, a token
+  equity holding — and the portfolio a team inherits is the one it starts with. Each history year earns the average
+  of ten market draws class by class (`PRE_GAME_MARKET_DRAWS`), so its 5% in equities earns the mean of ten equity
+  draws (about a 5.8% SD a year, not 18%); a played year draws one market. Against the old 10/80/10, investment
+  income runs about 5% lower and a Large Investment Loss costs about a fifth less (its hit: bonds −5%, equities
+  −20%, cash nothing); the game's balance does not move.
 
 ## 7. Anything surprising
 
