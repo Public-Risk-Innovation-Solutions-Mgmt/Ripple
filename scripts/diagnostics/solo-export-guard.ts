@@ -1257,7 +1257,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // sheet is a column wider (J). Every statement row and every Decisions row
 // reads as before, the Decisions section starting below the new one. No value
 // moves (VALUE_IDENTITY holds).
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v132.json');
+// v134 (v133 is taken by pr/shock-events-display, open, not merged): THE ASSET
+// MIX 20/75/5 EVERYWHERE (pr/asset-mix-20-75-5). aws a509c23b reproduces v132
+// here 48 of 48 first. All 48 keys move. Text-diffed against the control
+// (GUARD_TEXT_DIR both sides): no row is added or removed, and every moved row
+// is one of these:
+//   THE ALLOCATION: the Decisions section's Asset Allocation (Cash 20% / Bonds
+//     75% / Equities 5%, every year including the prior year: the board's mix
+//     is the history's now), the statement's Cash / Bonds / Equities rows, and
+//     the Year Walkthrough's Asset mix and Mix rows ("20/75/5 → 20% × …").
+//   THE INVESTMENT CHAIN (see VALUE_IDENTITY v98): Investment Return Rate,
+//     Investment Income, Invested Assets, Beginning / Ending Investments, Total
+//     Assets, Net Income, Beginning Surplus, Surplus from Income, Ending
+//     Surplus, Excess Available Surplus, Excess Capital Ratio; on the
+//     statements Investment Income, Net Operating Income, Operating Ratio,
+//     Invested, Net Worth, Earned Surplus, Premium to Surplus and Reserve to
+//     Surplus; and the Walkthrough's Investment income, Surplus, Capital and
+//     Dividends rows (surplus available is the opening surplus). The
+//     statement's "Paid in Capital" moves too: it reads the beginning surplus
+//     of the earliest pre-game year in the statement's window, which the
+//     history's own income moves — not STARTING_CAPITAL.
+//   THE CODES: the Walkthrough's Decisions code and every "Depends on your
+//     decisions" code on a row whose inputs include the allocation.
+//   THE SAVE KEY, v53 -> v54: the Version row on the Results workbooks.
+// No premium, rate, loss, reserve or exposure row moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v134.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
