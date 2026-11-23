@@ -95,6 +95,14 @@ const shot = async (page, name) => {
   await t2.goto(`/join/${code}`);
   await t2.waitForSelector('[data-testid="team-picker"]');
   await t2.waitForFunction(() => document.body.innerText.includes('Harbour Mutual'), null, { timeout: 30000 });
+  // ⚠ A DIFFERENT PERSON, NOT THIS BROWSER RETURNING. Every tab here shares one
+  // browser, which holds Harbour Mutual's credential — and a held name is a
+  // rejoin, not a collision (four-tabs asserts that). So this tab first drops
+  // the browser's held list for the room, as a second person's browser would
+  // have none; team 1 keeps its own tab's credential (sessionStorage).
+  await t2.evaluate(c => { for (const k of Object.keys(localStorage)) if (k.includes('held') && k.endsWith(c)) localStorage.removeItem(k); }, code);
+  await t2.reload();
+  await t2.waitForSelector('[data-testid="team-picker"]');
   await t2.fill('[data-testid="team-name"]', 'harbour MUTUAL');
   ok(await joinOff(t2) && /already has that name/.test(await t2.textContent('[data-testid="team-name-problem"]') ?? ''),
     'a name another team holds, in another case, is refused as typed');

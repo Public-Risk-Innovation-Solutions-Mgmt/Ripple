@@ -47,7 +47,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, teamDisplayName, teamNameProblem, teamNameTaken, TEAM_NAME_MAX, TEAM_NAME_MIN, SessionError as SessionErrorClass, type EventStatus } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, teamDisplayName, teamNameProblem, teamNameTaken, sameTeamName, TEAM_NAME_MAX, TEAM_NAME_MIN, SessionError as SessionErrorClass, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
@@ -244,8 +244,11 @@ export default function PlayScreen({ code, role }: Props) {
   const myTeam = room?.teams.find(t => t.name === you?.teamName);
   // What is wrong with the pool name being typed (the contract's rules), or
   // another team already holding it in any case — null when it may be used.
+  // ⚠ A NAME THIS BROWSER ALREADY HOLDS IS ITS OWN TEAM RETURNING (a rejoin),
+  // not a collision — the held credential goes with it (enter, below).
+  const holdsDraft = heldCreds.some(c => sameTeamName(c.teamName, nameDraft));
   const joinNameProblem = teamNameProblem(nameDraft)
-    ?? (room && teamNameTaken(room.teams, nameDraft) ? 'Another team in this room already has that name.' : null);
+    ?? (room && !holdsDraft && teamNameTaken(room.teams, nameDraft) ? 'Another team in this room already has that name.' : null);
   const locked = myTeam?.locked ?? false;
 
   // ⚠ SET HERE, NEVER INFERRED FROM error ALONE — error.code is BAD_TOKEN for
@@ -362,7 +365,7 @@ export default function PlayScreen({ code, role }: Props) {
     setActionError(null);
     setMovedAway(false);
     try {
-      const held = heldCreds.find(c => c.teamName === teamName);
+      const held = heldCreds.find(c => sameTeamName(c.teamName, teamName));
       // ⚠ A TOKEN ON THE FIRST JOIN TOO, NOT ONLY ON A REJOIN. Minted here and
       // held for this team name, so a retry after a lost response presents the
       // SAME token and lands on the rejoin path instead of TEAM_TAKEN — which
