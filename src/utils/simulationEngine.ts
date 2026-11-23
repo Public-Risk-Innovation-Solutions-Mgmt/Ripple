@@ -157,7 +157,7 @@ import { simulateMarketReturns, blendInvestmentReturn, preGameMarketReturns } fr
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { effectiveRiskControlIncentivePct, newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
 import { riskControlCutFor, type RiskControlYear } from './riskControl';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR, ADVERSE_DEVELOPMENT, type DevelopmentLevel } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR, ADVERSE_DEVELOPMENT, MARKET_NEW_FIXED_ADMIN, type DevelopmentLevel } from '../data/pricingParameters';
 import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { aSurgeOf, aggregateCoverRecovery, attritionalLoss } from './aggregateCover';
@@ -635,6 +635,12 @@ interface LineYearContext {
    * without the market, and the book moves exactly as before. bookUnderwriting.ts.
    */
   market?: MarketLineInput;
+  /**
+   * A NEW-VERSION MARKET ROOM (setup.marketVersion === 'new'): every year that
+   * carries a market result books half of the line's admin fixed
+   * (MARKET_NEW_FIXED_ADMIN). False everywhere else, and admin books as before.
+   */
+  fixedAdmin?: boolean;
   /**
    * THE HOST'S DEVELOPMENT % FOR THIS LINE — signed, positive is adverse.
    * Resolved once in processYear from the setup, falling back per line to
@@ -1758,7 +1764,21 @@ export function processLineYear(
   // ⚠ THE ADMIN BOOKED RUNS OVER THE ADMIN PRICED by the year's drawn share
   // (ADMIN_OVERRUN_RANGE, adminOverrun.ts): adminExpense stays what the rate
   // charged; operatingExpense — what the result books — carries the overrun.
-  const operatingExpense = adminExpense * (1 + adminOverrunFor(marketSeedOf(instance), yearNumber, line));
+  // ⚠ FIXED ADMIN, NEW-VERSION MARKET ROOMS ONLY (pr/market-new-version;
+  // MARKET_NEW_FIXED_ADMIN): the admin booked is `share` × the line's year-1
+  // admin dollars grown `trend` a year, plus (1 − share) × this year's admin as
+  // a share of premium; the overrun then applies as before. A book lost to price
+  // leaves its fixed half behind. The member charge (adminExpense, the rate) is
+  // unchanged. Only in a year with a market result: Current rooms, the market
+  // Off, a team outside the year's step, single player and Test player all book
+  // adminExpense exactly as before.
+  const fixedAdminBase = ctx.fixedAdmin && yearNumber >= 1
+    ? (yearNumber === 1 ? adminExpense : lineState.fixedAdminBase) : undefined;
+  const adminBooked = ctx.fixedAdmin && ctx.market !== undefined && yearNumber >= 1
+    ? MARKET_NEW_FIXED_ADMIN.share * (fixedAdminBase ?? adminExpense) * (1 + MARKET_NEW_FIXED_ADMIN.trend) ** (yearNumber - 1)
+      + (1 - MARKET_NEW_FIXED_ADMIN.share) * adminExpense
+    : adminExpense;
+  const operatingExpense = adminBooked * (1 + adminOverrunFor(marketSeedOf(instance), yearNumber, line));
   // ⚠ THE PROGRAM'S COST JOINS THE EXISTING RISK-CONTROL EXPENSE LINE RATHER
   // THAN OPENING A NEW ONE. riskControlInvestment already flows into BOTH
   // underwritingIncome and newCash, and is already reported, exported and
@@ -3383,6 +3403,8 @@ export function processLineYear(
     ...(bookMovement ? { bookExposure: bookMovement.after } : {}),
     // Year 1's quoted exposure, carried unchanged (wip/shocks; utils/shockCost).
     ...(lineState.shockCostBaseExposure !== undefined ? { shockCostBaseExposure: lineState.shockCostBaseExposure } : {}),
+    // The fixed admin's base: year 1's admin, carried (New-version market rooms only).
+    ...(fixedAdminBase !== undefined ? { fixedAdminBase } : {}),
 
     netUnpaidReserve: endingNetReserve,
     // Carried forward so NEXT year can compare each indication against its own
@@ -3700,6 +3722,7 @@ export function processYear(
       freezeMembership: overrides?.freezeMembership === true,
       flatPreGame,
       market: yearNumber >= 1 ? gameState.setup.marketByYear?.[String(yearNumber)]?.[line] : undefined,
+      ...(gameState.setup.marketVersion === 'new' ? { fixedAdmin: true } : {}),
       struckRate: overrides?.struckRates?.[line],
       // ⚠ A LINE ABSENT FROM THE RECORD TAKES ITS DEFAULT, NOT ZERO. A host who
       // edited WC and left GL alone meant GL's default; an old room record,

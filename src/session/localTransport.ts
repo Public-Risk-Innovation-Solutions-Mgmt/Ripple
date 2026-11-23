@@ -73,7 +73,10 @@ import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } fro
 import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
 import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../utils/gameEdits';
-import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, teamMarketByYear, validMarketLockInput } from './market';
+import {
+  marketLevelOf, marketVersionOf, marketYearForAdvance, requestedMarketLevel, requestedMarketVersion, teamMarketByYear,
+  validMarketLockInput,
+} from './market';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
 // /health used to report `store.length` as the room count, which was true while
@@ -397,6 +400,8 @@ interface RoomRecord {
   marketSharesByYear?: RoomSharesByYear;
   /** Market competition's level. ⚠ Absent on a room written before it existed: reads 'off'. */
   market?: MarketLevel;
+  /** Market version: only 'new' is stored; absent (Current, or a room from before the option) reads 'current'. */
+  marketVersion?: 'new';
   /** Every year's market step, stored once by advance (StoredMarketYear). */
   marketByYear?: Record<string, StoredMarketYear>;
   createdAt: number;
@@ -593,6 +598,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     ...(role === 'host' && room.editHistory ? { editHistory: room.editHistory.map(e => ({ ...e })) } : {}),
     // Market competition: absent on an older room, which reads 'off' — shown as off, not omitted.
     market: marketLevelOf(room.market),
+    ...(marketVersionOf(room.marketVersion) === 'new' ? { marketVersion: 'new' as const } : {}),
     ...(role === 'host' && room.marketByYear ? { marketByYear: JSON.parse(JSON.stringify(room.marketByYear)) } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
@@ -839,6 +845,9 @@ export class LocalSessionTransport implements SessionTransport {
       // Market competition: absent reads 'off' (the form always sends the host's choice).
       const market = requestedMarketLevel(req.market);
       if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
+      // Market version: absent reads 'current'; only 'new' is stored (an older room, without it, reads 'current').
+      const marketVersion = requestedMarketVersion(req.marketVersion);
+      if (marketVersion === null) throw new SessionError('INVALID_REQUEST', 'marketVersion must be current or new.');
 
       const store = storage();
 
@@ -875,6 +884,7 @@ export class LocalSessionTransport implements SessionTransport {
           developmentLevels: roomDevLevels,
         ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
         ...(market !== 'off' ? { market } : {}),
+        ...(marketVersion === 'new' ? { marketVersion } : {}),
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
@@ -1530,7 +1540,8 @@ export class LocalSessionTransport implements SessionTransport {
       const level = marketLevelOf(room.market);
       if (level !== 'off') {
         const stored = marketYearForAdvance({
-          code: room.code, seed: room.seed, level, lines: room.lines ?? LINE_ORDER, year: room.currentYear,
+          code: room.code, seed: room.seed, level, version: marketVersionOf(room.marketVersion),
+          lines: room.lines ?? LINE_ORDER, year: room.currentYear,
           roster: room.teams.filter(t => t.joined).map(t => ({
             name: t.name, teamNumber: t.teamNumber ?? 0, latest: latestMarketInput(t, room.currentYear),
           })),

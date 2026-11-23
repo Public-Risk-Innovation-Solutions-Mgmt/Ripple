@@ -69,9 +69,9 @@
 
 import type { CoverageLine } from '../types/simulation';
 import type { GameEdit, YearSettings } from '../utils/gameEdits';
-import type { MarketLevel } from '../data/pricingParameters';
+import type { MarketLevel, MarketVersion } from '../data/pricingParameters';
 import type { MarketTeamLineResult } from '../utils/market/marketStep';
-export type { MarketLevel, MarketTeamLineResult };
+export type { MarketLevel, MarketVersion, MarketTeamLineResult };
 export type { GameEdit, YearSettings } from '../utils/gameEdits';
 
 // ---------------------------------------------------------------- json
@@ -963,6 +963,15 @@ export interface RoomView {
    */
   market?: MarketLevel;
   /**
+   * MARKET VERSION (pr/market-new-version): the host's Current / New, set at
+   * creation. ONLY 'new' IS EVER STORED OR SENT: absent — every room created on
+   * Current, and every room stored before the option existed — reads 'current'
+   * and plays exactly as before. New plays the reworked market
+   * (pricingParameters.ts MARKET_NEW) and books half of each team's admin fixed
+   * (MARKET_NEW_FIXED_ADMIN) while the market is on. Every caller sees it.
+   */
+  marketVersion?: 'new';
+  /**
    * EVERY YEAR'S STORED MARKET STEP — HOST ONLY (the Teams columns, the Charts
    * line, the stale-rate flags): year (a string) -> the inputs used and every
    * team's result. A player or viewer reads only its own team's, on
@@ -1114,6 +1123,8 @@ export interface StoredMarketTeamInput {
 export interface StoredMarketYear {
   year: number;
   level: Exclude<MarketLevel, 'off'>;
+  /** The version the step ran on: 'new' in a New-version room; absent (Current, or a room from before) reads 'current'. */
+  version?: 'new';
   /** Per team name. A team that never locked any year is absent here and in `result`, and named in `missing`. */
   inputs: Record<string, StoredMarketTeamInput>;
   missing: string[];
@@ -1175,6 +1186,11 @@ export interface CreateRoomRequest {
   shocks: ScheduledShockSpec[];
   /** Market competition (RoomView.market). Omitted reads 'off'; the setup form sends the host's choice, Medium by default. */
   market?: MarketLevel;
+  /**
+   * Market version (RoomView.marketVersion). Omitted reads 'current'; anything other than 'current' or 'new' is
+   * refused (INVALID_REQUEST). The setup form sends 'new' only when the host chose it.
+   */
+  marketVersion?: MarketVersion;
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE
    * IDEMPOTENCY KEY. A retried createRoom used to make a SECOND room and the

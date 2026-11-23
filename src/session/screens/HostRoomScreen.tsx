@@ -437,8 +437,16 @@ export default function HostRoomScreen({ code }: Props) {
                 </p>
                 {(room?.market ?? 'off') !== 'off' && (
                   <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">
-                    Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>.
+                    Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>
+                    {' '}· <span data-testid="market-version-shown" className="font-medium text-slate-700">{room!.marketVersion === 'new' ? 'New' : 'Current'} version</span>.
                     Advancing moves members between teams on the rates they locked.
+                    {room!.marketVersion === 'new' ? ' Half of each team\'s admin is fixed at its year-1 dollars, growing 3% a year.' : ''}
+                  </p>
+                )}
+                {(room?.market ?? 'off') === 'off' && room?.marketVersion === 'new' && (
+                  <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">
+                    Market competition: <span className="font-medium text-slate-700">Off</span>
+                    {' '}· <span data-testid="market-version-shown" className="font-medium text-slate-700">New version</span> (no effect with the market Off).
                   </p>
                 )}
                 <button
@@ -466,6 +474,7 @@ export default function HostRoomScreen({ code }: Props) {
               settings={{ developmentLevels: room.developmentLevels ?? {}, developmentLevelsByYear: room.developmentLevelsByYear, shocks: room.shocks }}
               lockedTeams={teams.filter(t => t.locked).map(teamLabel)}
               history={room.editHistory ?? []}
+              historyNote={`Market competition: ${(room.market ?? 'off')[0].toUpperCase() + (room.market ?? 'off').slice(1)} · ${room.marketVersion === 'new' ? 'New' : 'Current'} version (set when the room was created).`}
               onApply={async (years: Record<string, YearSettings>) => {
                 try {
                   await sessionTransport().editGame({ code, token: hostToken, years });

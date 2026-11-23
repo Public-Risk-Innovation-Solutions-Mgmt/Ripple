@@ -26,7 +26,7 @@ import { sessionTransport, isSessionError, type ScheduledShockSpec, type Session
 import type { DevelopmentLevels } from '../contract';
 import { DevelopmentByYearTable, DevelopmentLevelSelect, ShockScheduleFields, type LevelsRow } from '../../components/GameRulesFields';
 import { startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
-import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, type DevelopmentSetting, type MarketLevel } from '../../data/pricingParameters';
+import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, MARKET_VERSION_DEFAULT, type DevelopmentSetting, type MarketLevel, type MarketVersion } from '../../data/pricingParameters';
 import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
 import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -78,6 +78,8 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
   const [expectedTeams, setExpectedTeams] = useState(3);
   // MARKET COMPETITION: hosted rooms only (Test player plays alone, with no market).
   const [market, setMarket] = useState<MarketLevel>(MARKET_DEFAULT_LEVEL);
+  // MARKET VERSION (pr/market-new-version): Current by default; New only when the host picks it.
+  const [marketVersion, setMarketVersion] = useState<MarketVersion>(MARKET_VERSION_DEFAULT);
   // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
   // chose for themselves — so a host who changes nothing gets the old game.
   const [lines, setLines] = useState<CoverageLine[]>(() => soloTest ? [...soloTest.initial.activeLines] : [...LINE_ORDER]);
@@ -184,6 +186,8 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
         ...(devMode === 'advanced' ? { developmentLevelsByYear: advancedByYear() } : {}),
         shocks,
         market,
+        // Only New is sent: an absent version reads Current, as every room before the option does.
+        ...(marketVersion === 'new' ? { marketVersion } : {}),
       });
       // ⚠ PERSIST THE HOST TOKEN BEFORE NAVIGATING. The room exists the moment
       // createRoom resolves; a navigation that happened first and then failed to
@@ -340,6 +344,25 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                   market === 'low' ? 'members are slow to move and the best of them go first only gently.'
                     : market === 'medium' ? 'a few percent of a much dearer team\'s book moves each year, mostly its better risks.'
                       : 'members are quick to move, and the best risks go first.'}</>}
+            </p>
+            <label className="mt-3 block max-w-[220px]">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Market version</span>
+              <select
+                data-testid="market-version"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={marketVersion}
+                onChange={e => setMarketVersion(e.target.value as MarketVersion)}
+              >
+                <option value="current">Current</option>
+                <option value="new">New</option>
+              </select>
+            </label>
+            <p className="mt-1.5 text-xs text-black" data-testid="market-version-note">
+              {marketVersion === 'current'
+                ? 'Current: the market as it plays today.'
+                : <>New (for review): members leave a dearer team more readily, the best risks go first more strongly, and
+                  a book keeps the cost of losing them longer. Half of each team&apos;s admin is fixed at its year-1 dollars,
+                  growing 3% a year, so a shrinking book keeps its overheads.{market === 'off' ? ' With the market Off, New changes nothing.' : ''}</>}
             </p>
           </div>}
 

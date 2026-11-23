@@ -229,12 +229,14 @@ interface StoreHooks {
   stored(code: string): Promise<{ next?: number; byName: Record<string, number | undefined> }>;
   /** MARKET COMPETITION: take the room's market setting off the stored record — a room from before the setting. */
   unmarket(code: string): Promise<void>;
+  /** MARKET VERSION: take the room's version off the stored record — a room from before the option. */
+  unversion(code: string): Promise<void>;
 }
 let store: StoreHooks;
 
 /** The localStorage room record — the localStorage pass and the stub server's store alike. */
 const localStore: StoreHooks = (() => {
-  type Rec = { nextTeamNumber?: number; market?: string; teams: Array<{ name: string; teamNumber?: number }> };
+  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; teams: Array<{ name: string; teamNumber?: number }> };
   const get = (code: string): Rec => JSON.parse(globalThis.localStorage.getItem(ROOM_KEY_PREFIX + code)!) as Rec;
   const put = (code: string, r: Rec) => globalThis.localStorage.setItem(ROOM_KEY_PREFIX + code, JSON.stringify(r));
   return {
@@ -242,6 +244,7 @@ const localStore: StoreHooks = (() => {
     async dropTeam(code, name) { const r = get(code); r.teams = r.teams.filter(x => x.name !== name); put(code, r); },
     async stored(code) { const r = get(code); return { next: r.nextTeamNumber, byName: Object.fromEntries(r.teams.map(x => [x.name, x.teamNumber])) }; },
     async unmarket(code) { const r = get(code); delete r.market; put(code, r); },
+    async unversion(code) { const r = get(code); delete r.marketVersion; put(code, r); },
   };
 })();
 
@@ -1983,6 +1986,96 @@ async function main(): Promise<void> {
     eq((await t.read({ code: old.code, token: old.hostToken })).room.marketByYear, undefined, 'and stores no market step');
   }
 
+  // ---- MARKET VERSION (pr/market-new-version) ------------------------------
+  //
+  // The host's Current / New: stored with the room only when New, read by every
+  // caller, carried on every stored market year, replayed identically on a
+  // second device; an unknown version refused; a room created without it, and an
+  // older room with none stored, read Current and store no version. The New
+  // step's arithmetic and the fixed admin are market-new-version-check's job.
+  {
+    const t = transport();
+    const json = (x: unknown) => JSON.stringify(x);
+    await rejects(t.createRoom({
+      hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Bad', expectedTeams: 2,
+      lines: WC, shocks: [], market: 'medium', marketVersion: 'newer' as never,
+    }), 'INVALID_REQUEST', 'an unknown market version is refused');
+    const plain = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Plain',
+      expectedTeams: 2, lines: WC, shocks: [], market: 'medium' });
+    eq(plain.room.marketVersion, undefined, 'a room created without a version reads Current (nothing stored, nothing sent)');
+    const cur = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Current',
+      expectedTeams: 2, lines: WC, shocks: [], market: 'medium', marketVersion: 'current' });
+    eq(cur.room.marketVersion, undefined, 'a room created on Current stores and sends no version');
+    const host = newSessionToken();
+    const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 3, startingYear: 2027, eventName: 'New',
+      expectedTeams: 3, lines: WC, shocks: [], market: 'medium', marketVersion: 'new' });
+    const code = made.code;
+    eq(made.room.marketVersion, 'new', 'a New-version room carries its version');
+    const again = await t.createRoom({ hostToken: host, seed: '7', yearCount: 3, startingYear: 2027, eventName: 'New',
+      expectedTeams: 3, lines: WC, shocks: [], market: 'medium', marketVersion: 'new' });
+    eq(again.reused === true && again.code === code && again.room.marketVersion === 'new', true, 'a retried create returns the same room, still New');
+    const joined = [];
+    for (const n of ['Alpha', 'Bravo', 'Charlie']) joined.push(await t.join({ code, teamName: n, role: 'player' }));
+    eq((await t.read({ code, token: joined[0].teamToken })).room.marketVersion, 'new', 'every team reads the version');
+    eq((await t.read({ code, token: '' })).room.marketVersion, 'new', 'and so does an anonymous caller');
+    const game0 = buildTeamGame((await t.read({ code, token: host })).room, WC).gameState;
+    eq(game0.setup.marketVersion, 'new', "each team's game is built on the room's version");
+    const d1 = decisionsForYear(1, undefined, true);
+    const base = marketLockInputFor(game0, d1, 1)!;
+    const f = [1.00, 1.06, 1.15];
+    for (let i = 0; i < 3; i++) {
+      await t.submit({ code, token: joined[i].teamToken, yearNumber: 1, decisions: decisionsToJson(d1),
+        market: { byLine: { WC: { ...base.byLine.WC!, rate: base.byLine.WC!.rate * f[i], newMembers: 0.10 } } } });
+    }
+    await step(t, code, host);
+    const y1 = (await t.read({ code, token: host })).room.marketByYear?.['1'];
+    eq(y1?.version, 'new', "the year's stored market step carries the version it ran on");
+    ok((y1?.result.Charlie?.WC?.leftShare ?? 0) > 0, 'members leave the dearest team');
+
+    // YEAR 2, so the fixed admin bites (in year 1 its fixed half is year 1's own admin).
+    for (let i = 0; i < 3; i++) {
+      await t.submit({ code, token: joined[i].teamToken, yearNumber: 2, decisions: decisionsToJson(decisionsForYear(2, undefined, true)),
+        market: { byLine: { WC: { ...base.byLine.WC!, rate: base.byLine.WC!.rate * f[i], newMembers: 0.10 } } } });
+    }
+    await step(t, code, host);
+    eq((await t.read({ code, token: host })).room.marketByYear?.['2']?.version, 'new', 'and so does the next year\'s');
+    eq(json((await t.read({ code, token: host })).room.marketByYear?.['1']), json(y1), 'year 1\'s step is stored once and kept');
+
+    // REPLAY: the dearest team's two years on a second device are byte-identical, and differ without the version.
+    const C = joined[2];
+    const play = async (token: string, given?: RoomView, strip = false) => {
+      const me = await t.read({ code, token });
+      const g = buildTeamGame(given ?? me.room, WC).gameState;
+      const gs = strip ? { ...g, setup: { ...g.setup, marketVersion: undefined } } : g;
+      return replayTeamYears(gs, 3, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear)).produced.map(p => json(p.result));
+    };
+    const first = await play(C.teamToken);
+    const rejoin = await t.join({ code, teamName: 'Charlie', role: 'player', token: C.teamToken });
+    eq(rejoin.room.marketVersion, 'new', 'a rejoin reads the version');
+    const second = await play(C.teamToken, rejoin.room);
+    eq(first.length === 2 && json(first) === json(second), true, 'a second device replays the New-version years byte-identical');
+    const stripped = await play(C.teamToken, undefined, true);
+    eq(first[0] === stripped[0] && first[1] !== stripped[1], true,
+      'and the version changes what year 2 plays (the fixed admin), not year 1 (where the fixed half is year 1\'s own admin)');
+
+    // AN OLDER ROOM: the version taken off the stored record reads Current, and its market step stores no version.
+    const oldHost = newSessionToken();
+    const old = await t.createRoom({ hostToken: oldHost, seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Old',
+      expectedTeams: 2, lines: WC, shocks: [], market: 'medium', marketVersion: 'new' });
+    await store.unversion(old.code);
+    eq((await t.read({ code: old.code, token: oldHost })).room.marketVersion, undefined, 'an older room, with no version stored, reads Current');
+    const oj = [await t.join({ code: old.code, teamName: 'Elder', role: 'player' }), await t.join({ code: old.code, teamName: 'Oak', role: 'player' })];
+    const og = buildTeamGame((await t.read({ code: old.code, token: oldHost })).room, WC).gameState;
+    eq(og.setup.marketVersion, undefined, 'and its teams\' games are built on Current');
+    for (let i = 0; i < 2; i++) {
+      await t.submit({ code: old.code, token: oj[i].teamToken, yearNumber: 1, decisions: decisionsToJson(d1),
+        market: { byLine: { WC: { ...base.byLine.WC!, rate: base.byLine.WC!.rate * f[i * 2], newMembers: 0.10 } } } });
+    }
+    await step(t, old.code, oldHost);
+    const oy1 = (await t.read({ code: old.code, token: oldHost })).room.marketByYear?.['1'];
+    eq(oy1 !== undefined && oy1.version === undefined, true, 'and its market step runs on Current, storing no version');
+  }
+
   // ---- TEAM NUMBERS ------------------------------------------------------
   //
   // The first team to join is Team 1, the next Team 2, and so on — stored with
@@ -2236,6 +2329,9 @@ async function dynamoPasses(): Promise<number> {
       },
       async unmarket(code) {
         await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE market' }));
+      },
+      async unversion(code) {
+        await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE marketVersion' }));
       },
     };
     bad += await reached('DynamoDB, in-process', () =>

@@ -2924,6 +2924,103 @@ export const MARKET_OUTSIDE_QUALITY = 'same mix' as const;
  */
 
 // ============================================================================
+// MARKET VERSION — Current / New (the host's choice at room setup).
+//
+// Current plays exactly as the market above. New is the reworked market, held
+// behind the host's option so it can be played on review before it becomes the
+// default. A room stored before the option existed reads Current; Single player
+// and Test player have no market and are unchanged in every version.
+//
+// ⚠ WHY A NEW VERSION: measured by the lever-test chat (November 2026, read-only
+// scratch copies of aws 7a10537; hosted rooms of six teams played through the
+// real local transport, two test seats at a rate offset −20% … +30% against four
+// at 0%, five years, seeds 82670 / 88719 and scenarios 20, 16 and 1, events off
+// and on), TODAY'S MARKET PAYS FOR OVERPRICING AT EVERY SETTING: the dearer the
+// test seats, the more surplus they ended with, because the 15% leaver cap
+// saturates and the 50% fade erases the selection within two years. The New
+// version makes leaving stronger and more selective, keeps the selection longer,
+// and holds half of each team's admin fixed so that a shrinking book carries its
+// overheads — so a team's surplus peaks near the indicated rate, not above it.
+//
+// THE MARKET STILL COMPARES WHOLE RATES, cover included: no reinsurance change.
+// ============================================================================
+
+export type MarketVersion = 'current' | 'new';
+export const MARKET_VERSIONS: readonly MarketVersion[] = ['current', 'new'];
+/** New rooms default to Current; a room stored before the option existed reads Current. */
+export const MARKET_VERSION_DEFAULT: MarketVersion = 'current';
+
+export interface MarketNewLevel {
+  /** The pair's pull, k × (pair gap − 1%)², per line. */
+  readonly k: PerLine<number>;
+  /**
+   * The bucket power m: the five risk buckets are widened in log space, each
+   * (raw ÷ 1.02)^m, renormalised so the even mix still averages 1.00.
+   */
+  readonly bucketPower: number;
+  /** The average leaver at a 10%+ pair gap (1 − m × 0.20, on the widened buckets). */
+  readonly fullSkewMean: number;
+  /** A team's willing leavers are capped at this share of its book a year. */
+  readonly leaverCap: number;
+  /** The book risk moves this share of the way back to 1.00 each year, before the moves. */
+  readonly bookRiskFade: number;
+}
+
+/**
+ * THE NEW VERSION'S VALUES, BY LEVEL — the lever-test chat's final softened
+ * values. Every figure below is from its measurements (setup above); S(x) is the
+ * test seats' year-5 surplus ÷ opening surplus at a rate offset x, seed 82670,
+ * events off, with the fixed admin (MARKET_NEW_FIXED_ADMIN) on.
+ *
+ * k: today's Medium k (WC 0.600 / GL 0.618 / Property 0.617) × 2 at Low, × 3.5 at
+ * Medium and × 6 at High. Measured: with half the admin fixed, Medium needed k
+ * × 3.5 (with a wider selection and a slower fade, below) before raising rates
+ * stopped paying; × 2 at Low leaves a gentle market (peak at +10%); × 6 at High
+ * met every target on every seed.
+ *
+ * bucketPower / fullSkewMean: Low 1.25 → 0.75, Medium 1.75 → 0.65, High 2.25 →
+ * 0.55 (today 0.90 / 0.80 / 0.70 on unwidened buckets). The 50%-fixed version
+ * first needed selection × 2.25 at Medium; softened to 1.75 (average leaver 0.65)
+ * the targets still held within +15% on all seeds: S at −15% 0.70, 0% 1.73, +5%
+ * 2.15, +10% 2.04, +15% 1.54 (peak +5%).
+ *
+ * leaverCap: 20% / 25% / 30% (today 15% at every level, where it saturates).
+ * Medium was kept at 25% rather than 30%, accepting the far-end miss on
+ * scenarios 16 and 1 with events on (S(+25) 1.01 against 0.88; 0.96 against
+ * 0.77).
+ *
+ * bookRiskFade: 35% / 25% / 20% (today 50%, which cleared a lost-quality book in
+ * 2–3 years and so erased the selection's cost).
+ *
+ * High, seed 82670 events off: S 1.72 at −15%, 2.04 at 0%, 1.22 at +15%, 0.84 at
+ * +25%. In a realistic sixteen-team room the New version moved 10.6% (Medium) /
+ * 13.9% (High) of the room's members over five years against 4.4% today; the
+ * team priced at 90% funding lost 66–73% of its book.
+ */
+export const MARKET_NEW: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewLevel>> = {
+  low: { k: { WC: 1.200, GL: 1.236, Property: 1.234 }, bucketPower: 1.25, fullSkewMean: 0.75, leaverCap: 0.20, bookRiskFade: 0.35 },
+  medium: { k: { WC: 2.100, GL: 2.163, Property: 2.160 }, bucketPower: 1.75, fullSkewMean: 0.65, leaverCap: 0.25, bookRiskFade: 0.25 },
+  high: { k: { WC: 3.600, GL: 3.708, Property: 3.702 }, bucketPower: 2.25, fullSkewMean: 0.55, leaverCap: 0.30, bookRiskFade: 0.20 },
+};
+
+/**
+ * FIXED ADMIN — New-version rooms with the market on ONLY. Each team's admin
+ * booked on a line is `share` × its year-1 admin dollars on that line, grown
+ * `trend` a year from year 1, plus (1 − share) × this year's admin as a share of
+ * premium (today's), and then the year's admin overrun as today. The member
+ * charge is unchanged: the rate still prices admin as a share of premium.
+ *
+ * Measured (lever-test chat): with all admin a share of premium, a team that
+ * shrinks sheds its overheads with its book, so overpricing costs nothing; with
+ * half fixed, a book lost to price leaves its fixed half behind. Applied to
+ * every game it rewards growth in single player (+0.45 of surplus for New
+ * Members 10% against 0%), so it is held to market rooms. Putting the fixed part
+ * into the charge itself was rejected: it reopens the loophole (a shrinking
+ * book's rate rises with its fixed admin). 3% a year is the expense trend.
+ */
+export const MARKET_NEW_FIXED_ADMIN = { share: 0.50, trend: 0.03 } as const;
+
+// ============================================================================
 // THE REGISTRY — what the page is generated from.
 //
 // ⚠ IT IS A SECOND DESCRIPTION OF THE CONSTANTS ABOVE AND THAT IS THE ONE PLACE
@@ -3272,6 +3369,69 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Fixed at No (the former "Accept non-renewed members" switch, whose default was No): measured, a team that '
           + 'took them filled its appetite at 1.4–1.6× risk.',
+      }],
+      ['Market version', {
+        value: `Current / New, default ${MARKET_VERSION_DEFAULT === 'current' ? 'Current' : 'New'}`,
+        unit: 'the host\'s setting at room setup',
+        what: 'Current plays the market above exactly. New plays the reworked market (the New version rows below) with '
+          + 'the same Off / Low / Medium / High setting. A room created before the option reads Current. Single player '
+          + 'and Test player have no market and are unchanged in every version.',
+        basis: 'CHOSEN',
+        note: 'Measured by the lever-test chat (hosted rooms of six teams, two test seats at a rate offset −20% to +30% '
+          + 'against four at 0%, five years, seeds 82670 / 88719, scenarios 20, 16 and 1, events off and on): in today\'s '
+          + 'market overpricing pays at every setting — the 15% leaver cap saturates and the 50% fade erases the selection.',
+      }],
+      ['New version: willing leavers (k)', {
+        value: `Low ${perLine(MARKET_NEW.low.k, 3)} · Medium ${perLine(MARKET_NEW.medium.k, 3)} · High ${perLine(MARKET_NEW.high.k, 3)}`,
+        unit: 'k in k × (pair gap − 1%)², per pair',
+        what: 'As the current market\'s pull, stronger: today\'s Medium k × 2 (Low), × 3.5 (Medium), × 6 (High).',
+        basis: 'CHOSEN',
+        note: 'Measured (lever-test chat): with half the admin fixed, Medium needed k × 3.5 before raising rates stopped '
+          + 'paying (seed 82670, events off: the test seats\' year-5 surplus ÷ opening 0.70 at −15%, 1.73 at 0%, 2.15 at '
+          + '+5%, 2.04 at +10%, 1.54 at +15%); × 6 met every target on every seed at High (1.72 / 2.04 / 1.22 / 0.84 at '
+          + '−15 / 0 / +15 / +25%); × 2 leaves Low gentle (peak at +10%).',
+      }],
+      ['New version: leaver quality', {
+        value: `average leaver at a ${MARKET_FULL_SKEW_GAP * 100}%+ gap: Low ${MARKET_NEW.low.fullSkewMean.toFixed(2)} · `
+          + `Medium ${MARKET_NEW.medium.fullSkewMean.toFixed(2)} · High ${MARKET_NEW.high.fullSkewMean.toFixed(2)}; buckets widened `
+          + `to the power ${MARKET_NEW.low.bucketPower} / ${MARKET_NEW.medium.bucketPower} / ${MARKET_NEW.high.bucketPower}`,
+        unit: 'risk against the leaving team\'s book (1.00 = average)',
+        what: 'The five buckets are widened in log space, each (raw ÷ 1.02) to the power m, renormalised so the even mix '
+          + 'averages 1.00; the average leaver at a 10%+ gap is 1 − m × 0.20. The widened buckets also carry the outside '
+          + 'supply\'s draw.',
+        basis: 'CHOSEN',
+        note: 'Measured (lever-test chat): the 50%-fixed version first needed m = 2.25 at Medium; softened to 1.75 '
+          + '(average leaver 0.65) the targets still held within +15% on all seeds.',
+      }],
+      ['New version: leaver cap', {
+        value: `Low ${MARKET_NEW.low.leaverCap * 100}% · Medium ${MARKET_NEW.medium.leaverCap * 100}% · High ${MARKET_NEW.high.leaverCap * 100}%`,
+        unit: 'of the book a year',
+        what: 'A team\'s willing leavers are capped at this share of its book a year.',
+        basis: 'CHOSEN',
+        note: 'Today\'s 15% saturates. Medium was kept at 25% rather than 30%, accepting the far-end miss on scenarios 16 '
+          + 'and 1 with events on (year-5 surplus ÷ opening at +25%: 1.01 against 0.88; 0.96 against 0.77). In a '
+          + 'sixteen-team room the New version moved 10.6% (Medium) / 13.9% (High) of the members over five years, '
+          + 'against 4.4% today.',
+      }],
+      ['New version: book risk fade', {
+        value: `Low ${MARKET_NEW.low.bookRiskFade * 100}% · Medium ${MARKET_NEW.medium.bookRiskFade * 100}% · High ${MARKET_NEW.high.bookRiskFade * 100}% towards 1.00 a year`,
+        unit: 'before the year\'s moves',
+        what: 'A book that lost its best risks keeps the cost longer than in the current market.',
+        basis: 'CHOSEN',
+        note: 'Today\'s 50% clears a lost-quality book in 2–3 years and so erased the selection\'s cost (lever-test chat).',
+      }],
+      ['New version: fixed admin', {
+        value: `${MARKET_NEW_FIXED_ADMIN.share * 100}% of each team's year-1 admin dollars per line, growing `
+          + `${MARKET_NEW_FIXED_ADMIN.trend * 100}% a year`,
+        unit: 'of the admin booked, New-version rooms with the market on only',
+        what: 'The admin booked is the fixed part plus the other half of this year\'s admin as a share of premium, then '
+          + 'the year\'s overrun as today. The member charge is unchanged. Current rooms, rooms with the market Off, '
+          + 'Single player and Test player book admin as today.',
+        basis: 'CHOSEN',
+        note: 'Measured (lever-test chat): with all admin a share of premium a shrinking book sheds its overheads, so '
+          + 'overpricing costs nothing. Applied to every game it rewards growth in single player (+0.45 of surplus for '
+          + 'New Members 10% against 0%), so it is held to market rooms; charging the fixed part in the rate was '
+          + 'rejected (it reopens the loophole). 3% a year is the expense trend.',
       }],
     ],
   },

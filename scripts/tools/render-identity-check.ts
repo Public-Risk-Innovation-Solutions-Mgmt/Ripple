@@ -1923,7 +1923,13 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Ripple Ranking" and the note "Ripple Score is for now … the full score is
 // still being designed" -> "Ripple Ranking … the full ranking …" (two
 // "Score" and one "score" a screen). No figure moves. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v138.json');
+// v139: THE SAVE KEY v54 -> v55 (pr/market-new-version), on aws 9f12c55, which
+// reproduces v138 here 174 of 174. Word-diffed (RENDER_TEXT_DIR both sides), 26
+// move — every Year Walkthrough, by one line each and one word: the save key it
+// shows, "riskpool_gamestate_v54" -> "riskpool_gamestate_v55". With the key
+// normalised all 26 are identical to the control. The market version is hosted
+// only; no single-player figure moves. 148 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v139.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
