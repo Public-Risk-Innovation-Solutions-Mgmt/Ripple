@@ -145,7 +145,11 @@ async function pdfSection(bytes, scopeName) {
     const lines = ys.map(y => items.filter(it => Math.round(it.transform[5] * 10) / 10 === y).sort((a, b) => a.transform[4] - b.transform[4]).map(it => it.str.trim()));
     const t = lines.findIndex(l => l[0] === `Market Survey - ${scopeName}`);
     if (t < 0) continue;
-    return { year: lines[t][1], heads: lines[t + 1], rows: lines.slice(t + 2, -2) };
+    // The rows end at the tab's note ("Pooled figures…" / "Every figure is…"): after it come the
+    // pool share's note on a hosted game's Pool (pr/pool-share-average) and the page footer.
+    const end = lines.findIndex((l, k) => k > t + 1 && /^(Pooled figures|Every figure is)/.test(l[0]));
+    const after = end < 0 ? [] : lines.slice(end + 1).map(l => l.join(' '));
+    return { year: lines[t][1], heads: lines[t + 1], rows: lines.slice(t + 2, end < 0 ? -2 : end), after };
   }
   return null;
 }
@@ -341,6 +345,10 @@ async function viewOf(page, scope, label) {
       const flat = c => c.replace(/ · /g, '').replace(/−/g, '-');
       const pdfRows = pdf ? pdf.rows.map(r => r.map(flat)) : null;
       const wantPdf = want.rows.map(r => r.filter(c => c !== '').map(c => c.replace(/−/g, '-')));
+      if (v === 'Pool' && pdf) {
+        ok(pdf.after.some(l => /simple average of the team.s market shares on the lines in the room/.test(l)),
+          `downloads, ${who}, Pool: the PDF says how the pool's market share is worked out`, pdf.after.join(' | '));
+      }
       ok(!!pdf && pdf.year === tab.year && JSON.stringify(pdf.heads) === JSON.stringify(tab.heads) && JSON.stringify(pdfRows) === JSON.stringify(wantPdf),
         `downloads, ${who}, ${v}: the PDF's Market Survey page is the tab, row for row`,
         pdf ? (JSON.stringify(pdfRows) === JSON.stringify(wantPdf) ? `${pdf.rows.length} teams, ${pdf.year}` : `got ${JSON.stringify(pdfRows).slice(0, 300)} | tab ${JSON.stringify(wantPdf).slice(0, 300)}`) : 'no Market Survey page');
