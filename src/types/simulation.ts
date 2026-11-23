@@ -674,6 +674,14 @@ export interface GameSetupSettings {
    */
   marketByYear?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>;
   /**
+   * THE ROOM'S MARKET VERSION (pr/market-new-version): 'new' in a hosted room
+   * the host set to the New market; absent everywhere else (Current rooms,
+   * rooms from before the option, single player, Test player). With it, every
+   * year that carries a market result (marketByYear) books half of the line's
+   * admin fixed (MARKET_NEW_FIXED_ADMIN; simulationEngine processLineYear).
+   */
+  marketVersion?: 'new';
+  /**
    * THE SHOCK SWITCH, PINNED AS IT STOOD AT SETUP (wip/mid-game-edits): read by
    * gameShocksOn in place of "is the schedule non-empty", so adding a shock to a
    * game set up without any — or removing the last — cannot flip pricing for
@@ -2424,6 +2432,13 @@ export interface LinePoolState {
    * the pre-game ends; absent on a save from before it, read as no exposure term.
    */
   shockCostBaseExposure?: number;
+  /**
+   * THE FIXED ADMIN'S BASE (pr/market-new-version): the line's year-1 admin
+   * dollars (the admin charged, before the overrun), set in year 1 of a
+   * New-version room with the market on and carried forward. Absent everywhere
+   * else; nothing reads it then.
+   */
+  fixedAdminBase?: number;
   netUnpaidReserve: number;    // unpaid loss reserve, net of reinsurance
   surplus: number;
   investedAssets: number;      // this line's own segregated investment portfolio (Stage 2.9),

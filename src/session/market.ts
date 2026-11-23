@@ -11,7 +11,10 @@
 // The step itself is utils/market/marketStep.ts.
 // ============================================================================
 
-import { MARKET_DEFAULT_LEVEL, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, type MarketLevel } from '../data/pricingParameters';
+import {
+  MARKET_DEFAULT_LEVEL, MARKET_VERSION_DEFAULT, MARKET_VERSIONS, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, type MarketLevel,
+  type MarketVersion,
+} from '../data/pricingParameters';
 import type { CoverageLine, MarketLineInput } from '../types/simulation';
 import { runMarketStep, type MarketTeamInput, type MarketTeamLineResult } from '../utils/market/marketStep';
 import type { MarketLockInput, MarketLockLine, StoredMarketTeamInput, StoredMarketYear } from './contract';
@@ -26,6 +29,13 @@ export const marketLevelOf = (v: unknown): MarketLevel =>
 export const requestedMarketLevel = (v: unknown): MarketLevel | null =>
   v === undefined ? 'off' : (LEVELS as readonly string[]).includes(v as string) ? (v as MarketLevel) : null;
 export { MARKET_DEFAULT_LEVEL };
+
+/** A stored room's market version: only 'new' is ever stored; anything else (an older room) reads 'current'. */
+export const marketVersionOf = (v: unknown): MarketVersion => (v === 'new' ? 'new' : 'current');
+
+/** A create request's market version: absent reads MARKET_VERSION_DEFAULT ('current'); anything unknown is refused (null). */
+export const requestedMarketVersion = (v: unknown): MarketVersion | null =>
+  v === undefined ? MARKET_VERSION_DEFAULT : (MARKET_VERSIONS as readonly string[]).includes(v as string) ? (v as MarketVersion) : null;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const finitePositive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
@@ -72,6 +82,8 @@ export function marketYearForAdvance(a: {
   code: string;
   seed: string;
   level: Exclude<MarketLevel, 'off'>;
+  /** The room's market version; 'current' (or absent) plays the market as it was before the option. */
+  version?: MarketVersion;
   lines: readonly CoverageLine[];
   year: number;
   roster: readonly MarketRosterEntry[];
@@ -104,12 +116,12 @@ export function marketYearForAdvance(a: {
     nameOfKey[keyOf(t.teamNumber)] = t.name;
   }
   const step = runMarketStep({
-    level: a.level, seed: `${a.code}|${a.seed}`, year: a.year, lines: a.lines, teams,
+    level: a.level, ...(a.version === 'new' ? { version: 'new' as const } : {}), seed: `${a.code}|${a.seed}`, year: a.year, lines: a.lines, teams,
     untakenDroppedLastYear: a.previous?.untakenDropped ?? {},
   });
   const result: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>> = {};
   for (const [key, r] of Object.entries(step.teams)) result[nameOfKey[key]] = r;
-  return { year: a.year, level: a.level, inputs, missing, result, untakenDropped: step.untakenDropped };
+  return { year: a.year, level: a.level, ...(a.version === 'new' ? { version: 'new' as const } : {}), inputs, missing, result, untakenDropped: step.untakenDropped };
 }
 
 /** One team's stored results, by year — CallerView.marketByYear. */

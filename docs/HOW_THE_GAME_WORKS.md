@@ -67,6 +67,7 @@ add, reset, disable or delete other admins.
 | Adverse development by year | Simple | Simple: the level above, every year. Advanced: a table, a row per year and a column per line, set as in Edit game (a level applies from that year onward); it starts from the simple choices, and going back to Simple warns that the per-year choices are lost |
 | Shock schedule | empty | add events by year, or Randomise (2–4 events, never year 1) |
 | Market competition | Medium | Off, Low, Medium, High (section 5). A room created before the setting reads Off |
+| Market version | Current | Current, New (section 5, "Market version"). A room created before the option reads Current |
 
 The host gets a resume code for reopening the room elsewhere, and can hide the event from the lobby.
 
@@ -250,6 +251,37 @@ Members move between the room's teams on price, by formula — there are no indi
 
 Every draw is seeded by the room, team, line and year, so the step is the same wherever it runs. A team's rate is
 struck on its book before the moves, so the rate it locked with is the rate it is charged.
+
+### Market version (Current / New)
+
+The host picks **Current** (default) or **New** at room setup. Current plays the market above exactly; a room created
+before the option reads Current. Single player and Test player have no market and are unchanged in every version.
+The room's version shows on the setup form, on Game Setup next to the market level, and at the top of the change
+history. It is stored with the room (`marketVersion`, only when New) and with each year's stored market step
+(`version`), so a rejoin or replay plays the same version.
+
+**New** is the reworked market, played on review before it becomes the default. It uses the same Off / Low / Medium /
+High setting, compares the same whole rates (cover included), and changes four values per level plus the admin:
+
+| | Low | Medium | High |
+|---|---|---|---|
+| k (WC / GL / Property) | 1.200 / 1.236 / 1.234 | 2.100 / 2.163 / 2.160 | 3.600 / 3.708 / 3.702 |
+| Average leaver at a 10%+ gap | 0.75 | 0.65 | 0.55 |
+| Leaver cap | 20% of the book a year | 25% | 30% |
+| Book risk fade | 35% a year | 25% | 20% |
+
+- **Buckets widened.** The five risk buckets are widened in log space — each (raw ÷ 1.02) to the power 1.25 / 1.75 /
+  2.25 (Low / Medium / High), renormalised so the even mix still averages 1.00 — and the average leaver at a 10%+ gap
+  is 1 − that power × 0.20. The widened buckets also carry the outside supply's draw.
+- **Fixed admin** (New-version rooms with the market on only): each team's admin booked on a line is 50% of its
+  year-1 admin dollars on that line, growing 3% a year, plus 50% of this year's admin as a share of premium; the
+  year's admin overrun then applies as before. The member charge is unchanged — the rate still prices admin at 20% of
+  premium — so a book lost to price leaves its fixed half behind. Current rooms, rooms with the market Off, Single
+  player and Test player book admin as before.
+
+Why: measured in hosted rooms, today's market pays for overpricing at every setting (the 15% leaver cap saturates
+and the 50% fade erases the selection). With the New values a team's surplus peaks near the indicated rate. Every
+value, its reason and the measurements are in `pricingParameters.ts` ("MARKET VERSION") and `docs/PARAMETERS.md`.
 
 ## 6. Pricing and results in brief
 

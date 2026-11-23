@@ -38,11 +38,13 @@ export interface EditGamePanelProps {
   /** Teams that have already locked the current year — the host is warned. Empty for Test player. */
   lockedTeams: string[];
   history: GameEdit[];
+  /** A fixed line shown at the top of the change history (a hosted room's market and version); absent for Test player. */
+  historyNote?: string;
   /** Send the wanted settings for the changed years; rejects with an Error to show. */
   onApply: (years: Record<string, YearSettings>) => Promise<void>;
 }
 
-export function EditGamePanel({ lines, yearCount, startingYear, firstEditable, settings, lockedTeams, history, onApply }: EditGamePanelProps) {
+export function EditGamePanel({ lines, yearCount, startingYear, firstEditable, settings, lockedTeams, history, historyNote, onApply }: EditGamePanelProps) {
   const years = useMemo(() => {
     const out: number[] = [];
     for (let y = Math.max(1, firstEditable); y <= yearCount; y++) out.push(y);
@@ -202,6 +204,7 @@ export function EditGamePanel({ lines, yearCount, startingYear, firstEditable, s
 
       <div data-testid="edit-history" className="mt-4 border-t border-slate-100 pt-3">
         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500"><History size={12} /> Change history</p>
+        {historyNote && <p data-testid="edit-history-note" className="mt-1 text-xs text-slate-700">{historyNote}</p>}
         {history.length === 0 ? (
           <p data-testid="edit-history-empty" className="mt-1 text-xs text-slate-500">No changes yet.</p>
         ) : (

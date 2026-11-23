@@ -148,7 +148,9 @@ import { Faults } from '../faults';
 import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
-import { marketLevelOf, marketYearForAdvance, requestedMarketLevel, validMarketLockInput } from '../market';
+import {
+  marketLevelOf, marketVersionOf, marketYearForAdvance, requestedMarketLevel, requestedMarketVersion, validMarketLockInput,
+} from '../market';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
   attemptSk, createPk, decisionPrefix, decisionSk, draftSk, handoffSk, lobbyEventPath, nameSk, pinPk,
@@ -593,6 +595,9 @@ export class DynamoSessionTransport implements SessionTransport {
       // Market competition: absent reads 'off' (the form always sends the host's choice).
       const market = requestedMarketLevel(req.market);
       if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
+      // Market version: absent reads 'current'; only 'new' is stored (an older room, without it, reads 'current').
+      const marketVersion = requestedMarketVersion(req.marketVersion);
+      if (marketVersion === null) throw new SessionError('INVALID_REQUEST', 'marketVersion must be current or new.');
       if (!Array.isArray(req.shocks)) throw new SessionError('INVALID_REQUEST', 'shocks must be a list.');
       const shocks = req.shocks.map(s => ({
         shockId: requireString(s?.shockId, 'shockId'),
@@ -648,6 +653,7 @@ export class DynamoSessionTransport implements SessionTransport {
           developmentLevels: roomDevLevels,
           ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
           ...(market !== 'off' ? { market } : {}),
+          ...(marketVersion === 'new' ? { marketVersion } : {}),
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
@@ -1927,7 +1933,8 @@ export class DynamoSessionTransport implements SessionTransport {
     }))).Item as { body?: string } | undefined : undefined;
     const { byTeam } = rosterNumbers(header);
     const stored = marketYearForAdvance({
-      code: header.code, seed: header.seed, level, lines: header.lines ?? LINE_ORDER, year: y,
+      code: header.code, seed: header.seed, level, version: marketVersionOf(header.marketVersion),
+      lines: header.lines ?? LINE_ORDER, year: y,
       roster: wanted.map(w => ({
         name: w.e.name, teamNumber: byTeam.get(w.teamId) ?? w.e.teamNumber ?? 0,
         latest: w.year !== null && inputOf.has(w.teamId) ? { year: w.year, input: inputOf.get(w.teamId)! } : undefined,

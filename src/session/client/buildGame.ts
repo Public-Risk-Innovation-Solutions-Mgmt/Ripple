@@ -34,7 +34,7 @@ import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
   'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment' | 'developmentLevels'
-  | 'developmentLevelsByYear' | 'shocksOn'>;
+  | 'developmentLevelsByYear' | 'shocksOn' | 'marketVersion'>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -70,6 +70,9 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     // neither, and builds exactly as before.
     ...(r.developmentLevelsByYear ? { developmentLevelsByYear: JSON.parse(JSON.stringify(r.developmentLevelsByYear)) } : {}),
     ...(r.shocksOn !== undefined ? { shocksOn: r.shocksOn } : {}),
+    // THE ROOM'S MARKET VERSION (pr/market-new-version): only a New-version room
+    // writes it; every other room builds exactly as before.
+    ...(r.marketVersion === 'new' ? { marketVersion: 'new' as const } : {}),
     // ⚠ THE HOST SCHEDULES THE SHOCKS. On the new loss engine a session fires
     // only what the room scheduled and consults no probability; singleplayer
     // leaves this absent and draws from the catalogue. Read by nothing with

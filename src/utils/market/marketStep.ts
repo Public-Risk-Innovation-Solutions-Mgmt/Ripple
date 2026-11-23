@@ -39,12 +39,19 @@
 //   4. Each team's book after the moves, its book risk (the risk mass over the
 //      book; the dropped members are left for the engine, which drops them and
 //      applies today's relief), and the share of that book the engine drops.
+//
+// MARKET VERSION (pr/market-new-version): the host's Current / New. Current (and
+// every input without a version) runs exactly the values named above. New reads
+// MARKET_NEW[level] instead — its own k, leaver cap and fade, and the buckets
+// widened in log space (widenedBuckets), which carry the leavers' tilt and the
+// outside supply's draw. marketParams() is the one place the choice is made.
 // ============================================================================
 
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_OUTSIDE_SUPPLY,
-  MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel,
+  MARKET_NEW, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel, type MarketVersion,
+  type PerLine,
 } from '../../data/pricingParameters';
 import type { CoverageLine } from '../../types/simulation';
 
@@ -57,10 +64,45 @@ const RAW_MEAN = MARKET_BUCKETS_RAW.reduce((a, r, i) => a + r * MARKET_BUCKET_BA
 export const MARKET_BUCKETS: readonly number[] = MARKET_BUCKETS_RAW.map(r => r / RAW_MEAN);
 const BASE: readonly number[] = MARKET_BUCKET_BASE_MIX;
 
-const meanOf = (mix: readonly number[]) => mix.reduce((a, p, i) => a + p * MARKET_BUCKETS[i], 0);
+/**
+ * THE NEW VERSION'S BUCKETS: widened in log space, each (raw ÷ 1.02)^m, renormalised so the even mix still
+ * averages exactly 1.00 (m = MARKET_NEW[level].bucketPower). The Current version keeps MARKET_BUCKETS.
+ */
+export function widenedBuckets(m: number): readonly number[] {
+  const pow = MARKET_BUCKETS_RAW.map(r => Math.pow(r / RAW_MEAN, m));
+  const mean = pow.reduce((a, r, i) => a + r * MARKET_BUCKET_BASE_MIX[i], 0);
+  return pow.map(r => r / mean);
+}
+
+/** Everything the step reads that the market version changes. */
+export interface MarketParams {
+  readonly k: PerLine<number>;
+  readonly buckets: readonly number[];
+  readonly fullSkewMean: number;
+  readonly leaverCap: number;
+  readonly bookRiskFade: number;
+}
+const NEW_BUCKETS = {
+  low: widenedBuckets(MARKET_NEW.low.bucketPower),
+  medium: widenedBuckets(MARKET_NEW.medium.bucketPower),
+  high: widenedBuckets(MARKET_NEW.high.bucketPower),
+} as const;
+/** The step's values for a level and version ('current' is the market as it was before the option). */
+export function marketParams(level: Exclude<MarketLevel, 'off'>, version: MarketVersion = 'current'): MarketParams {
+  if (version === 'new') {
+    const n = MARKET_NEW[level];
+    return { k: n.k, buckets: NEW_BUCKETS[level], fullSkewMean: n.fullSkewMean, leaverCap: n.leaverCap, bookRiskFade: n.bookRiskFade };
+  }
+  return {
+    k: MARKET_K[level], buckets: MARKET_BUCKETS, fullSkewMean: MARKET_FULL_SKEW_MEAN[level],
+    leaverCap: MARKET_LEAVER_CAP, bookRiskFade: MARKET_BOOK_RISK_FADE,
+  };
+}
+
+const meanOf = (mix: readonly number[], buckets: readonly number[]) => mix.reduce((a, p, i) => a + p * buckets[i], 0);
 /** The even mix tilted by θ: p ∝ base × exp(−θ × risk) (θ > 0 favours the best, θ < 0 the worst). */
-const tilt = (theta: number): number[] => {
-  const w = BASE.map((p, i) => p * Math.exp(-theta * MARKET_BUCKETS[i]));
+const tilt = (theta: number, buckets: readonly number[]): number[] => {
+  const w = BASE.map((p, i) => p * Math.exp(-theta * buckets[i]));
   const t = w.reduce((a, b) => a + b, 0);
   return w.map(x => x / t);
 };
@@ -72,28 +114,35 @@ export const outsideWeight = (rate: number, average: number): number =>
   Math.max(0, Math.min(1, 1 - (rate / average - 1) / MARKET_OUTSIDE_TAPER));
 
 /** The θ whose tilted mix averages `target` (bisection; the mean falls as θ rises). */
-const solveTheta = (target: number): number => {
+const solveTheta = (target: number, buckets: readonly number[]): number => {
   let lo = -200, hi = 200;
   for (let it = 0; it < 200; it++) {
     const mid = (lo + hi) / 2;
-    if (meanOf(tilt(mid)) > target) lo = mid; else hi = mid;
+    if (meanOf(tilt(mid, buckets), buckets) > target) lo = mid; else hi = mid;
   }
   return (lo + hi) / 2;
 };
-const THETA_CACHE = new Map<number, number>();
-const thetaFor = (target: number) => {
-  let t = THETA_CACHE.get(target);
-  if (t === undefined) { t = solveTheta(target); THETA_CACHE.set(target, t); }
+// One cache per bucket set (the arrays above are fixed, so identity is the key).
+const THETA_CACHE = new Map<readonly number[], Map<number, number>>();
+const thetaFor = (target: number, buckets: readonly number[]) => {
+  let c = THETA_CACHE.get(buckets);
+  if (c === undefined) { c = new Map(); THETA_CACHE.set(buckets, c); }
+  let t = c.get(target);
+  if (t === undefined) { t = solveTheta(target, buckets); c.set(target, t); }
   return t;
 };
 /** Price-leavers' mix at a pair gap: none of the tilt at 1%, the level's full skew at 10%+. */
-export function leaverMix(level: Exclude<MarketLevel, 'off'>, gap: number): number[] {
+export function leaverMix(level: Exclude<MarketLevel, 'off'>, gap: number, version: MarketVersion = 'current'): number[] {
+  const p = marketParams(level, version);
   const share = Math.min(1, Math.max(0, (gap - MARKET_MIN_GAP) / (MARKET_FULL_SKEW_GAP - MARKET_MIN_GAP)));
-  return tilt(thetaFor(MARKET_FULL_SKEW_MEAN[level]) * share);
+  return tilt(thetaFor(p.fullSkewMean, p.buckets) * share, p.buckets);
 }
-/** Non-renewed members' mix: tilted to the worst, mean 1.5 − ½ × the share dropped (today's relief, ½). */
-export function droppedMix(share: number): number[] {
-  return tilt(thetaFor(1 + NON_RENEWAL_LOSS_RELIEF - NON_RENEWAL_LOSS_RELIEF * share));
+/**
+ * Non-renewed members' mix: tilted to the worst, mean 1.5 − ½ × the share dropped (today's relief, ½), on the
+ * Current buckets or, given them, the New version's widened ones.
+ */
+export function droppedMix(share: number, buckets: readonly number[] = MARKET_BUCKETS): number[] {
+  return tilt(thetaFor(1 + NON_RENEWAL_LOSS_RELIEF - NON_RENEWAL_LOSS_RELIEF * share, buckets), buckets);
 }
 export const evenMix = (): number[] => [...BASE];
 
@@ -157,6 +206,8 @@ export interface MarketTeamInput {
 
 export interface MarketStepInput {
   readonly level: Exclude<MarketLevel, 'off'>;
+  /** The host's market version; absent (an older room, or Current) plays Current. */
+  readonly version?: MarketVersion;
   /** The room's seed key (the server uses the room's code and scenario). */
   readonly seed: string;
   readonly year: number;
@@ -229,12 +280,15 @@ export function runMarketStep(input: MarketStepInput): MarketStepResult {
 function runLine(input: MarketStepInput, line: CoverageLine,
   ts: { key: string; x: MarketTeamLineInput }[]): { teams: Record<string, MarketTeamLineResult>; untaken: number } {
   const { level, seed, year } = input;
+  const version: MarketVersion = input.version ?? 'current';
+  const P = marketParams(level, version);
+  const BUCKETS = P.buckets;
   const N = ts.length;
-  const k = MARKET_K[level][line];
+  const k = P.k[line];
   const r = ts.map(t => t.x.rate);
   const E = ts.map(t => t.x.book);
   // 0. fade
-  const B = ts.map(t => 1 + (t.x.bookRisk - 1) * (1 - MARKET_BOOK_RISK_FADE));
+  const B = ts.map(t => 1 + (t.x.bookRisk - 1) * (1 - P.bookRiskFade));
   const avg = r.reduce((a, b) => a + b, 0) / N;
   const keyOf = (i: number) => ts[i].key;
   const pull = (i: number, j: number) => {
@@ -260,14 +314,14 @@ function runLine(input: MarketStepInput, line: CoverageLine,
       const sum = fl.reduce((a, b) => a + b, 0);
       if (sum <= 0) continue;
       const mult = 1 + MARKET_COUNT_SPREAD * (2 * seededRandom(`${seed}|n|${keyOf(i)}|${line}|${year}`)() - 1);
-      const frac = Math.min(MARKET_LEAVER_CAP, sum * MARKET_RIVAL_SCALE / (N - 1) * mult);
+      const frac = Math.min(P.leaverCap, sum * MARKET_RIVAL_SCALE / (N - 1) * mult);
       const n = Math.max(1, Math.round(frac * MARKET_MEMBERS_PER_BOOK));
       const e = (frac * E[i]) / n;
       const rnd = seededRandom(`${seed}|${keyOf(i)}|${line}|${year}`);
       const cnt = apportion(n, fl, rnd);
       fl.forEach((_, j) => {
         for (let m = 0; m < cnt[j]; m++) {
-          pool.push({ src: i, e, risk: B[i] * MARKET_BUCKETS[pick(leaverMix(level, r[i] / r[j] - 1), rnd())], to: -1 });
+          pool.push({ src: i, e, risk: B[i] * BUCKETS[pick(leaverMix(level, r[i] / r[j] - 1, version), rnd())], to: -1 });
         }
       });
       willing[i] = frac;
@@ -311,7 +365,7 @@ function runLine(input: MarketStepInput, line: CoverageLine,
     // The year's newcomers, drawn at the even mix; every team's share carries their average risk (the same mix).
     const rnd = seededRandom(`${seed}|outside|${line}|${year}`);
     let drawn = 0;
-    for (let q = 0; q < nOut; q++) drawn += MARKET_BUCKETS[pick(BASE, rnd())];
+    for (let q = 0; q < nOut; q++) drawn += BUCKETS[pick(BASE, rnd())];
     const sameMix = drawn / nOut;
     const weight = r.map(x => outsideWeight(x, avg));
     const got = Array(N).fill(0) as number[];
