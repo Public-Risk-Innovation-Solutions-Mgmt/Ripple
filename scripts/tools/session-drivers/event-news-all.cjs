@@ -12,10 +12,14 @@
 // lines it touches, with no figure; the Decisions page lists it under Events
 // so far. Investment Loss says what it touched is the invested assets; Member
 // Withdrawal that a quarter of each line's book leaves from next year. Nuclear
-// Verdict's and Social Inflation's banners carry the lasting line; Social
-// Inflation's game plays two more years and Events so far gains a note in each
-// ("still growing", year 2 of 3, year 3 of 3), Nuclear Verdict's one more and
-// gains none. With --shots, each banner is saved as <id>-<name>.png.
+// Verdict's and Social Inflation's banners carry the line on older claims, word
+// for word, and the two law changes say older claims will also cost more.
+// ⚠ NO DURATION: players are not told how long an event lasts, so no banner and
+// no Events so far row may carry a duration phrase (DURATION, the same list as
+// event-news-coverage-check), and Social Inflation's game plays two more years
+// and Nuclear Verdict's one more with no later-year note and no banner — a note
+// would tell them when the effect ends. With --shots, each banner is saved as
+// <id>-<name>.png, and Social Inflation's Events so far two years on.
 //
 // The same twelve, through the engine on three lines and on WC alone, with
 // controls: scripts/diagnostics/event-news-coverage-check.ts.
@@ -40,16 +44,30 @@ const EVENTS = {
   '#1': ['Earthquake', true, LINE_NAMES, /whole of each line/],
   '#2': ['Winterstorm', true, ['Property'], /whole line/],
   '#3': ['Wildfire', true, ['Property'], /whole line/],
-  '#4': ['Legislation Change', false, ['General Liability'], /rest of the game/],
-  '#5': ['Workers Compensation Legislation: Increased Medical Fee Schedule', false, ["Workers' Compensation"], /rest of the game/],
-  '#6': ['Economic Recession', false, ["Workers' Compensation", 'General Liability'], /this year alone/],
-  '#7': ['Nuclear Verdict', false, ['General Liability'], /this year only/],
-  '#8': ['Social Inflation', false, ['General Liability'], /three years/],
-  '#9': ['Pandemic', false, ["Workers' Compensation", 'General Liability'], /large liability claim.*this year alone/],
+  '#4': ['Legislation Change', false, ['General Liability'], /older liability claims will also cost more\. Your lines/],
+  '#5': ['Workers Compensation Legislation: Increased Medical Fee Schedule', false, ["Workers' Compensation"], /older WC claims will also cost more\. Your lines/],
+  '#6': ['Economic Recession', false, ["Workers' Compensation", 'General Liability'], /liability claims cost more\. Your lines/],
+  '#7': ['Nuclear Verdict', false, ['General Liability'], /one very large liability claim this year\. It also makes older liability claims grow\. Your lines/],
+  '#8': ['Social Inflation', false, ['General Liability'], /a large liability claim is brought\. Older liability claims will also grow\. Your lines/],
+  '#9': ['Pandemic', false, ["Workers' Compensation", 'General Liability'], /large liability claim is brought over the illness\. Your lines/],
   '#10': ['Economic Inflation', false, LINE_NAMES, /settling claims/],
   '#11': ['Large Investment Loss', false, [], /investment returns fall sharply this year.*Affects your pool's invested assets/],
   '#12': ['Large Member Withdrawal', false, LINE_NAMES, /a quarter of each line's book from next year/],
 };
+
+// ⚠ A DURATION PHRASE (the coverage check's list): how long an effect lasts or when it ends.
+const DURATION = new RegExp([
+  'this year alone', 'this year only', 'in this year', 'rest of the game', 'for (the )?(good|ever)', 'permanent',
+  '\\b(one|two|three|four|five|six|seven|eight|nine|ten|\\d+) (more )?years?\\b', 'year \\d+ of \\d+',
+  'still (growing|in force)', 'each year', 'every year', 'until', 'no longer', '\\bends?\\b', '\\blasts?\\b', 'temporar',
+].join('|'), 'i');
+const noDuration = text => { const m = text.match(DURATION); return m ? `"${m[0]}" in: ${text}` : ''; };
+// The control: the check above must catch each phrase the banners used to carry.
+for (const was of ['The effect is felt in this year alone.', 'It also makes older liability claims grow, in this year only.',
+  'Older liability claims will keep growing for three years: this year and the next two, a little less each year.',
+  'older WC claims will keep costing more for the rest of the game.', 'Older liability claims are still growing: year 2 of 3.']) {
+  ok(noDuration(was) !== '', `control: the duration check catches "${was}"`);
+}
 
 (async () => {
   await requireServer();
@@ -104,6 +122,7 @@ const EVENTS = {
     const named = linesIn((it.split('Your lines affected:')[1] ?? ''));
     ok(JSON.stringify(named) === JSON.stringify(lines), 'on the lines it touches', named.join(', ') || '(none)');
     ok(!/\$|\d/.test(it), 'no figure', '');
+    ok(noDuration(it) === '', 'no duration', noDuration(it));
     if (SHOTS) {
       const slug = name.toLowerCase().replace(/[^a-z]+/g, '-').replace(/-+$/, '');
       await banner.screenshot({ path: path.join(SHOTS, `${id.slice(1).padStart(2, '0')}-${slug}.png`) });
@@ -112,21 +131,17 @@ const EVENTS = {
     await page.waitForTimeout(400);
     const listed = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim().replace(/\s+/g, ' '));
     ok(listed.length === 1 && listed[0].startsWith(`${year} ${name}`), 'Events so far lists it in its year', listed.join(' | '));
+    ok(listed.every(t => noDuration(t) === ''), 'Events so far: no duration', listed.map(noDuration).filter(Boolean).join(' | '));
     if (id === '#7' || id === '#8') {
       const extra = id === '#8' ? 2 : 1;
       for (let i = 0; i < extra; i++) await lock();
       await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
       await page.waitForTimeout(400);
       const later = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim().replace(/\s+/g, ' '));
-      const notes = later.filter(t => /still growing/.test(t));
       const after = await page.locator('[data-testid="event-news"]').count();
-      if (id === '#8') {
-        ok(notes.length === 2 && /year 2 of 3/.test(notes[0]) && /year 3 of 3/.test(notes[1]) && notes.every(n => n.includes(`(since ${year})`)),
-          'Events so far: a note in each later year it lasts', later.join(' | '));
-        if (SHOTS) await page.locator('[data-testid="events-panel"]').screenshot({ path: path.join(SHOTS, '08-social-inflation-events-so-far.png') });
-      } else {
-        ok(notes.length === 0 && later.length === 1, 'Events so far: no later note — its effect is its own year\'s', later.join(' | '));
-      }
+      ok(later.length === 1 && later[0] === listed[0], `Events so far ${extra} year${extra > 1 ? 's' : ''} on: the one row, no later note`, later.join(' | '));
+      ok(later.every(t => noDuration(t) === ''), 'and no duration', later.map(noDuration).filter(Boolean).join(' | '));
+      if (id === '#8' && SHOTS) await page.locator('[data-testid="events-panel"]').screenshot({ path: path.join(SHOTS, '08-social-inflation-events-so-far.png') });
       ok(after === 0, 'and no banner in a year it only continues', '');
     }
     await page.context().close();

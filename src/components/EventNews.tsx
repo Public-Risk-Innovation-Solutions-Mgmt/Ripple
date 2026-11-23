@@ -29,8 +29,7 @@ export function EventNewsBanner({ played, startingYear }: { played: ResultSet[];
   const [dismissed, setDismissed] = useState<number | null>(null);
   const latest = played.at(-1);
   if (!latest || latest.yearNumber < 1 || dismissed === latest.yearNumber) return null;
-  // News only: a lasting effect's later-year notes are for Events so far.
-  const news = (eventNewsByYear(played).get(latest.yearNumber) ?? []).filter(n => !n.continuing);
+  const news = eventNewsByYear(played).get(latest.yearNumber) ?? [];
   if (news.length === 0) return null;
   const year = startingYear + latest.yearNumber - 1;
   return (
@@ -68,10 +67,9 @@ export function EventsPanel({ played, startingYear }: { played: ResultSet[]; sta
         <h3 className="text-sm font-semibold text-gray-800">Events so far</h3>
         <ul className="mt-1.5 space-y-1 text-sm text-gray-700">
           {rows.map(({ year, n }) => (
-            <li key={`${year}-${n.key}`} data-testid="events-panel-item" data-continuing={n.continuing ? 'true' : undefined}>
+            <li key={`${year}-${n.key}`} data-testid="events-panel-item">
               <span className="font-mono text-gray-500">{year}</span>{' '}
               <span className="font-medium">{n.label}</span>
-              {n.continuing && <span className="text-gray-500"> (since {startingYear + n.continuing.sinceYear - 1})</span>}
               {' '}— {n.description}{n.lasting ? ` ${n.lasting}` : ''}{' '}
               <span className="text-gray-500">({n.affects ? 'investments' : linesText(n)})</span>
             </li>

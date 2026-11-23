@@ -237,20 +237,21 @@ export function eventSentence(ev: YearEvent): string {
 // them; the news read only yearEvents, so neither was ever told. They are now
 // read from the year's records in the year they fire.
 //
-// ⚠ AN EFFECT THAT LASTS IS SAID TO (pr/shock-events-display). An event whose
-// map row has an R (Nuclear Verdict, Social Inflation) also raises the line's
-// OLDER claims, for as long as the catalogue keeps it in force (its duration,
-// fading at the decay): the banner adds a line saying so, and Events so far a
-// note in each later year it is still in force. Read from the catalogue, so the
-// words cannot claim more years than the engine runs.
+// ⚠ AN EFFECT ON OLDER CLAIMS IS SAID, NEVER HOW LONG (pr/shock-events-
+// display). An event whose map row has an R (Nuclear Verdict, Social
+// Inflation) also raises the line's OLDER claims: the banner and Events so far
+// add a line saying so. Players are not told how long any effect lasts, so no
+// player text gives a duration ("this year alone", "three years", "for the
+// rest of the game") and no later year carries a note while an effect is in
+// force — that would tell them when it ends. Member Withdrawal's "from next
+// year" says when it starts, not how long. Hosts keep the full details
+// (the schedule, Charts' Events key).
 // ============================================================================
 
 /** The lines' words in a sentence: "liability", "workers' compensation", "property". */
 const LINE_WORDS: Readonly<Record<CoverageLine, string>> = {
   GL: 'liability', WC: "workers' compensation", Property: 'property',
 };
-const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
-const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 const andList = (xs: readonly string[]) =>
   xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
 
@@ -280,25 +281,26 @@ export const EVENT_DESCRIPTIONS: Readonly<Record<string, (region?: Region) => st
   'Wildfire': r =>
     `A wildfire spreads, burning buildings and land. Its large property claim lands ${landsIn(r)}, `
     + 'and property costs rise across the whole line, not only in that region.',
-  // ⚠ BOTH AS #94 LEFT THEM (pr/legislation-step): from the year either fires
-  // to the end of the game its line's older claims develop further
-  // (EVENT_DEVELOPMENT_STEP), so the player is told so — not how much.
+  // ⚠ NO DURATION (pr/shock-events-display). From the year either fires to the
+  // end of the game its line's older claims develop further
+  // (EVENT_DEVELOPMENT_STEP). The player is told that older claims cost more —
+  // not how much, and not for how long; #94's "for the rest of the game" is gone.
   'Legislation Change': () =>
     'A change in the law widens what liability claims can recover. A large claim is brought under the new law, '
-    + 'and older liability claims will keep costing more for the rest of the game.',
+    + 'and older liability claims will also cost more.',
   'Workers Compensation Legislation: Increased Medical Fee Schedule': () =>
     "A new medical fee schedule raises what workers' compensation pays for injured workers' care. This year's WC "
-    + 'claims cost more, and older WC claims will keep costing more for the rest of the game.',
+    + 'claims cost more, and older WC claims will also cost more.',
   'Economic Recession': () =>
     "A recession takes hold, and members and their workforces feel it: this year's workers' compensation and "
-    + 'liability claims cost more. The effect is felt in this year alone.',
+    + 'liability claims cost more.',
   'Nuclear Verdict': () => 'A jury returns an exceptionally large award in a liability lawsuit: one very large liability claim this year.',
   'Social Inflation': () =>
     "Juries and claimants push liability awards and settlements higher: this year's liability claims cost more, "
     + 'and a large liability claim is brought.',
   'Pandemic': () =>
     "A pandemic spreads and illness among workers rises: this year's workers' compensation claims cost more and bring "
-    + 'a large claim, and a large liability claim is brought over the illness. The effect is felt in this year alone.',
+    + 'a large claim, and a large liability claim is brought over the illness.',
   'Economic Inflation': () => 'Prices rise quickly, and the cost of settling claims rises with them.',
   'Large Investment Loss': () => 'Financial markets fall: investment returns fall sharply this year.',
   'Large Member Withdrawal': () =>
@@ -326,13 +328,8 @@ export interface EventNews {
   lines: CoverageLine[];
   /** What it touched where that is not the lines — Investment Loss: "your pool's invested assets". */
   affects?: string;
-  /** The banner's second line for an effect that lasts — older claims growing (Nuclear Verdict, Social Inflation). */
+  /** The banner's second line for an effect on older claims (Nuclear Verdict, Social Inflation) — never how long it lasts. */
   lasting?: string;
-  /**
-   * Set on an Events so far NOTE, not news: a lasting effect still in force in
-   * a later year — the year the event began. Never on the banner.
-   */
-  continuing?: { sinceYear: number };
 }
 
 const NEWS_LINE_ORDER: readonly CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -354,21 +351,25 @@ function lastingLines(shockId: string, teamLines: readonly CoverageLine[]): Cove
   return NEWS_LINE_ORDER.filter(l => teamLines.includes(l) && rows.some(r => r.line === l));
 }
 
-/** The banner's line for an effect that lasts — from the catalogue's duration, so never longer than the engine runs it. */
+/**
+ * The banner's line for an effect on older claims (its R on the map).
+ * ⚠ NO DURATION (pr/shock-events-display): players are not told how long an
+ * effect lasts, so neither line says it. The catalogue's duration still picks
+ * the wording (an effect within its own year, or one that carries on), but
+ * neither phrase gives a length. Hosts keep the full details.
+ */
 function lastingText(shockId: string, lines: readonly CoverageLine[]): string | undefined {
   const e = catalogueOf(shockId);
   if (!e || lines.length === 0) return undefined;
   const words = andList(lines.map(l => LINE_WORDS[l]));
-  if (e.duration <= 1) return `It also makes older ${words} claims grow, in this year only.`;
-  const more = e.duration - 1;
-  return `Older ${words} claims will keep growing for ${numberWord(e.duration)} years: this year and the next`
-    + `${more === 1 ? '' : ` ${numberWord(more)}`}, a little less each year.`;
+  return e.duration <= 1 ? `It also makes older ${words} claims grow.` : `Older ${words} claims will also grow.`;
 }
 
 /**
  * EACH EVENT AS NEWS, IN THE FIRST YEAR IT TOUCHES THE TEAM: played years
- * (yearNumber >= 1) in order -> the events new that year, and the notes for
- * lasting effects still in force (`continuing`; Events so far only). An event
+ * (yearNumber >= 1) in order -> the events new that year. No later-year note
+ * for an effect still in force: that would tell the player when it ends
+ * (pr/shock-events-display). An event
  * is its key and the year it began (`sinceYear`, or the year itself), so one
  * that is still in force is not repeated, a second firing of the same event is
  * news again, and one whose effect starts a year late is told the first year
@@ -409,25 +410,6 @@ export function eventNewsByYear(results: readonly AnyResult[]): Map<number, Even
       seen.add(id);
       const affects = OFF_MAP_AFFECTS[e.name];
       told(rec.shockId, shockName(rec), shockName(rec), undefined, affects ? [] : lines, affects);
-    }
-    // A lasting effect still in force from an earlier year: a note, never news.
-    for (const rec of recs) {
-      if (rec.yearFired >= r.yearNumber) continue;
-      const e = catalogueOf(rec.shockId);
-      if (!e || r.yearNumber - rec.yearFired >= e.duration) continue;
-      const lines = lastingLines(rec.shockId, recordLines(rec));
-      if (lines.length === 0) continue;
-      const id = `${rec.shockId}|${rec.yearFired}|${r.yearNumber}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      news.push({
-        key: `${rec.shockId}@${rec.yearFired}`,
-        label: shockName(rec),
-        description: `Older ${andList(lines.map(l => LINE_WORDS[l]))} claims are still growing: year `
-          + `${r.yearNumber - rec.yearFired + 1} of ${e.duration}.`,
-        lines,
-        continuing: { sinceYear: rec.yearFired },
-      });
     }
     out.set(r.yearNumber, news);
   }
