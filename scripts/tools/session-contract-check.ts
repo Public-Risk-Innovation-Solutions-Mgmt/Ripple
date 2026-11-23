@@ -988,12 +988,16 @@ async function main(): Promise<void> {
       await t.join({ code, teamName: TEAMS[1], role: 'player' }),
       await t.join({ code, teamName: TEAMS[2], role: 'player' }),
     ];
-    // A team's posted figures: WC exposure x, GL exposure 2x, premium 0.1x.
+    // A team's posted figures: WC exposure x, GL exposure 2x, and a premium NOT
+    // in proportion (0.1x plus a fixed 5M). ⚠ THE FIXED PART IS THE POINT
+    // (pr/pool-share-average): the pool share is the average of the line shares,
+    // and with premium in proportion to exposure the old premium share gave the
+    // same numbers, so nothing here could tell the two apart.
     const post = (year: number, x: number): TeamYearSummary => {
       const s = summaryFor(year, 1_000_000, LINES2);
       s.byLine.WC = { ...s.byLine.WC!, activeExposure: x };
       s.byLine.GL = { ...s.byLine.GL!, activeExposure: 2 * x };
-      s.pool = { ...s.pool, poolPremium: x * 100_000 };
+      s.pool = { ...s.pool, poolPremium: x * 100_000 + 5_000_000 };
       return s;
     };
     const near = (v: number | undefined, want: number, what: string) =>
@@ -1010,7 +1014,7 @@ async function main(): Promise<void> {
     for (const name of TEAMS) {
       near(m?.byTeam[name]?.byLine.WC, 1 / 3, `opening: ${name} holds a third of the room's WC`);
       near(m?.byTeam[name]?.byLine.GL, 1 / 3, `opening: ${name} holds a third of the room's GL`);
-      near(m?.byTeam[name]?.pool, 1 / 3, `opening: ${name} holds a third of the room's premium`);
+      near(m?.byTeam[name]?.pool, 1 / 3, `opening: ${name}'s pool share is the average of its line shares, a third`);
     }
 
     // Year 1: all three lock; the advance; all three post. Year 1 is the year
@@ -1030,12 +1034,12 @@ async function main(): Promise<void> {
     eq(m?.year, 1, 'the advance into year 3 alone changes nothing: year 2 has no results yet');
     near(m?.byTeam[TEAMS[0]]?.byLine.WC, 120 / 300, 'year 1: own WC exposure / the room\'s');
     near(m?.byTeam[TEAMS[0]]?.byLine.GL, 240 / 600, 'year 1: own GL exposure / the room\'s');
-    near(m?.byTeam[TEAMS[1]]?.pool, 9 / 30, 'year 1: own premium / the room\'s');
+    near(m?.byTeam[TEAMS[1]]?.pool, (90 / 300 + 180 / 600) / 2, 'year 1: the pool share is the average of the line shares, not the premium share');
     near(Object.values(m!.byTeam).reduce((x, v) => x + v.pool, 0), 1, 'year 1: the pool shares sum to 100%');
 
     // A player sees its own share and nothing of another team's.
     const asA = await t.read({ code, token: a.teamToken });
-    near(asA.you.marketShare?.pool, 12 / 30, 'a player reads its own pool share');
+    near(asA.you.marketShare?.pool, (120 / 300 + 240 / 600) / 2, 'a player reads its own pool share, the average of its line shares');
     eq(asA.you.marketShare?.year, 1, 'and the year it is from');
     eq(asA.room.marketShares, undefined, 'a player gets no RoomView.marketShares');
     ok(asA.room.teams.filter(x => x.name !== TEAMS[0]).every(x => x.resultsByYear === undefined),
@@ -1074,7 +1078,7 @@ async function main(): Promise<void> {
     m = await shares();
     eq(m?.year, 3, 'once the game is over, the newest complete year shows');
     near(m?.byTeam[TEAMS[2]]?.byLine.WC, 80 / 350, 'the stopped team stays in the totals on its newest post');
-    near(m?.byTeam[TEAMS[2]]?.pool, 8 / 35, 'and on the pool, by premium');
+    near(m?.byTeam[TEAMS[2]]?.pool, (80 / 350 + 160 / 700) / 2, 'and on the pool, the average of its line shares');
     for (const [p, x] of [[a, 170], [b, 120]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 4, result: post(4, x) });
     eq((await shares())?.year, 4, 'and the final year shows when it completes');
   }

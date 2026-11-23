@@ -731,7 +731,8 @@ const decisionsRowCount = (t: DecisionsTable) => 4 + t.rows.length;
  * place of the rows (a room's standings for another year): the note, then the
  * tab's. Rows of the sheet it occupies: 5 + the table's rows.
  */
-const surveyRowCount = (t: MarketSurveyTable) => 5 + t.rows.length;
+// A hosted game's Pool view adds the share note on the row after the tab's note (MarketSurveyTable.shareNote).
+const surveyRowCount = (t: MarketSurveyTable) => 5 + t.rows.length + (t.shareNote ? 1 : 0);
 function surveyDiffs(ws: XLSX.WorkSheet, t: MarketSurveyTable): string[] {
   const out: string[] = [];
   const T = expectedRows.length;
@@ -754,6 +755,7 @@ function surveyDiffs(ws: XLSX.WorkSheet, t: MarketSurveyTable): string[] {
     });
   });
   if (labelAt(ws, h + 1 + t.rows.length) !== t.footnote) out.push(`row ${h + 2 + t.rows.length}: the tab's note missing`);
+  if (t.shareNote && labelAt(ws, h + 2 + t.rows.length) !== t.shareNote) out.push(`row ${h + 3 + t.rows.length}: the pool share's note missing`);
   return out;
 }
 function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable, survey?: MarketSurveyTable): string[] {

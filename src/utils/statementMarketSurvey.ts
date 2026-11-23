@@ -25,7 +25,7 @@
 // ============================================================================
 
 import { buildStandings } from '../session/standings';
-import { rateLines, reportingYearOf, rowState, shareOf, shareText } from '../session/standingsRows';
+import { POOL_SHARE_NOTE, rateLines, reportingYearOf, rowState, shareOf, shareText } from '../session/standingsRows';
 import { summarize } from '../session/client/results';
 import { gameHistory } from './gameHistory';
 import { lineDisplayName } from './lineDisplay';
@@ -82,6 +82,14 @@ export interface MarketSurveyTable {
   note?: string;
   /** The tab's note under the table. */
   footnote: string;
+  /**
+   * How the pool's market share is worked out (POOL_SHARE_NOTE), under the
+   * footnote — on the Pool's statement of a hosted game, the only place a room
+   * share is shown. Its own line in the Excel file and the PDF, so the
+   * footnote does not run longer and print smaller. Absent in single player and
+   * Test player, which have no room and show no share.
+   */
+  shareNote?: string;
 }
 
 const absentText = (view: string) => `does not write ${view === 'pool' ? '' : view}`;
@@ -147,6 +155,7 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
       reportingYear < 0 ? 'Combined ratio' : `Combined ratio ${calendar}`, 'Net surplus', 'Market share'],
     rows,
     ...(note ? { note } : {}),
+    ...(standings && view === 'pool' && !note ? { shareNote: POOL_SHARE_NOTE } : {}),
     footnote: (view === 'pool'
       ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
       : `Every figure is ${view}, so the column compares like with like.`)
