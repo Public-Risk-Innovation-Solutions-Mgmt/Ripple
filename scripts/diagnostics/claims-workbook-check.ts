@@ -217,8 +217,8 @@ for (const arm of ARMS) {
       const iStatus = header.indexOf('Status');
       const iOcc = header.indexOf('Occurrence ID');
       // THE EVENT COLUMN. These games schedule nothing, so the only events are
-      // DRAWN catastrophes: a Property row of the cat band names one ("Earthquake
-      // — Central region" or "Catastrophe — ..."), and every other row is blank.
+      // DRAWN catastrophes: a Property row of the cat band names one by its name
+      // alone ("Earthquake" or "Catastrophe", no region), and every other row is blank.
       // shock-check covers the scheduled side and the label's equality across it.
       const iEvent = header.indexOf('Event');
       const iBand = header.indexOf(line === 'Property' ? 'Band' : 'Component');
@@ -265,7 +265,9 @@ for (const arm of ARMS) {
           const isCat = line === 'Property' && r[iBand] === 'cat';
           if (isCat) {
             s.eventRows++;
-            if (!/^(Earthquake|Catastrophe) — (North|Central|South) region$/.test(ev)) {
+            // ⚠ THE NAME ALONE (pr/event-wording): players are not told where a
+            // regional event struck, so the Event column carries no region.
+            if (!/^(Earthquake|Catastrophe)$/.test(ev)) {
               fail(`${arm.name} g${g} ${line} row ${i}: a catastrophe claim's Event reads "${ev}"`);
             }
           } else if (ev !== '') {
