@@ -32,6 +32,7 @@ import { lineDisplayName } from './lineDisplay';
 import { ordinal, rippleScoreRanks } from './rippleScore';
 import { formatCurrency, formatPct } from './formatters';
 import type { RoomMarketShares, StandingTeam } from '../session/contract';
+import { teamDisplayName } from '../session/contract';
 import type { GameState } from '../types/simulation';
 import type { TemplateStatement } from './annualStatementTemplate';
 
@@ -118,7 +119,7 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
     const state = rowState(t, view, reportingYear);
     const base = {
       teamNumber: standings ? `Team ${t.teamNumber}` : '—',
-      team: t.name,
+      team: teamDisplayName(t),
       own: !!standings?.ownTeam && t.name === standings.ownTeam,
       marketShare: shareText(shareOf(shares, t.name, view), reportingYear, startingYear),
     };

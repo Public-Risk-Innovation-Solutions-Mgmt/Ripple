@@ -132,6 +132,8 @@ export interface GameShellProps {
    * shows no market share anywhere.
    */
   roomMarketShare?: TeamMarketShareOfYear | null;
+  /** A hosted team's number, for the top bar's "Team N | name" (Header.teamNumber). */
+  teamNumber?: number;
   /**
    * Whether the Year Walkthrough — on screen and in the Results download — may
    * show the scenario's fixed seed. ⚠ TEST PLAYER ONLY: single player and a
@@ -175,7 +177,7 @@ export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed, marketSurvey, statementStandings,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, teamNumber, showSeed, marketSurvey, statementStandings,
   lineActivity, onLineReviewed,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
@@ -257,6 +259,7 @@ export default function GameShell({
         // line is being decided, shows that line's. The bar names which it shows.
         lineView={shownTab === 'decisions' ? lineView : 'pool'}
         roomMarketShare={roomMarketShare}
+        teamNumber={teamNumber}
       />
 
       {isStarted && (

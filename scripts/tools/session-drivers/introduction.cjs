@@ -166,7 +166,10 @@ async function checkUnderwriting(page, s, mode) {
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
   await host.fill('[data-testid="event-name"]', 'Introduction');
-  await host.fill('[data-testid="pool-name"]', 'Harbour Public Entity Pool');
+  // RESTATED (wip/team-chosen-names): the host is no longer asked for a pool
+  // name — each team names its own pool at join, and the memo greets it by it.
+  ok(await host.locator('[data-testid="pool-name"]').count() === 0 && await host.locator('[data-testid="pool-name-note"]').count() === 1,
+    'hosted: the host is not asked for a pool name; the form says each team names its own');
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '3');
   await host.fill('[data-testid="expected-teams"]', '1');
@@ -184,8 +187,8 @@ async function checkUnderwriting(page, s, mode) {
   const ht = await h.titles();
   ok(JSON.stringify(ht) === JSON.stringify(DOCS), 'hosted: the Introduction tab lists the four memos, in order', ht.join(' | '));
   await h.investment('before year 1');
-  const hostedMemo = await checkWelcome(team, h, 'hosted', 'Harbour Public Entity Pool');
-  ok(!hostedMemo.includes('Introduction'), 'hosted: the memo names the pool, never the event');
+  const hostedMemo = await checkWelcome(team, h, 'hosted', 'Harbour Mutual');
+  ok(!hostedMemo.includes('Introduction'), "hosted: the memo names the team's own pool, never the event");
   await checkMemoHeaders(team, h, 'hosted');
   await checkUnderwriting(team, h, 'hosted');
 

@@ -170,6 +170,7 @@ import type {
   SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   EditGameRequest, EditGameResponse,
+  RenameTeamRequest, RenameTeamResponse,
   SessionErrorCode,
   SessionTransport,
   SubmitRequest, SubmitResponse,
@@ -293,6 +294,10 @@ export class HttpSessionTransport implements SessionTransport {
 
   editGame(req: EditGameRequest): Promise<EditGameResponse> {
     return this.call('editGame', req);
+  }
+
+  renameTeam(req: RenameTeamRequest): Promise<RenameTeamResponse> {
+    return this.call('renameTeam', req);
   }
 
   // ---- the one place a request becomes a request ------------------------

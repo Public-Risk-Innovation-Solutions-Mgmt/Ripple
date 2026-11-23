@@ -43,6 +43,8 @@ const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 /** One team as the header's roster holds it. Keyed by teamId in the map. */
 export interface RosterEntry {
   name: string;
+  /** The host's rename (renameTeam) — what every screen shows. Absent until renamed. */
+  displayName?: string;
   lines: CoverageLine[];
   joined: boolean;
   lockedYear: number | null;
@@ -106,6 +108,8 @@ export interface RoomHeader {
   eventName: string;
   /** The pool's name. ⚠ Optional on the item: a header written before it existed reads the event name. */
   poolName?: string;
+  /** Each team names its own pool (RoomView.teamPoolNames). ⚠ Absent on a header written before it existed. */
+  teamPoolNames?: boolean;
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
@@ -243,6 +247,7 @@ export function buildTeamView(
 ): TeamView {
   return {
     name: entry.name,
+    ...(entry.displayName !== undefined ? { displayName: entry.displayName } : {}),
     teamNumber,
     lines: [...entry.lines],
     joined: entry.joined,
@@ -264,6 +269,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     seed: header.seed,
     eventName: header.eventName,
     poolName: header.poolName || header.eventName,
+    ...(header.teamPoolNames ? { teamPoolNames: true } : {}),
     yearCount: header.yearCount,
     startingYear: header.startingYear,
     expectedTeams: header.expectedTeams,
@@ -294,7 +300,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
         const { byTeam } = rosterNumbers(header);
         return buildStandings(
           orderedRoster(header).map(([teamId, entry]) => ({
-            name: entry.name, teamNumber: byTeam.get(teamId) ?? entry.teamNumber ?? 0, lines: entry.lines,
+            name: entry.name, displayName: entry.displayName, teamNumber: byTeam.get(teamId) ?? entry.teamNumber ?? 0, lines: entry.lines,
             results: fetched.standings!.get(teamId),
           })),
           header.currentYear,

@@ -134,6 +134,7 @@ import type {
   SaveDraftRequest, SaveDraftResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   EditGameRequest, EditGameResponse,
+  RenameTeamRequest, RenameTeamResponse, GameEdit,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
@@ -143,6 +144,7 @@ import type {
 import {
   SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
   normalizeRecoveryCode, eventStatusOf, mayCreateTeam,
+  teamNameProblem, teamNameTaken, sameTeamName, teamDisplayName,
 } from '../contract';
 import { Faults } from '../faults';
 import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
@@ -645,6 +647,8 @@ export class DynamoSessionTransport implements SessionTransport {
           seed: req.seed,
           eventName: req.eventName,
           ...(poolName ? { poolName } : {}),
+          // Each team names its own pool at join (RoomView.teamPoolNames).
+          teamPoolNames: true,
           yearCount: req.yearCount,
           startingYear: req.startingYear,
           expectedTeams: req.expectedTeams,
@@ -775,7 +779,15 @@ export class DynamoSessionTransport implements SessionTransport {
         // exactly as it did before a PIN could ever reach this method.
         const found = resolvedTeamId
           ? (header.roster?.[resolvedTeamId] ? ([resolvedTeamId, header.roster[resolvedTeamId]] as const) : null)
-          : Object.entries(header.roster ?? {}).find(([, t]) => t.name === name) ?? null;
+          // ⚠ THE EXACT NAME FIRST, THEN THE SAME NAME IN ANY CASE OR A RENAMED
+          // DISPLAY NAME (wip/team-chosen-names), as localTransport. A creating
+          // join that loses to another taking the same name in another case is
+          // safe: the roster write below is conditioned on the team counter, so
+          // the loser re-reads, finds the winner here and answers TEAM_TAKEN.
+          : Object.entries(header.roster ?? {}).find(([, t]) => t.name === name)
+            ?? Object.entries(header.roster ?? {}).find(([, t]) => sameTeamName(t.name, name!)
+              || (t.displayName !== undefined && sameTeamName(t.displayName, name!)))
+            ?? null;
         const [teamId, team] = found ?? [null, null];
         const pk = roomPk(code);
 
@@ -835,7 +847,7 @@ export class DynamoSessionTransport implements SessionTransport {
             // field existed.
             return { teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
           }
-          throw new SessionError('TEAM_TAKEN', `A team called ${team.name} is already in this room.`);
+          throw new SessionError('TEAM_TAKEN', `A team called ${teamDisplayName(team)} is already in this room.`);
         }
 
         // ---- a player creating its team -----------------------------------
@@ -860,6 +872,10 @@ export class DynamoSessionTransport implements SessionTransport {
         // was checked once when the host created the room. A stale client still
         // sending `lines` is ignored rather than refused, as the contract asks.
         const lines = [...(header.lines ?? LINE_ORDER)];
+        // ⚠ THE POOL NAME RULES (teamNameProblem): 3 to 30 characters, on
+        // CREATING a team only; uniqueness in any case was settled above.
+        const nameProblem = teamNameProblem(name as string);
+        if (nameProblem) throw new SessionError('INVALID_REQUEST', nameProblem);
         if (req.token) await this.assertTokenFree(header, req.token);
         const token = req.token ?? newSessionToken();
         const h = hashToken(token);
@@ -1071,7 +1087,8 @@ export class DynamoSessionTransport implements SessionTransport {
         // ⚠ A DEFENSIVE CROSS-CHECK, NOT THE NORMAL PATH — see contract.ts.
         // The real `/claim/<code>/<handoffToken>` link carries no teamName at
         // all; this only matters for a caller that supplied one anyway.
-        if (req.teamName !== undefined && req.teamName.trim() !== entry.name) {
+        if (req.teamName !== undefined && !sameTeamName(req.teamName, entry.name)
+          && !(entry.displayName !== undefined && sameTeamName(req.teamName, entry.displayName))) {
           throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link does not match the team named.');
         }
         teamId = item.teamId;
@@ -1086,10 +1103,13 @@ export class DynamoSessionTransport implements SessionTransport {
         // recovery-code attempt for the very same team.
       } else {
         const name = requireString(req.teamName, 'teamName').trim();
-        // Exact, case-sensitive match — the same lookup join() uses for a
-        // name-based join. A looser rule here only for reclaim would let two
-        // names distinct under join collide under reclaim.
-        const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+        // THE SAME LOOKUP join() USES (wip/team-chosen-names): the joined name
+        // exactly, else in any case or as the host renamed it. A different rule
+        // here than at join would let two names distinct under one collide
+        // under the other.
+        const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name)
+          ?? Object.entries(header.roster ?? {}).find(([, t]) => sameTeamName(t.name, name)
+            || (t.displayName !== undefined && sameTeamName(t.displayName, name)));
         if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
         [teamId, team] = found;
 
@@ -1809,6 +1829,83 @@ export class DynamoSessionTransport implements SessionTransport {
         return { room: view.room, edits: out.edits, lockedTeams };
       }
       throw lastFailure ?? new SessionError('TRANSPORT_FAILURE', 'The room kept changing under this edit.', true);
+    });
+  }
+
+  renameTeam(req: RenameTeamRequest): Promise<RenameTeamResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const target = requireString(req.teamName, 'teamName').trim();
+      const newName = requireString(req.newName, 'newName').trim();
+      const h = hashToken(req.token);
+      // ⚠ READ, DECIDE, THEN WRITE CONDITIONED ON THE ROOM'S rev, as editGame —
+      // and CLAIM THE NEW NAME'S NAME# ITEM in the same transaction, the claim a
+      // creating join takes, so a team joining under that exact name at the same
+      // moment cannot also have it. The old display name's claim is released.
+      let lastFailure: SessionError | null = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const header = await this.getHeader(code);
+        if (header.hostTokenHash !== h) throw new SessionError('NOT_HOST', 'Only the host may rename a team.');
+        const roster = Object.entries(header.roster ?? {});
+        const found = roster.find(([, t]) => t.name === target)
+          ?? roster.find(([, t]) => sameTeamName(t.name, target) || (t.displayName !== undefined && sameTeamName(t.displayName, target)));
+        if (!found) throw new SessionError('TEAM_NOT_FOUND', `${target} is not a team in this room.`);
+        const [teamId, team] = found;
+        const problem = teamNameProblem(newName);
+        if (problem) throw new SessionError('INVALID_REQUEST', problem);
+        const shown = teamDisplayName(team);
+        if (newName === shown) {
+          const view = await this.viewFor(header, 'host', null);
+          return { room: view.room };
+        }
+        if (teamNameTaken(roster.map(([, t]) => t), newName, team)) {
+          throw new SessionError('TEAM_TAKEN', `A team called ${newName} is already in this room.`);
+        }
+        const { byTeam } = rosterNumbers(header);
+        const edit: GameEdit = {
+          at: Date.now(), by: 'Host', yearNumber: Math.min(header.currentYear, header.yearCount),
+          kind: 'team-renamed', teamNumber: byTeam.get(teamId) ?? team.teamNumber ?? 0, fromName: shown, toName: newName,
+        };
+        const pk = roomPk(code);
+        const backToJoined = newName === team.name;
+        const items: TransactItem[] = [
+          { Update: {
+            TableName: this.db.table,
+            Key: { pk, sk: ROOM_HEADER_SK },
+            UpdateExpression: (backToJoined ? 'REMOVE roster.#tid.displayName ' : 'SET roster.#tid.displayName = :n ')
+              + (backToJoined ? 'SET ' : ', ') + 'editHistory = :hist, updatedAt = :now ADD rev :one',
+            ConditionExpression: 'attribute_exists(sk) AND hostTokenHash = :h AND rev = :rev',
+            ExpressionAttributeNames: { '#tid': teamId },
+            ExpressionAttributeValues: {
+              ...(backToJoined ? {} : { ':n': newName }),
+              ':hist': [...(header.editHistory ?? []), edit],
+              ':now': Date.now(), ':one': 1, ':h': h, ':rev': header.rev,
+            },
+          } },
+        ];
+        // The new name's claim (none needed going back to the joined name, whose claim the team holds).
+        if (!backToJoined) {
+          items.push({ Put: {
+            TableName: this.db.table,
+            Item: { pk, sk: nameSk(newName), teamId, expiresAtSec: header.expiresAtSec },
+            ConditionExpression: 'attribute_not_exists(sk)',
+          } });
+        }
+        // The old display name's claim, freed (never the joined name's).
+        if (team.displayName !== undefined && team.displayName !== team.name) {
+          items.push({ Delete: { TableName: this.db.table, Key: { pk, sk: nameSk(team.displayName) } } });
+        }
+        const tx = await this.transact(items);
+        if (!tx.ok) {
+          if (tx.failed.includes(1)) throw new SessionError('TEAM_TAKEN', `A team called ${newName} is already in this room.`);
+          lastFailure = new SessionError('TRANSPORT_FAILURE', 'The room changed while the team was being renamed.', true);
+          continue;
+        }
+        const fresh = await this.getHeader(code);
+        const view = await this.viewFor(fresh, 'host', null);
+        return { room: view.room, edit };
+      }
+      throw lastFailure ?? new SessionError('TRANSPORT_FAILURE', 'The room kept changing under this rename.', true);
     });
   }
 

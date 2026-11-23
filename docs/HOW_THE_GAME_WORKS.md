@@ -57,7 +57,7 @@ add, reset, disable or delete other admins.
 | Setting | Default | Notes |
 |---|---|---|
 | Event name | — | required |
-| Pool name | the event name | |
+| Pool name | — | not asked: each team names its own pool when it joins (below). A room created before this keeps its host-set pool name for every team |
 | Scenario (seed) | random 1–20 | the server accepts only 1–20 |
 | Years | 5 | 1–20 on the form |
 | First program year | 2027 | |
@@ -76,12 +76,25 @@ replays, rejoins and Edit game read it unchanged, and its change history opens w
 ("Starting settings for 2028: adverse development WC High · GL Low"). A Simple room stores nothing by year and
 opens with no history, as before. Test player's Advanced setup works the same way, its history reading "Test player".
 
-**Joining.** A team opens the join link, types a name and joins. Teams are numbered in join order ("Team 1 |
-Harbour Mutual"). Each new team is shown, once, a 6-digit viewer PIN and a 4-digit recovery code. Teams can join
-until the host's first advance; after that only rejoins and viewers.
+**Joining.** A team opens the join link, types its **pool's name** and joins. The name is trimmed, 3 to 30
+characters, and must differ from every other team's in the room regardless of case ("Harbour Mutual" and
+"harbour mutual" are one name); the join screen says so as it is typed, and the server refuses it otherwise. It is
+the team's pool name: the team's own game calls its pool by it (welcome memo, statements, downloads) and its top bar
+reads "Team 1 | Harbour Mutual". Teams are numbered in join order, and every screen pairs the number with the name:
+viewers, the Market Survey and the Annual Statement's Market Survey section (screen, Excel and PDF), and the host's
+Teams, Decisions and Charts tabs. Each new team is shown, once, a 6-digit viewer PIN and a 4-digit recovery code.
+Teams can join until the host's first advance; after that only rejoins and viewers.
 
-- **Recovery code** + team name moves the team to another device and signs the old one out. Five wrong tries in
-  15 minutes lock it for a while.
+- **Renaming a team.** The host's Teams tab has a rename button on each row (e.g. for an inappropriate name). The
+  new name follows the same rules, shows everywhere at once (the team's own game rebuilds under it on its next
+  poll, every played year unchanged), and the change history records it ("Renamed Team 1: Harbour Mutual →
+  Bayside Pool"). The team keeps the name it joined with as its handle: its rejoin, recovery code, viewers and
+  results are untouched, and a rejoin, a viewer or a recovery may give either name in any case. Renaming back to
+  the joined name clears the rename.
+- **Older rooms** (created before teams named their pools) keep their host-set pool name for every team and their
+  teams' names as they are, whatever their length.
+- **Recovery code** + team name moves the team to another device and signs the old one out (the name it joined
+  with or its renamed name, in any case). Five wrong tries in 15 minutes lock it for a while.
 - **Device hand-off:** the host's Teams tab shows a QR code and link ("Move to new device") that works once, for
   10 minutes, and issues a new recovery code.
 

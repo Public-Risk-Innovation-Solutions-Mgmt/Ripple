@@ -32,6 +32,8 @@ interface HeaderProps {
    * none), and the chip is left out. Absent (single player): no chip.
    */
   roomMarketShare?: TeamMarketShare | null;
+  /** A hosted team's number, shown before its pool name — "Team 3 | Harbour Mutual" (a room where each team names its pool). */
+  teamNumber?: number;
 }
 
 /** Today's logo height, the bar's size once scrolled and on a phone. */
@@ -80,7 +82,7 @@ function useBarFit(row: React.RefObject<HTMLDivElement | null>, left: React.RefO
   return fit;
 }
 
-export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
+export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare, teamNumber }: HeaderProps) {
 
   // ============================================================================
   // THE COMBINED RATIO OF THE NEWEST YEAR, READ OFF THE ANNUAL STATEMENT, AND
@@ -174,7 +176,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
                 does. The pool-name branch is untouched — it names the game
                 in progress, not the product, and stays that way on rename. */}
             {isStarted ? (
-              <span className="text-slate-300 text-sm truncate min-w-0">{poolName}</span>
+              <span data-testid="header-pool-name" className="text-slate-300 text-sm truncate min-w-0">{teamNumber !== undefined ? `Team ${teamNumber} | ${poolName}` : poolName}</span>
             ) : (
               <span className="text-slate-300 text-sm truncate min-w-0">Every decision creates impact.</span>
             )}

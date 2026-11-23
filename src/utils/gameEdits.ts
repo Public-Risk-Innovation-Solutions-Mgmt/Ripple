@@ -49,14 +49,19 @@ export interface GameEdit {
   /** Who made it: 'Host' in a room, 'Test player' in a Test player game. */
   by: string;
   yearNumber: number;
-  /** 'start': the levels an ADVANCED setup chose for the year, written once at creation. */
-  kind: 'shock-added' | 'shock-removed' | 'development' | 'start';
+  /** 'start': the levels an ADVANCED setup chose for the year, written once at creation.
+   *  'team-renamed': the host renamed a team (renameTeam) — teamNumber, fromName, toName. */
+  kind: 'shock-added' | 'shock-removed' | 'development' | 'start' | 'team-renamed';
   shockId?: string;
   line?: CoverageLine;
   from?: DevelopmentSetting;
   to?: DevelopmentSetting;
   /** kind 'start' only: each played line's level that year. */
   levels?: LevelsByLine;
+  /** kind 'team-renamed' only: the team's number, the name it showed, and the new one. */
+  teamNumber?: number;
+  fromName?: string;
+  toName?: string;
 }
 
 /** What a game's settings are made of — the room's fields, or a Test player game's. */
@@ -203,6 +208,7 @@ export function describeEdit(e: GameEdit, calendarYearOf: (y: number) => number,
     const parts = LINE_ORDER.filter(l => e.levels?.[l] !== undefined).map(l => `${l} ${name(e.levels?.[l])}`);
     return `Starting settings for ${year}: adverse development ${parts.join(' · ')}`;
   }
+  if (e.kind === 'team-renamed') return `Renamed Team ${e.teamNumber ?? '?'}: ${e.fromName ?? '?'} → ${e.toName ?? '?'}`;
   if (e.kind === 'development') return `${e.line} adverse development in ${year}: ${name(e.from)} → ${name(e.to)}`;
   return `${e.kind === 'shock-added' ? 'Added' : 'Removed'} ${shockName(e.shockId ?? '')} in ${year}`;
 }

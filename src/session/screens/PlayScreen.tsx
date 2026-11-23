@@ -47,7 +47,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, SessionError as SessionErrorClass, type EventStatus } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, teamDisplayName, teamNameProblem, teamNameTaken, TEAM_NAME_MAX, TEAM_NAME_MIN, SessionError as SessionErrorClass, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
 import { navigate } from '../client/navigation';
@@ -242,6 +242,10 @@ export default function PlayScreen({ code, role }: Props) {
   // further down needs `locked` and hooks cannot follow a conditional return.
   // Null-safe: `room`/`you` are not yet known this early in a fresh mount.
   const myTeam = room?.teams.find(t => t.name === you?.teamName);
+  // What is wrong with the pool name being typed (the contract's rules), or
+  // another team already holding it in any case — null when it may be used.
+  const joinNameProblem = teamNameProblem(nameDraft)
+    ?? (room && teamNameTaken(room.teams, nameDraft) ? 'Another team in this room already has that name.' : null);
   const locked = myTeam?.locked ?? false;
 
   // ⚠ SET HERE, NEVER INFERRED FROM error ALONE — error.code is BAD_TOKEN for
@@ -532,7 +536,7 @@ export default function PlayScreen({ code, role }: Props) {
                     }}
                     className="w-full rounded-lg border border-blue-300 bg-white px-3 py-2 text-left text-sm text-blue-800"
                   >
-                    Resume as {c.teamName}
+                    Resume as {teamDisplayName(room?.teams.find(t => t.name === c.teamName) ?? { name: c.teamName })}
                   </button>
                 ))}
               </div>
@@ -628,15 +632,27 @@ export default function PlayScreen({ code, role }: Props) {
             </div>
           ) : (
             <div data-testid="team-picker" className="mt-4 space-y-4">
+              {/* ⚠ THE TEAM'S OWN POOL NAME (wip/team-chosen-names): the name
+                  its game calls its pool, and how the room shows it — "Team N |
+                  name". The rules are the contract's (teamNameProblem, free in
+                  the room in any case); the server checks them again. */}
               <label className="block">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Team name</span>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Your pool's name</span>
                 <input
                   data-testid="team-name"
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   placeholder="e.g. Harbour Mutual"
+                  maxLength={TEAM_NAME_MAX}
                   value={nameDraft}
                   onChange={e => setNameDraft(e.target.value)}
                 />
+                <span data-testid="team-name-help" className="mt-1 block text-xs text-black">
+                  {TEAM_NAME_MIN} to {TEAM_NAME_MAX} characters, different from every other team&rsquo;s. The room shows it as
+                  {' '}&ldquo;Team N | your name&rdquo;.
+                </span>
+                {nameDraft.trim().length > 0 && joinNameProblem && (
+                  <span data-testid="team-name-problem" className="mt-1 block text-xs text-red-700">{joinNameProblem}</span>
+                )}
               </label>
 
               {/* ⚠ SHOWN, NOT CHOSEN. This was a three-button picker and a
@@ -665,7 +681,7 @@ export default function PlayScreen({ code, role }: Props) {
               <button
                 type="button"
                 data-testid="join-team"
-                disabled={nameDraft.trim().length === 0 || claiming !== null}
+                disabled={joinNameProblem !== null || claiming !== null}
                 onClick={() => { void enter(nameDraft.trim()); }}
                 className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
               >
@@ -690,7 +706,7 @@ export default function PlayScreen({ code, role }: Props) {
       <div className="flex min-h-screen flex-col items-center justify-center text-slate-500">
         <Loader2 className="animate-spin" size={20} />
         <p className="mt-3 text-sm font-medium" data-testid="game-building">
-          Building {you.teamName}'s opening position…
+          Building {teamDisplayName(myTeam ?? { name: you.teamName ?? '' })}'s opening position…
         </p>
         <p className="mt-1 text-xs text-black">
           Three pre-game years are simulated in this browser, from the room's seed.
@@ -725,6 +741,8 @@ export default function PlayScreen({ code, role }: Props) {
       multiplayer
       // The team's share of the ROOM, its own figure only (CallerView).
       roomMarketShare={you.marketShare ?? null}
+      // The top bar's "Team N | name" — in a room where each team names its pool.
+      teamNumber={room.teamPoolNames ? myTeam?.teamNumber : undefined}
       // Every team's standing — the host's Teams table, read only, own row highlighted.
       marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
       // The Annual Statement's Market Survey section — the same standings, the same own row.
@@ -777,7 +795,7 @@ export default function PlayScreen({ code, role }: Props) {
                       Team {myTeam.teamNumber} |{' '}
                     </span>
                   )}
-                  <span data-testid="watched-team">{you.teamName}</span>
+                  <span data-testid="watched-team">{teamDisplayName(myTeam ?? { name: you.teamName ?? '' })}</span>
                 </span>
                 {/* ⚠ SHOWN, WITH NO CONTROL BESIDE IT. After the join the lines are
                     a fact about this team rather than a setting. */}

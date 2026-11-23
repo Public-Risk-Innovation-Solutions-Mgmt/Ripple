@@ -40,6 +40,7 @@ import { formatCurrency, formatPct } from '../../utils/formatters';
 import { clfFor } from '../../utils/fundingConsequence';
 import type { CoverageLine } from '../../types/simulation';
 import type { RoomView, TeamLineDecisions, TeamView, TeamYearSummary } from '../index';
+import { teamDisplayName } from '../contract';
 
 // The dividend and the assessment, in dollars. A record posted before they were
 // dollars carries dividendPct/assessmentPct instead, and reads as none.
@@ -251,7 +252,7 @@ export default function HostDecisionsTab({ room }: Props) {
                       onClick={() => setOpenTeam(open ? null : team.name)}
                     >
                       <td data-testid={`decisions-number-${team.name}`} className="whitespace-nowrap px-5 py-2 text-black">Team {team.teamNumber}</td>
-                      <td className="px-5 py-2 font-medium text-slate-700">{team.name}</td>
+                      <td className="px-5 py-2 font-medium text-slate-700">{teamDisplayName(team)}</td>
                       {state.kind !== 'reported' ? (
                         <td colSpan={7} className="px-3 py-2 text-xs italic text-black">
                           {SPAN_NOTE[state.kind]}
@@ -340,7 +341,7 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
  */
 function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLine; years: number[] }) {
   if (!team.lines.includes(line)) {
-    return <p className="text-xs italic text-black">{team.name} does not write {LINE_FULL_NAME[line]}.</p>;
+    return <p className="text-xs italic text-black">{teamDisplayName(team)} does not write {LINE_FULL_NAME[line]}.</p>;
   }
   return (
     <table className="w-full text-xs">
