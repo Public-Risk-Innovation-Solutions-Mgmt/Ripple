@@ -9,8 +9,8 @@
 // lines, one game per event: the event alone in year 2. After the second lock
 // the banner reads, exactly, its player name, the board's sentence (WORDING
 // below, the same as event-news-coverage-check) and "Your lines affected" on the
-// lines it touches (Investment Loss: "Affects your pool's invested assets.") —
-// nothing more. The Decisions page lists it under Events so far, as exactly.
+// lines it touches (Investment Loss: no lines line — its sentence says what it
+// touched) — nothing more. The Decisions page lists it under Events so far, as exactly.
 // ⚠ NO REGION, FIGURE OR DURATION anywhere on either (the engine still places a
 // regional event's large claim), and no extra line on older claims or on what
 // to expect. Social Inflation's game plays two more years and Nuclear Verdict's
@@ -119,8 +119,9 @@ for (const was of ['Earthquake — Central region. A major earthquake strikes.',
     const items = (await page.locator('[data-testid="event-news-item"]').allInnerTexts()).map(t => t.trim().replace(/\s+/g, ' '));
     const it = items.find(t => t.startsWith(name)) ?? '';
     ok(items.length === 1 && it !== '', `it names ${name}`, items.join(' | '));
-    const affected = id === '#11' ? "Affects your pool's invested assets." : `Your lines affected: ${lines.join(', ')}.`;
-    ok(it === `${name}. ${wording} ${affected}`, "exactly its name, the board's sentence and the lines affected", it);
+    const expected = id === '#11' ? `${name}. ${wording}` : `${name}. ${wording} Your lines affected: ${lines.join(', ')}.`;
+    ok(it === expected, `exactly its name, the board's sentence${id === '#11' ? ' and no lines line' : ' and the lines affected'}`, it);
+    if (id === '#11') ok(!/Affects|Your lines affected/.test(it), 'Investment Loss: no "Affects" or lines line', it);
     const named = linesIn((it.split('Your lines affected:')[1] ?? ''));
     ok(JSON.stringify(named) === JSON.stringify(lines), 'on the lines it touches', named.join(', ') || '(none)');
     ok(!/\$|\d|%/.test(it), 'no figure', '');
@@ -134,8 +135,8 @@ for (const was of ['Earthquake — Central region. A major earthquake strikes.',
     await page.waitForTimeout(400);
     const listed = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim().replace(/\s+/g, ' '));
     ok(listed.length === 1 && listed[0].startsWith(`${year} ${name}`), 'Events so far lists it in its year', listed.join(' | '));
-    const where = id === '#11' ? 'investments' : lines.join(', ');
-    ok(listed[0] === `${year} ${name} — ${wording} (${where})`, "Events so far: exactly its name and the board's sentence", listed[0]);
+    const row = id === '#11' ? `${year} ${name} — ${wording}` : `${year} ${name} — ${wording} (${lines.join(', ')})`;
+    ok(listed[0] === row, "Events so far: exactly its name and the board's sentence", listed[0]);
     ok(listed.every(t => noDuration(t) === ''), 'Events so far: no duration', listed.map(noDuration).filter(Boolean).join(' | '));
     ok(listed.every(t => noRegion(t) === ''), 'Events so far: no region', listed.map(noRegion).filter(Boolean).join(' | '));
     if (id === '#7' || id === '#8') {

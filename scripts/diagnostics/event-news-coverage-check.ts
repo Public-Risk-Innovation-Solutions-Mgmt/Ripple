@@ -28,6 +28,10 @@
 //   4. ONE NAME: the Year Walkthrough's name for every catalogue key is the
 //      player's, the host's label is '#n Name', and the Year Walkthrough gives
 //      Investment Loss and Member Withdrawal their rows.
+//   5. THE RESULTS CARD, THE "EVENTS THIS YEAR" ROW AND THE CLAIMS name an
+//      event by its player name alone — no region, no "in force since year N"
+//      (hidden today, held anyway). The Year Walkthrough keeps its region row.
+//   Investment Loss names no lines: its sentence says what it touched.
 //
 // ⚠ THE EXPECTATIONS ARE WRITTEN OUT HERE — the names, the wording, the years —
 // not read from the code they grade. Each part has a CONTROL that breaks it at
@@ -39,12 +43,15 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { eventDescription, eventNewsByYear, EVENT_DESCRIPTIONS, type EventNews } from '../../src/utils/yearEvents';
+import { claimEventLabel, eventDescription, eventLabel, eventNewsByYear, EVENT_DESCRIPTIONS, yearEvents, type EventNews } from '../../src/utils/yearEvents';
+import { RESULT_METRICS } from '../../src/utils/resultMetrics';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   catalogueDisplayName, hostShockLabel, POOL_WIDE_EVENTS, SHOCK_EVENTS, SHOCK_EVENT_LABELS,
 } from '../../src/utils/shockLosses';
 import { buildYearWalkthrough } from '../../src/utils/yearWalkthrough';
-import type { CoverageLine, GameSetupSettings, GameState, ResultSet } from '../../src/types/simulation';
+import type { Claim, CoverageLine, GameSetupSettings, GameState, LineResultSet, Occurrence, ResultSet } from '../../src/types/simulation';
 
 // ---- THE DESIGN, WRITTEN OUT ------------------------------------------------
 // id -> [player name, host name, regional, lines it touches (all three lines in play), WC alone touched?]
@@ -142,9 +149,8 @@ function partNews(): string[] {
     for (let y = 1; y <= YEARS; y++) if (y !== FIRE && banner(news, y).length) out.push(`${id}: a banner in year ${y} (${banner(news, y).map(x => x.label).join(' | ')})`);
     if (n.label !== name) out.push(`${id}: label "${n.label}", wanted "${name}"${regional ? ' (a regional event: no region)' : ''}`);
     if (JSON.stringify(n.lines) !== JSON.stringify(lines)) out.push(`${id}: lines ${n.lines.join(',')}, wanted ${lines.join(',')}`);
-    if (id === '#11' && !/invested assets/.test(n.affects ?? '')) out.push(`#11: says it affects "${n.affects}", wanted the invested assets`);
     if (n.description !== WORDING[id]) out.push(`${id}: description "${n.description}", wanted "${WORDING[id]}"`);
-    const extra = Object.keys(n).filter(k => !['key', 'label', 'description', 'lines', 'affects'].includes(k));
+    const extra = Object.keys(n).filter(k => !['key', 'label', 'description', 'lines'].includes(k));
     if (extra.length) out.push(`${id}: an extra field on the news (${extra.join(', ')})`);
     const rows = panel(news);
     if (!rows.some(r => r.y === FIRE && r.n.label === n.label)) out.push(`${id}: not in Events so far for ${2025 + FIRE}`);
@@ -172,6 +178,56 @@ function partNoDuration(): string[] {
     }
   }
   for (const name of Object.keys(EVENT_DESCRIPTIONS)) scan(`description of ${name}`, eventDescription(name));
+  return out;
+}
+
+// ---- 5. RESULTS, EVENTS THIS YEAR, CLAIMS -----------------------------------------
+// The Results page's events card, the "Events This Year" results row and the
+// claims list and download name an event by its player name alone: no region,
+// no "in force since year N" (pr/event-wording). The Year Walkthrough keeps its
+// region row (not read here). Each event's game, every year, the pool and each
+// line; every claim an event brought; and the card's source, which prints the
+// label.
+let metricOf = (r: LineResultSet) => String(RESULT_METRICS.find(m => m.key === 'yearEvents')!.value(r));
+let claimLabelOf = (c: Claim, o?: Occurrence) => claimEventLabel(c, o);
+let resultsPageSource = readFileSync(fileURLToPath(new URL('../../src/pages/ResultsPage.tsx', import.meta.url)), 'utf8');
+const SINCE = /in force|since year/i;
+function partResults(): string[] {
+  const out: string[] = [];
+  const scan = (where: string, text: string) => {
+    for (const [what, re] of [['region', REGION], ['"in force since"', SINCE], ['duration', DURATION]] as const) {
+      const m = text.match(re);
+      if (m) out.push(`${where}: ${what} "${m[0]}" in "${text}"`);
+    }
+  };
+  for (const [id, rs] of games) {
+    const [name, , regional] = DESIGN[id];
+    let named = 0;
+    for (const r of rs.filter(x => x.yearNumber >= 1)) {
+      const scopes: [string, LineResultSet][] = [['pool', r as unknown as LineResultSet],
+        ...Object.entries(r.byLine ?? {}).map(([l, x]) => [l, x] as [string, LineResultSet])];
+      for (const [scope, x] of scopes) {
+        scan(`${id} year ${r.yearNumber} ${scope} Events This Year`, metricOf(x));
+        for (const ev of yearEvents(x)) {
+          if (eventLabel(ev.name) !== ev.name) out.push(`${id} year ${r.yearNumber} ${scope}: card label "${eventLabel(ev.name)}", wanted "${ev.name}"`);
+        }
+        if (scope === 'pool') continue;
+        const occ = new Map((x.occurrences ?? []).map(o => [o.id, o]));
+        for (const c of x.claims ?? []) {
+          const label = claimLabelOf(c, c.occurrenceId !== undefined ? occ.get(c.occurrenceId) : undefined);
+          if (label === undefined) continue;
+          scan(`${id} year ${r.yearNumber} ${scope} claim ${c.id}`, label);
+          if (c.shockId === id && label === name) named++;
+        }
+      }
+    }
+    if (regional && named === 0) out.push(`${id}: no claim labelled "${name}" (the regional event's large claim)`);
+  }
+  // The card prints eventLabel and nothing after it.
+  // (What it prints, not its comments: the year it read off the event.)
+  const printed = resultsPageSource.match(/in force since year \{|\bev\.sinceYear\b/);
+  if (printed) out.push(`ResultsPage.tsx still prints the year an event began ("${printed[0]}")`);
+  if (/eventLabel\([^)]*region/.test(resultsPageSource)) out.push('ResultsPage.tsx passes a region to eventLabel');
   return out;
 }
 
@@ -221,6 +277,9 @@ console.log('4. One name');
 check(partNames(), "every catalogue key reads the player's name; the host's label is '#n Name'");
 check(partWalkthrough(), 'the Year Walkthrough gives Investment Loss and Member Withdrawal rows');
 
+console.log('5. Results card, "Events This Year" row, claims list and download');
+check(partResults(), 'the name alone: no region, no "in force since"');
+
 console.log('Controls');
 const pool = POOL_WIDE_EVENTS as string[];
 control('Investment Loss off the pool-wide list (the off-map read)', () => {
@@ -267,6 +326,21 @@ control('an extra field back on the news (a "lasting" line on Nuclear Verdict)',
   newsOf = rs => new Map([...real(rs)].map(([y, ns]) => [y, ns.map(n => (n.label === 'Nuclear Verdict' ? { ...n, lasting: 'It also makes older liability claims grow.' } : n))]));
   return () => { newsOf = real; };
 }, partNews);
+control('a region back in the "Events This Year" row ("Earthquake — Central region: 1 claim")', () => {
+  const real = metricOf;
+  metricOf = r => real(r).replace(/\bEarthquake\b/, 'Earthquake — Central region');
+  return () => { metricOf = real; };
+}, partResults);
+control('a region back on the claims ("Wildfire — North region")', () => {
+  const real = claimLabelOf;
+  claimLabelOf = (c, o) => { const l = real(c, o); return l === 'Wildfire' ? 'Wildfire — North region' : l; };
+  return () => { claimLabelOf = real; };
+}, partResults);
+control('"in force since year N" back on the Results card', () => {
+  const real = resultsPageSource;
+  resultsPageSource = real + '\n<span>in force since year {ev.sinceYear}</span>';
+  return () => { resultsPageSource = real; };
+}, partResults);
 control("#11's player name put back to the catalogue key", () => {
   const l = SHOCK_EVENT_LABELS['#11'] as { eventName: string };
   const n = l.eventName; l.eventName = 'Investment Loss'; return () => { l.eventName = n; };

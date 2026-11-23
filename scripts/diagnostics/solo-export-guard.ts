@@ -1310,7 +1310,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // every figure reads as before. The statement workbooks are byte-identical.
 // The players-are-not-told-durations wording (the news and Events so far) is
 // in no export, so it moves nothing here.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v136.json');
+// v137: NO REGION IN THE "EVENTS THIS YEAR" ROW (pr/event-wording, on aws
+// 0c1894ab, which reproduces v136 here 48 of 48 first). 4 of 48 keys move:
+// MAMC6EA4's Results workbooks with Property in them (def and sqz; Property
+// alone and three lines), whose schedule fires a Wildfire. Text-diffed against
+// the control (GUARD_TEXT_DIR both sides): 16 rows move, every one the
+// "Events This Year" row, each the control's with " — South region" removed
+// ("Wildfire — South region: 1.0 claims, $35,407,757" -> "Wildfire: 1.0
+// claims, $35,407,757"), and nothing else. No figure, no code, no other row.
+// The statement workbooks are byte-identical.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v137.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

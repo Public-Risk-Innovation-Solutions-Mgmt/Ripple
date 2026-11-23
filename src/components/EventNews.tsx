@@ -21,8 +21,8 @@ import { eventNewsByYear, type EventNews } from '../utils/yearEvents';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
 
 const linesText = (n: EventNews) => n.lines.map(l => LINE_FULL_NAME[l]).join(', ');
-/** The banner's "what it touched": the team's lines, or what it touched instead (Investment Loss: the invested assets). */
-const affectedText = (n: EventNews) => (n.affects ? `Affects ${n.affects}.` : `Your lines affected: ${linesText(n)}.`);
+/** The banner's "Your lines affected" — none for an event that names no lines (Investment Loss: its sentence says what it touched). */
+const affectedText = (n: EventNews) => (n.lines.length ? `Your lines affected: ${linesText(n)}.` : '');
 
 /** The banner: the events new in the year just played, until dismissed. */
 export function EventNewsBanner({ played, startingYear }: { played: ResultSet[]; startingYear: number }) {
@@ -70,7 +70,7 @@ export function EventsPanel({ played, startingYear }: { played: ResultSet[]; sta
               <span className="font-mono text-gray-500">{year}</span>{' '}
               <span className="font-medium">{n.label}</span>
               {' '}— {n.description}{' '}
-              <span className="text-gray-500">({n.affects ? 'investments' : linesText(n)})</span>
+              {n.lines.length > 0 && <span className="text-gray-500">({linesText(n)})</span>}
             </li>
           ))}
         </ul>

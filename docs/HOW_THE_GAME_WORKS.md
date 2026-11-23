@@ -295,8 +295,8 @@ rest to none or zero.
 - **Large claims** come only from those events.
 - **What players are told about an event:** every event, in the year it fires, gets a news banner and an entry under
   *Events so far* (Decisions page): its player name, one sentence, and which of the team's lines it touches (Large
-  Investment Loss: "Affects your pool's invested assets."). Nothing else — no region, no figure, no duration, no
-  line on older claims or on what to expect. The sentences, verbatim:
+  Investment Loss names no lines: its sentence says what it touched). Nothing else — no region, no figure, no
+  duration, no line on older claims or on what to expect. The sentences, verbatim:
   - Earthquake — A major earthquake strikes, damaging buildings and injuring people at work.
   - Winterstorm — A severe winter storm brings heavy rain, snow and flooding.
   - Wildfire — A wildfire spreads, burning buildings and land.
@@ -311,8 +311,10 @@ rest to none or zero.
   - Large Investment Loss — Financial markets fall sharply, and the pool's invested assets lose value.
   - Large Member Withdrawal — A large member has left the pool.
 
-  A regional event's name carries no region on the banner or in *Events so far*; the engine still places its large
-  claim in the region it draws. An event is listed once, in the year it fires: no later year carries a note while
+  A regional event's name carries no region on the banner, in *Events so far*, on the Results page's events card,
+  in the "Events This Year" results row, or in the claims list and download (the Results page and the claims are
+  hidden today); the engine still places its large claim in the region it draws, and the Year Walkthrough keeps its
+  region row. The Results card no longer says "in force since year N". An event is listed once, in the year it fires: no later year carries a note while
   an effect is in force, since that would show when it ends. Hosts keep the full details (the schedule, the
   Parameters page, Charts' Events key).
   - **Names:** each event has one player name — the banner, *Events so far*, the Year Walkthrough, the statements

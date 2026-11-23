@@ -41,9 +41,14 @@ export function drawnEventName(peril: string | undefined): string {
   return (peril !== undefined ? DRAWN_EVENT_NAME[peril] : undefined) ?? 'Catastrophe';
 }
 
-/** "Earthquake — Central region", or the bare name when the event struck no one region. */
-export function eventLabel(name: string, region?: Region): string {
-  return region ? `${name} — ${region} region` : name;
+/**
+ * An event as a player reads it on the Results card, the "Events This Year"
+ * row and the claims: its player name alone. ⚠ NO REGION (pr/event-wording):
+ * players are not told where a regional event struck; the engine still places
+ * its large claim, and the Year Walkthrough keeps its region row.
+ */
+export function eventLabel(name: string): string {
+  return name;
 }
 
 export interface YearEventLine {
@@ -172,17 +177,11 @@ export function yearEvents(result: AnyResult): YearEvent[] {
 /** The event a claim came from, as a player reads it — or undefined for an ordinary claim. */
 export function claimEventLabel(claim: Claim, occurrence?: Occurrence): string | undefined {
   if (claim.shockId !== undefined) {
-    // ⚠ A REGIONAL EVENT NAMES THE REGION IT ACTUALLY STRUCK — the occurrence's.
-    // The retired catalogue fixed one region per event, but the new engine
-    // draws the struck region per firing; the catalogue's region is only the
-    // fallback when no occurrence is to hand, as it was before 3b.
-    const regional = SHOCK_EVENTS.find(e => e.id === claim.shockId)?.regional ?? false;
-    const fixed = RETIRED_CATALOGUE_REGION[claim.shockId]?.[claim.line];
-    return eventLabel(SHOCK_EVENT_LABELS[claim.shockId]?.eventName ?? claim.shockId,
-      regional ? (occurrence?.region ?? fixed) : fixed);
+    // ⚠ THE NAME ALONE, NO REGION (pr/event-wording) — eventLabel.
+    return eventLabel(SHOCK_EVENT_LABELS[claim.shockId]?.eventName ?? claim.shockId);
   }
   if (claim.line === 'Property' && claim.tier === CAT_TIER && occurrence?.isCatastrophe) {
-    return eventLabel(drawnEventName(occurrence.peril), occurrence.region);
+    return eventLabel(drawnEventName(occurrence.peril));
   }
   return undefined;
 }
@@ -271,10 +270,12 @@ export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
 export function eventDescription(name: string): string {
   return EVENT_DESCRIPTIONS[name] ?? EVENT_DESCRIPTIONS['Catastrophe'];
 }
-/** What an off-map event touches, in place of the lines, where it is not the lines. */
-const OFF_MAP_AFFECTS: Readonly<Record<string, string>> = {
-  'Investment Loss': "your pool's invested assets",
-};
+/**
+ * The off-map events whose news names no lines: Investment Loss touches the
+ * invested assets, which its sentence already says, so the banner has no
+ * "Your lines affected" line for it and Events so far no lines in brackets.
+ */
+const NO_LINES: readonly string[] = ['Investment Loss'];
 
 export interface EventNews {
   /** Stable within the year. Not for display. */
@@ -282,10 +283,8 @@ export interface EventNews {
   /** The player's name, "Earthquake" — never a region. */
   label: string;
   description: string;
-  /** The team's own lines the event touched, in the game's line order. Empty when `affects` says what it touched instead. */
+  /** The team's own lines the event touched, in the game's line order. Empty for Investment Loss (NO_LINES): nothing more is said. */
   lines: CoverageLine[];
-  /** What it touched where that is not the lines — Investment Loss: "your pool's invested assets". */
-  affects?: string;
 }
 
 const NEWS_LINE_ORDER: readonly CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -319,9 +318,9 @@ export function eventNewsByYear(results: readonly AnyResult[]): Map<number, Even
   const seen = new Set<string>();
   for (const r of [...results].filter(x => x.yearNumber >= 1).sort((a, b) => a.yearNumber - b.yearNumber)) {
     const news: EventNews[] = [];
-    const told = (key: string, name: string, lines: CoverageLine[], affects?: string) => {
+    const told = (key: string, name: string, lines: CoverageLine[]) => {
       // ⚠ THE PLAYER'S NAME ALONE — no region (pr/event-wording).
-      news.push({ key, label: name, description: eventDescription(name), lines, ...(affects ? { affects } : {}) });
+      news.push({ key, label: name, description: eventDescription(name), lines });
     };
     for (const ev of yearEvents(r)) {
       const id = `${ev.key}|${ev.sinceYear ?? r.yearNumber}`;
@@ -341,8 +340,7 @@ export function eventNewsByYear(results: readonly AnyResult[]): Map<number, Even
       const lines = recordLines(rec);
       if (lines.length === 0) continue;
       seen.add(id);
-      const affects = OFF_MAP_AFFECTS[e.name];
-      told(rec.shockId, shockName(rec), affects ? [] : lines, affects);
+      told(rec.shockId, shockName(rec), NO_LINES.includes(e.name) ? [] : lines);
     }
     out.set(r.yearNumber, news);
   }
