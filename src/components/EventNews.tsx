@@ -42,7 +42,6 @@ export function EventNewsBanner({ played, startingYear }: { played: ResultSet[];
             <p key={n.key} data-testid="event-news-item">
               <span className="font-medium">{n.label}.</span>{' '}
               {n.description}{' '}
-              {n.lasting && <span data-testid="event-news-lasting">{n.lasting}{' '}</span>}
               <span className="text-amber-700">{affectedText(n)}</span>
             </p>
           ))}
@@ -70,7 +69,7 @@ export function EventsPanel({ played, startingYear }: { played: ResultSet[]; sta
             <li key={`${year}-${n.key}`} data-testid="events-panel-item">
               <span className="font-mono text-gray-500">{year}</span>{' '}
               <span className="font-medium">{n.label}</span>
-              {' '}— {n.description}{n.lasting ? ` ${n.lasting}` : ''}{' '}
+              {' '}— {n.description}{' '}
               <span className="text-gray-500">({n.affects ? 'investments' : linesText(n)})</span>
             </li>
           ))}
