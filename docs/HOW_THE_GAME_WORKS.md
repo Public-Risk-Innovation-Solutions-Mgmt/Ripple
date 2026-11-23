@@ -288,11 +288,30 @@ rest to none or zero.
     advanced or Edit game. It does not fade. A second such event on the same line adds its step too, but a line's
     steps total at most 3 points. Rates do not include it (pricing never sees shocks).
   - Neither strengthens reserves for three fading years any more; the step replaces that. Their event text tells
-    players older claims will keep costing more for the rest of the game.
+    players older claims will also cost more — not for how long (below).
   ⚠ Whether a game prices for shocks is fixed when it starts: one set up with no events and given one mid-game
   has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
   is pinned at the first edit so replays agree).
 - **Large claims** come only from those events.
+- **What players are told about an event:** every event, in the year it fires, gets a news banner and an entry under
+  *Events so far* (Decisions page) naming it, saying what it does and which of the team's lines it touches — never
+  how big. That includes *Large Investment Loss* ("investment returns fall sharply this year"; it touches the
+  invested assets, not the lines) and *Large Member Withdrawal* ("a quarter of each line's book from next year"),
+  which used to reach neither. A regional event (Earthquake, Winterstorm, Wildfire) names the region its large claim
+  lands in and says the whole line's costs rise, not only there. Pandemic says it brings a large liability claim as
+  well as WC's.
+  - **No durations:** players are not told how long an event lasts. An event that also raises older claims (an R
+    on the shock map) says so on its banner and in *Events so far*, with no length: *Nuclear Verdict* "It also makes
+    older liability claims grow.", *Social Inflation* "Older liability claims will also grow." The two law changes
+    say older claims "will also cost more" (#94's "for the rest of the game" is gone), and Recession and Pandemic no
+    longer say they act in their year alone. No later year carries a note while an effect is in force, since that
+    would show when it ends: an event is listed once, in the year it fires. Member Withdrawal keeps "from next
+    year" (when it starts, not how long). Economic Inflation's lasting effect is not described. Hosts keep the full
+    details (the schedule, the Parameters page, Charts' Events key).
+  - **Names:** each event has one player name — the banner, *Events so far*, the Year Walkthrough, the statements
+    and the claims download all use it (*Large Investment Loss*, *Economic Recession*, …). Hosts keep their own
+    names, written one way on every host screen: "#5 Workers Comp Legislation". On Charts the tick under a year
+    shows the event's number and an *Events* key above the charts gives each in full with its year.
 - **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate
   (plus 2–3 points on a line once Legislation Change or Workers Comp Legislation has fired, above).
 - **Per-claim covers** pay on large claims; **the aggregate cover** pays on the year's attritional losses (normal

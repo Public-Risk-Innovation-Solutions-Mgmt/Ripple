@@ -1257,6 +1257,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // sheet is a column wider (J). Every statement row and every Decisions row
 // reads as before, the Decisions section starting below the new one. No value
 // moves (VALUE_IDENTITY holds).
+// v133: ONE PLAYER NAME PER EVENT IN THE YEAR WALKTHROUGH (pr/shock-events-
+// display, from aws a509c23b). aws a509c23b reproduces v132 here 48 of 48 first.
+// 6 of 48 keys move — the Results workbooks of MAMC6EA4 (def and sqz; WC, GL and
+// three lines), the one seed here whose schedule fires a Recession in a year
+// they export. Text-diffed against the control (GUARD_TEXT_DIR both sides): on
+// the Year Walkthrough sheet alone, "Recession" reads "Economic Recession" (the
+// player name the news and the statements use), and the walk codes that hash
+// those rows' text move with it — Year, Draws and Losses codes. With the name
+// and the codes normalised all 48 are identical to the control; every figure
+// reads as before. The statement workbooks are byte-identical. No value moved.
 // v134 (v133 is taken by pr/shock-events-display, open, not merged): THE ASSET
 // MIX 20/75/5 EVERYWHERE (pr/asset-mix-20-75-5). aws a509c23b reproduces v132
 // here 48 of 48 first. All 48 keys move. Text-diffed against the control
@@ -1287,7 +1297,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // each the control's row with "Ripple Score" -> "Ripple Ranking" and "the
 // full score" -> "the full ranking", exactly: the Market Survey section's
 // column head and its footnote. The 24 Results files and every figure match.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v135.json');
+// v136: ONE PLAYER NAME PER EVENT, REDONE ON AWS 7a10537d (pr/shock-events-
+// display merged with aws: #99, #100, #101; v133 above was the same change on
+// a509c23b and is retired with it). aws 7a10537d reproduces v135 here 48 of 48
+// first. 6 of 48 keys move, the same 6 as v133: MAMC6EA4's Results workbooks
+// (def and sqz; WC, GL and three lines), the one seed here whose schedule fires
+// a Recession in a year they export. Text-diffed against the control
+// (GUARD_TEXT_DIR both sides): no row added or removed; 524 rows move, 320 of
+// them the Year Walkthrough's "Recession" read as "Economic Recession" and 204
+// only a walk code that hashes those rows' text (Year, Draws, Losses codes).
+// With the name and the codes normalised all 48 are identical to the control;
+// every figure reads as before. The statement workbooks are byte-identical.
+// The players-are-not-told-durations wording (the news and Events so far) is
+// in no export, so it moves nothing here.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v136.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -12,7 +12,6 @@ import type { ShockFiring, ShockRecord } from '../types/shocks';
 // player sees names the same event whichever engine produced it. The
 // effects list is empty: the A / T / R of the catalogue are not today's
 // effect kinds, and the description says what they are instead.
-const POOL_WIDE_EVENTS = ['Economic Inflation', 'Investment Loss', 'Member Withdrawal'];
 function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | undefined {
   const out: ShockFiring[] = [];
   for (const { firing } of year.inForce) {
@@ -30,7 +29,7 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
       ...(firing.region ? { region: firing.region } : {}),
       band: def.band,
       horizon: def.horizon,
-      description: `${catalogueDisplayName(e.name)}, from the R model's catalogue${firing.region ? `, in ${firing.region}` : ''}. `
+      description: `${recordCatalogueName(e.name)}, from the R model's catalogue${firing.region ? `, in ${firing.region}` : ''}. `
         + (detail || `Acts on the whole pool.`),
       yearFired: firing.firedYear,
       linesAffected: [...lines],
@@ -170,7 +169,7 @@ import {
   type OrdinaryLossYear,
 } from './ordinaryLoss';
 import { marketSeedOf } from './bookUnits';
-import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, catalogueDisplayName, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, POOL_WIDE_EVENTS, recordCatalogueName, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, laeShares, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';

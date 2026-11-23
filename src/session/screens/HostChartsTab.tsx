@@ -83,11 +83,8 @@ import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import { teamLabel, type RoomView, type TeamYearFigures, type TeamView } from '../index';
 import type { StoredMarketYear } from '../contract';
-import { drawableShocks } from '../shockDraw';
+import { hostShockLabel } from '../../utils/shockLosses';
 
-// ⚠ THE HOST'S OWN SHORTER LABEL, NOT THE PLAYER-FACING eventName — same
-// source GameRulesFields' schedule picker reads a shock's name from.
-const SCHEDULABLE_SHOCKS = drawableShocks();
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -410,8 +407,8 @@ interface ChartProps {
   years: number[];
   /** Imposed when this chart shares a scale with another; otherwise its own. */
   domain?: { lo: number; hi: number; ticks: number[] };
-  /** A scheduled shock's host-facing name(s), by the year it fired. Years with no entry show none. */
-  shockLabelByYear: Map<number, string>;
+  /** The scheduled shocks' ids ('#5'), by the year each fired. Years with no entry show none. */
+  shockLabelByYear: Map<number, string[]>;
 }
 
 function LineChart({ metric, series, years, domain, shockLabelByYear }: ChartProps) {
@@ -536,16 +533,18 @@ function LineChart({ metric, series, years, domain, shockLabelByYear }: ChartPro
             </text>
           ))}
           {years.map(yr => {
-            const shockLabel = shockLabelByYear.get(yr);
-            if (!shockLabel) return null;
-            // ⚠ TRUNCATED HARD, WITH THE FULL NAME IN A NATIVE <title> HOVER —
-            // a tick's own width is a fraction of the chart, nowhere near the
-            // legend's 160px margin the team labels get.
-            const shown = shockLabel.length > 14 ? shockLabel.slice(0, 13) + '…' : shockLabel;
+            const ids = shockLabelByYear.get(yr);
+            if (!ids) return null;
+            // ⚠ THE ID UNDER THE TICK, THE NAME IN THE EVENTS KEY ABOVE THE
+            // CHARTS (pr/shock-events-display). A tick's width is a fraction of
+            // the chart, so the name was cut at 13 characters ('Workers Comp
+            // L…'); the id fits every tick, the key gives each in full in the
+            // host's one format ('#5 Workers Comp Legislation'), and the hover
+            // says it again.
             return (
-              <text key={yr} x={x(yr)} y={H - 20} textAnchor="middle" className="fill-amber-600" fontSize={8}>
-                <title>{shockLabel}</title>
-                {shown}
+              <text key={yr} data-testid={`chart-shock-${yr}`} x={x(yr)} y={H - 20} textAnchor="middle" className="fill-amber-600" fontSize={9}>
+                <title>{ids.map(hostShockLabel).join(', ')}</title>
+                {ids.join(', ')}
               </text>
             );
           })}
@@ -663,12 +662,12 @@ export default function HostChartsTab({ room }: Props) {
   // out a random draw before it happens, the same spoiler a locked year's own
   // results avoid elsewhere (knownYears.ts). A year with no posted results
   // yet shows no label, same as it shows no point on the line.
-  const shockLabelByYear = new Map<number, string>();
-  for (const s of room.shocks) {
+  const shockLabelByYear = new Map<number, string[]>();
+  const shocksShown: { id: string; yearNumber: number }[] = [];
+  for (const s of [...room.shocks].sort((a, b) => a.yearNumber - b.yearNumber)) {
     if (s.yearNumber > lastPlayable) continue;
-    const name = SCHEDULABLE_SHOCKS.find(e => e.id === s.shockId)?.name ?? s.shockId;
-    const existing = shockLabelByYear.get(s.yearNumber);
-    shockLabelByYear.set(s.yearNumber, existing ? `${existing}, ${name}` : name);
+    shockLabelByYear.set(s.yearNumber, [...(shockLabelByYear.get(s.yearNumber) ?? []), s.shockId]);
+    shocksShown.push({ id: s.shockId, yearNumber: s.yearNumber });
   }
   // The book risk line joins the charts in a room with the market on.
   const metrics = (room.market ?? 'off') !== 'off' ? [...METRICS, BOOK_RISK_METRIC] : METRICS;
@@ -741,6 +740,19 @@ export default function HostChartsTab({ room }: Props) {
           </span>
         ))}
       </div>
+
+      {/* THE EVENTS KEY — each event the ticks mark, in full, in the host's one
+          format, with the year it fired (pr/shock-events-display). */}
+      {shocksShown.length > 0 && (
+        <p data-testid="charts-events" className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-800">
+          <span className="font-medium">Events:</span>{' '}
+          {shocksShown.map((s, i) => (
+            <span key={`${s.id}-${s.yearNumber}`} data-testid="charts-event">
+              {i > 0 && ' · '}{hostShockLabel(s.id)} (year {s.yearNumber})
+            </span>
+          ))}
+        </p>
+      )}
 
       {metrics.map(m => (
         <div key={m.id} className="relative">

@@ -19,15 +19,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, History, Plus, X } from 'lucide-react';
 import { DevelopmentLevelSelect } from './GameRulesFields';
 import { drawableShocks } from '../utils/shockSchedule';
+import { hostShockLabel } from '../utils/shockLosses';
 import { ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, type DevelopmentSetting } from '../data/pricingParameters';
 import { describeEdit, settingsForYear, type EditableSettings, type GameEdit, type YearSettings } from '../utils/gameEdits';
 import type { CoverageLine } from '../types/simulation';
 
 const SHOCKS = drawableShocks();
-const shockName = (id: string) => {
-  const s = SHOCKS.find(x => x.id === id);
-  return s ? `${s.id} ${s.name}` : id;
-};
+/** '#5 Workers Comp Legislation' — the one host format (shockLosses.hostShockLabel). */
+const shockName = hostShockLabel;
 
 export interface EditGamePanelProps {
   lines: CoverageLine[];
@@ -151,7 +150,7 @@ export function EditGamePanel({ lines, yearCount, startingYear, firstEditable, s
                           className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
                           value={adding[String(y)] ?? SHOCKS[0]?.id}
                           onChange={e => setAdding(prev => ({ ...prev, [String(y)]: e.target.value }))}>
-                          {SHOCKS.map(s => <option key={s.id} value={s.id}>{s.id} {s.name}</option>)}
+                          {SHOCKS.map(s => <option key={s.id} value={s.id}>{hostShockLabel(s.id)}</option>)}
                         </select>
                         <button type="button" data-testid={`edit-add-${calendar(y)}`} onClick={() => addShock(y)}
                           className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
