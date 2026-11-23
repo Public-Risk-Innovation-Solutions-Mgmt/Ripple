@@ -28,7 +28,7 @@ const readPairs = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
 // (wip/newest-year-combined-ratio: the year's own, as on the team's statement and top bar).
 // The room is created at the default, Market competition Medium, so the host's table carries the
 // market's two host-only columns (pr/market-competition) after Market share and before Hand Off.
-const COLUMNS = ['Team number', 'Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Exposure moved', 'Book risk', 'Hand Off'];
+const COLUMNS = ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Exposure moved', 'Book risk', 'Hand Off'];
 // Hand Off (7fc44f9, the host hand-off) is the host's action column, after the figures.
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
@@ -141,7 +141,7 @@ function rankProblems(rows, want = wantRanks(rows)) {
     const r0 = await readRanks(host);
     const p0 = rankProblems(r0);
     ok(p0.length === 0 && r0.length === 3 && r0.every(r => r.rank === 1 && r.text === '1st'),
-      `Ripple Score at the opening: the three teams tie on surplus and all read "1st" (${r0.map(r => `${r.name} ${r.text}`).join(', ')})`, p0.join('; '));
+      `Ripple Ranking at the opening: the three teams tie on surplus and all read "1st" (${r0.map(r => `${r.name} ${r.text}`).join(', ')})`, p0.join('; '));
   }
 
   // Two teams lock and play; the third is closed so it never computes or posts.
@@ -237,7 +237,7 @@ function rankProblems(rows, want = wantRanks(rows)) {
     if (label !== 'Pool') {
       const lr = Object.fromEntries((await readRanks(host)).map(r => [r.name, r.rank]));
       ok(poolRanks !== null && JSON.stringify(lr) === JSON.stringify(poolRanks),
-        `${label} view: the Ripple Score is the pool's rank, the same on every line view (${JSON.stringify(lr)})`);
+        `${label} view: the Ripple Ranking is the pool's rank, the same on every line view (${JSON.stringify(lr)})`);
     }
     if (label === 'GL') {
       ok(await host.$('[data-testid="absent-Harbour Mutual"]') === null, 'GL view: no team is ABSENT either');
@@ -267,7 +267,7 @@ function rankProblems(rows, want = wantRanks(rows)) {
       const rr = await readRanks(host);
       poolRanks = Object.fromEntries(rr.map(r => [r.name, r.rank]));
       const pr = rankProblems(rr);
-      ok(pr.length === 0, `Pool view: the Ripple Score is each team's rank by the pool's net surplus, as an ordinal alone (${rr.map(r => `${r.name} ${r.text}`).join(', ')})`, pr.join('; '));
+      ok(pr.length === 0, `Pool view: the Ripple Ranking is each team's rank by the pool's net surplus, as an ordinal alone (${rr.map(r => `${r.name} ${r.text}`).join(', ')})`, pr.join('; '));
       const reported = rr.filter(r => r.rank !== null);
       ok(reported.length === 2 && reported[0].surplus === reported[1].surplus && reported.every(r => r.rank === 1),
         `Pool view: the two teams that played the same decisions tie on surplus and share "1st"`, reported.map(r => `${r.name} ${r.surplus}`).join(', '));
@@ -276,8 +276,9 @@ function rankProblems(rows, want = wantRanks(rows)) {
       const broken = rr.map(r => ({ ...r }));
       broken.filter(r => r.rank !== null).forEach((r, i) => { r.rank = i + 1; r.text = ORDINAL(i + 1); });
       ok(rankProblems(broken, wantRanks(rr)).length > 0, 'Pool view: control — ranks that split the tie are refused');
-      ok(/Ripple Score is for now each team.s rank by the pool.s net surplus/.test(await host.textContent('[data-testid="teams-table"] >> xpath=ancestor::div[1]')),
-        'Pool view: the note says the Ripple Score is for now the rank by net surplus');
+      ok(/Ripple Ranking is for now each team.s rank by the pool.s net surplus/.test(await host.textContent('[data-testid="teams-table"] >> xpath=ancestor::div[1]')),
+        'Pool view: the note says the Ripple Ranking is for now the rank by net surplus');
+      ok(!/Ripple Score/.test(await host.locator('main').innerText()), 'Pool view: "Ripple Score" appears nowhere on the Teams tab (renamed Ripple Ranking)');
       ok(await host.$('[data-testid="pending-Tri-County"]') !== null, 'Pool view: the non-reporter is still pending');
     }
   }

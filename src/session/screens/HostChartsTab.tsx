@@ -525,8 +525,10 @@ function LineChart({ metric, series, years, domain, shockLabelByYear }: ChartPro
           )}
 
           <line x1={M.left} x2={M.left + PLOT_W} y1={M.top + PLOT_H} y2={M.top + PLOT_H} stroke="#e2e8f0" strokeWidth={1} />
+          {/* data-axis="year": what a driver reads a year's label by — never its
+              y, which moved when the shock names took the row under it. */}
           {years.map(yr => (
-            <text key={yr} x={x(yr)} y={H - 34} textAnchor="middle" className="fill-slate-400" fontSize={10}>
+            <text key={yr} x={x(yr)} y={H - 34} textAnchor="middle" className="fill-slate-400" fontSize={10} data-axis="year">
               {yr}
             </text>
           ))}

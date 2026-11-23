@@ -86,7 +86,8 @@ function mismatches(got: DecisionSet, want: DecisionSet, year: number): string[]
 // the Decisions page offers.
 function chosenSet(shocks: boolean): DecisionSet {
   const d = defaultDecisionSet(1, shocks);
-  const mix = { cashPct: 20, bondsPct: 50, equitiesPct: 30 };
+  // ⚠ NOT 20% CASH: the default is 20/75/5 since pr/asset-mix-20-75-5, and every field must differ from it.
+  const mix = { cashPct: 30, bondsPct: 40, equitiesPct: 30 };
   for (const [i, l] of LINES.entries()) {
     const ids = reinsuranceOptionIds(l, shocks);
     const cover = ids.find(id => id !== d.byLine[l].reinsuranceOption)!;

@@ -27,12 +27,14 @@
 //      line's CLF at 65% − 1, the level 65%), Non-Renewal 0, the per-claim
 //      cover $19M xs $1M and the aggregate cover 125/50 — and the opening is
 //      the played pre-game's own last year-end — NOT on its target (nothing
-//      fits it), yet near it, by the bars in SCENARIO_OPENING_BARS: within 5%
-//      on every line for all 20 — what the seeds picked from 1 to 120,000
-//      achieve (pr/pregame-65: worst 4.9%, scenario 20's Property). The
-//      premium is year 1's at Expected with no cover (atExpectedDecisionSet),
-//      the basis the seeds were chosen on. Were 10.5% and 16 (pr/seed-switch),
-//      18.5% and 4 (pr/alae-load), and 12% and 18 before it.
+//      fits it), yet near it, by the bars in SCENARIO_OPENING_BARS: within
+//      7.5% on every line, and 5% on all three for 13 scenarios — what the
+//      seeds achieve since the prior board's mix became 20/75/5
+//      (pr/asset-mix-20-75-5: worst 7.3%, scenario 6's WC; the seeds kept).
+//      The premium is year 1's at Expected with no cover (atExpectedDecisionSet),
+//      the basis the seeds were chosen on. Were 5% and all 20 (pr/pregame-65),
+//      10.5% and 16 (pr/seed-switch), 18.5% and 4 (pr/alae-load), and 12% and
+//      18 before it.
 //      scenario-opening-drift-check holds the exact openings.
 //   6. THE PRE-GAME'S EXPERIENCE, SIMULATED AT TRUE COST (FLAT_PRE_GAME off):
 //      every pre-game line-year's year factor is the factor drawn on the
@@ -40,10 +42,15 @@
 //      and nothing else (restated: it was the scenario's multiple x that draw;
 //      the multiple is retired).
 //   7. THE PRE-GAME'S RETURN, SIMULATED (PRE_GAME_MARKET_DRAWS): every
-//      pre-game line-year holds cash and bonds only — the default allocation
-//      without equities, scaled to 100% — and earns it on the AVERAGE of ten
-//      markets, each drawn on its own stream (pregame_invest_<k>) from the
-//      game's seed.
+//      pre-game line-year holds the prior board's 20% cash / 75% bonds / 5%
+//      equities (restated, pr/asset-mix-20-75-5: it held cash and bonds only,
+//      about 11/89) and earns it on the AVERAGE of ten markets, each drawn on
+//      its own stream (pregame_invest_<k>) from the game's seed, class by
+//      class — the equities on the average of the ten equity draws too.
+//   8. THE PLAY DEFAULT IS THE SAME MIX, IN EVERY MODE (pr/asset-mix-20-75-5):
+//      20/75/5 in the default decision set every year, in the Expected-basis
+//      set, in a solo game's and a hosted room's year-1 decisions, and in a
+//      session team's decisions for a year it never locked.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, a
 // handler accepting "21", a hosted room built from a hashed code, a room built
@@ -54,8 +61,10 @@
 // priced at the play defaults), a pre-game begun off the capital, scenarios 12 and 16 on each
 // other's seeds, a flat pre-game, a pre-game drawn on the played years'
 // streams, the retired scenario multiple put back, a pre-game at 3%, a
-// pre-game on the played years' market, a pre-game on one market draw, and a
-// pre-game holding equities. (The guardrail, floor and designed-margin
+// pre-game on the played years' market, a pre-game on one market draw, a
+// pre-game on the old cash-and-bonds 11/89, a pre-game at the old play default
+// 10/80/10, a pre-game whose equities earn one draw rather than the average,
+// and (8) a default left at 10/80/10 in one mode. (The guardrail, floor and designed-margin
 // controls went with that machinery.)
 // ============================================================================
 
@@ -76,6 +85,7 @@ import { buildTeamGame } from '../../src/session/client/buildGame';
 import { seedFromInstanceId } from '../../src/seedHash';
 import { PRE_GAME_DEPTH, runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { atExpectedDecisionSet, defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { decisionsForYear } from '../../src/session/client/decisions';
 import { staticClf } from '../../src/data/clfTables';
 import { openWorlds, strikeRates } from '../../src/utils/worlds';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
@@ -268,8 +278,17 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
     rates.add(Number(y.investmentReturnRate.toFixed(6)));
   }
   check(worst < 1e-12 && worstMix < 1e-9 && rates.size > 5,
-    `${tag}7. every pre-game line-year holds cash and bonds only and earns them on the average of ${PRE_GAME_MARKET_DRAWS} markets, each on its own pre-game stream`,
+    `${tag}7. every pre-game line-year holds the prior board's ${mix.cashPct}/${mix.bondsPct}/${mix.equitiesPct} and earns it on the average of ${PRE_GAME_MARKET_DRAWS} markets, class by class, each on its own pre-game stream`,
     `${n} line-years; worst return off ${worst.toExponential(2)}; allocation off ${worstMix.toExponential(2)}; ${rates.size} distinct returns`);
+}
+
+// ---------------------------------------------------------------- 8
+/** Every play default's allocation, by mode, against the mix. */
+function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocation, tag: string) {
+  const off = Object.entries(sets).filter(([, a]) => a.cashPct !== mix.cashPct || a.bondsPct !== mix.bondsPct || a.equitiesPct !== mix.equitiesPct);
+  check(off.length === 0,
+    `${tag}8. the play default holds ${mix.cashPct}/${mix.bondsPct}/${mix.equitiesPct} in every mode — the default set every year, the Expected basis, a solo game, a hosted room, a session year never locked`,
+    `${Object.keys(sets).length} sets${off.length ? `; off: ${off.map(([k, a]) => `${k} ${a.cashPct}/${a.bondsPct}/${a.equitiesPct}`).join(', ')}` : ''}`);
 }
 
 (async () => {
@@ -303,10 +322,24 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
     return { cash: avg(m => m.cash), bonds: avg(m => m.bonds), equities: avg(m => m.equities) };
   };
   const marketOf = avgOf(Array.from({ length: PRE_GAME_MARKET_DRAWS }, (_, k) => `pregame_invest_${k}`));
-  // The default 10/80/10 without equities, scaled to 100%.
-  const MIX: AssetAllocation = { cashPct: 100 * 10 / 90, bondsPct: 100 * 80 / 90, equitiesPct: 0 };
+  // The prior board's mix, written out here rather than read from PRIOR_BOARD.
+  const MIX: AssetAllocation = { cashPct: 20, bondsPct: 75, equitiesPct: 5 };
   gradeExperience(all, factorOf, drawOf, '');
   gradeReturn(all, marketOf, MIX, '');
+  // 8. Every mode's play default.
+  const soloGs = open('1', soloInstances['1'], openSoloInstance(settings('1')).setup).gs;
+  const defaultSets: Record<string, AssetAllocation> = {
+    ...Object.fromEntries([1, 2, 5, 10].flatMap(y => [
+      [`defaultDecisionSet(${y})`, defaultDecisionSet(y).assetAllocation],
+      [`defaultDecisionSet(${y}) shocks off`, defaultDecisionSet(y, false).assetAllocation],
+      ...LINES.map(l => [`defaultDecisionSet(${y}).${l}`, defaultDecisionSet(y).byLine[l].assetAllocation]),
+    ])),
+    'atExpectedDecisionSet(1)': atExpectedDecisionSet(1).assetAllocation,
+    'solo game, year 1': soloGs.currentDecisions.assetAllocation,
+    'hosted room, year 1': room.currentDecisions.assetAllocation,
+    'session year never locked': decisionsForYear(3, undefined).assetAllocation,
+  };
+  gradeDefaults(defaultSets, MIX, '');
 
   console.log('\nCONTROLS — each must FAIL');
   const controlFails = (name: string, run: () => void, expect: string) => {
@@ -353,7 +386,12 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
   controlFails('a pre-game on the played years\' market', () => gradeReturn(all,
     (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'invest')), MIX, ''), '7.');
   controlFails('a pre-game on one market draw', () => gradeReturn(all, avgOf(['pregame_invest_0']), MIX, ''), '7.');
-  controlFails('a pre-game holding equities', () => gradeReturn(all, marketOf, { cashPct: 10, bondsPct: 80, equitiesPct: 10 }, ''), '7.');
+  controlFails('a pre-game on the old cash and bonds (11/89)', () => gradeReturn(all, marketOf, { cashPct: 100 * 10 / 90, bondsPct: 100 * 80 / 90, equitiesPct: 0 }, ''), '7.');
+  controlFails('a pre-game at the old play default (10/80/10)', () => gradeReturn(all, marketOf, { cashPct: 10, bondsPct: 80, equitiesPct: 10 }, ''), '7.');
+  controlFails('a pre-game whose equities earn one draw, not the average', () => gradeReturn(all,
+    (seed, y) => ({ ...marketOf(seed, y), equities: simulateMarketReturns(deriveSubRng(seed, y, 'pregame_invest_0')).equities }), MIX, ''), '7.');
+  controlFails('a hosted room left at the old 10/80/10', () => gradeDefaults({ ...defaultSets,
+    'hosted room, year 1': { cashPct: 10, bondsPct: 80, equitiesPct: 10 } }, MIX, ''), '8.');
 
   console.log('');
   if (failures.length) {

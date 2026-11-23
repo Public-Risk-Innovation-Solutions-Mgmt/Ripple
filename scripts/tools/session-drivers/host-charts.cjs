@@ -27,10 +27,13 @@ const marks = (page, chart, color) =>
     els.filter(e => e.getAttribute('fill') === c && e.getAttribute('r') === '4')
        .map(e => ({ cx: +e.getAttribute('cx'), cy: +e.getAttribute('cy') })), color);
 
-// The x-axis year labels: the text row under the plot (y = H - 22).
+// The x-axis year labels, by their data-axis="year" tag.
+// ⚠ NOT BY THEIR y. This read y = 218 (H - 22), and the labels moved up to
+// H - 34 when a shock's name took the row under them (8614701, bottom margin
+// 38 -> 50): it then found no year at all, the axis read empty, axisXFor gave
+// NaN, and the hover's mouse.move threw on it.
 const axisYears = (page, chart) =>
-  page.$$eval(`[data-testid="chart-${chart}"] text`, els =>
-    els.filter(e => e.getAttribute('y') === '218').map(e => e.textContent.trim()));
+  page.$$eval(`[data-testid="chart-${chart}"] text[data-axis="year"]`, els => els.map(e => e.textContent.trim()));
 
 // The y-axis tick labels: the text column left of the plot (x = 66).
 const yTicks = (page, chart) =>
@@ -44,7 +47,7 @@ const runs = (page, chart, color) =>
 // Where a given year sits on the axis, read from its own label.
 const axisXFor = (page, chart, year) =>
   page.$$eval(`[data-testid="chart-${chart}"] text`, (els, y) => {
-    const t = els.find(e => e.getAttribute('y') === '218' && e.textContent.trim() === String(y));
+    const t = els.find(e => e.getAttribute('data-axis') === 'year' && e.textContent.trim() === String(y));
     return t ? +t.getAttribute('x') : NaN;
   }, year);
 
@@ -318,6 +321,12 @@ const activeView = page => page.$$eval('nav button', bs =>
   ok(cPool.length === 4, 'switching the view back does not repaint the survivors — same hue, same team');
 
   // ---- the numbers on the chart are the numbers in the record ---------
+  // ⚠ INTO VIEW FIRST. The view buttons clicked above leave the page scrolled
+  // (538px here), so the surplus chart sat ABOVE the viewport: its box read
+  // y = -208 and the hover point landed off-screen, so no tooltip ever showed.
+  // A player hovers what is on screen; so does the driver.
+  await host.locator('[data-testid="chart-surplus"]').scrollIntoViewIfNeeded();
+  await host.waitForTimeout(200);
   const box = await host.$eval('[data-testid="chart-surplus"]', e => {
     const b = e.getBoundingClientRect();
     return { x: b.x, y: b.y, w: b.width, h: b.height };
