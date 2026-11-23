@@ -29,7 +29,7 @@ const readPairs = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
 // The room is created at the default, Market competition Medium, so the host's table carries the
 // market's two host-only columns (pr/market-competition) after Market share and before Hand Off.
 const COLUMNS = ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Exposure moved', 'Book risk', 'Rename / Hand off'];
-// Hand Off (7fc44f9, the host hand-off) is the host's action column, after the figures.
+// Rename / Hand off (7fc44f9's hand-off; wip/team-chosen-names's rename) is the host's action column, after the figures.
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
 // never the loss-ratio scale's sky.

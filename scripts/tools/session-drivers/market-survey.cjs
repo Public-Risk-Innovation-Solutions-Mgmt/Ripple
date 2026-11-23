@@ -203,10 +203,10 @@ async function viewOf(page, scope, label) {
     out.text = await page.locator('[data-testid="market-survey"]').innerText();
     return out;
   }
-  // The host's table without its Hand Off column, and without the market's two host-only columns
+  // The host's table without its Rename / Hand off column (the host's actions), and without the market's two host-only columns
   // (Exposure moved, Book risk — pr/market-competition; the room is at the default, Medium), which a
   // team's Market Survey must not show.
-  const HOST_ONLY = ['Exposure moved', 'Book risk', 'Hand Off'];
+  const HOST_ONLY = ['Exposure moved', 'Book risk', 'Rename / Hand off'];
   const dropAction = t => {
     const keep = t.heads.map((h, i) => (HOST_ONLY.includes(h) ? -1 : i)).filter(i => i >= 0);
     return { heads: keep.map(i => t.heads[i]), year: t.year, rows: t.rows.map(r => ({ cells: keep.map(i => r.cells[i]) })) };
