@@ -320,26 +320,35 @@ rest to none or zero.
     advanced or Edit game. It does not fade. A second such event on the same line adds its step too, but a line's
     steps total at most 3 points. Rates do not include it (pricing never sees shocks).
   - Neither strengthens reserves for three fading years any more; the step replaces that. Their event text tells
-    players older claims will also cost more — not for how long (below).
+    players the new law or fee schedule applies to existing claims too — not how much or for how long (below).
   ⚠ Whether a game prices for shocks is fixed when it starts: one set up with no events and given one mid-game
   has it fire in its year, but its rates and the covers offered stay as the game began (the switch, `shocksOn`,
   is pinned at the first edit so replays agree).
 - **Large claims** come only from those events.
 - **What players are told about an event:** every event, in the year it fires, gets a news banner and an entry under
-  *Events so far* (Decisions page) naming it, saying what it does and which of the team's lines it touches — never
-  how big. That includes *Large Investment Loss* ("investment returns fall sharply this year"; it touches the
-  invested assets, not the lines) and *Large Member Withdrawal* ("a quarter of each line's book from next year"),
-  which used to reach neither. A regional event (Earthquake, Winterstorm, Wildfire) names the region its large claim
-  lands in and says the whole line's costs rise, not only there. Pandemic says it brings a large liability claim as
-  well as WC's.
-  - **No durations:** players are not told how long an event lasts. An event that also raises older claims (an R
-    on the shock map) says so on its banner and in *Events so far*, with no length: *Nuclear Verdict* "It also makes
-    older liability claims grow.", *Social Inflation* "Older liability claims will also grow." The two law changes
-    say older claims "will also cost more" (#94's "for the rest of the game" is gone), and Recession and Pandemic no
-    longer say they act in their year alone. No later year carries a note while an effect is in force, since that
-    would show when it ends: an event is listed once, in the year it fires. Member Withdrawal keeps "from next
-    year" (when it starts, not how long). Economic Inflation's lasting effect is not described. Hosts keep the full
-    details (the schedule, the Parameters page, Charts' Events key).
+  *Events so far* (Decisions page): its player name, one sentence, and which of the team's lines it touches (Large
+  Investment Loss names no lines: its sentence says what it touched). Nothing else — no region, no figure, no
+  duration, no line on older claims or on what to expect. The sentences, verbatim:
+  - Earthquake — A major earthquake strikes, damaging buildings and injuring people at work.
+  - Winterstorm — A severe winter storm brings heavy rain, snow and flooding.
+  - Wildfire — A wildfire spreads, burning buildings and land.
+  - Legislation Change — A new law widens what injured parties can recover, on both new and existing claims.
+  - Workers Compensation Legislation: Increased Medical Fee Schedule — The state raises the medical fee schedule, so
+    treating injured workers costs more.
+  - Economic Recession — A recession takes hold, and members and their workforces feel the strain.
+  - Nuclear Verdict — A jury returns an exceptionally large award in a liability lawsuit.
+  - Social Inflation — Juries and claimants push liability awards and settlements higher.
+  - Pandemic — A pandemic spreads, and illness among workers rises.
+  - Economic Inflation — Prices rise quickly, and the cost of settling claims rises with them.
+  - Large Investment Loss — Financial markets fall sharply, and the pool's invested assets lose value.
+  - Large Member Withdrawal — A large member has left the pool.
+
+  A regional event's name carries no region on the banner, in *Events so far*, on the Results page's events card,
+  in the "Events This Year" results row, or in the claims list and download (the Results page and the claims are
+  hidden today); the engine still places its large claim in the region it draws, and the Year Walkthrough keeps its
+  region row. The Results card no longer says "in force since year N". An event is listed once, in the year it fires: no later year carries a note while
+  an effect is in force, since that would show when it ends. Hosts keep the full details (the schedule, the
+  Parameters page, Charts' Events key).
   - **Names:** each event has one player name — the banner, *Events so far*, the Year Walkthrough, the statements
     and the claims download all use it (*Large Investment Loss*, *Economic Recession*, …). Hosts keep their own
     names, written one way on every host screen: "#5 Workers Comp Legislation". On Charts the tick under a year

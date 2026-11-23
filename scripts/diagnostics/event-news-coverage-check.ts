@@ -1,7 +1,7 @@
 // ============================================================================
-// EVERY EVENT REACHES THE NEWS — the banner, Events so far, the line on older
-// claims, NO DURATION, the one player name and the host's one label
-// (pr/shock-events-display).
+// EVERY EVENT REACHES THE NEWS, IN THE BOARD'S WORDING — the banner, Events so
+// far, NO REGION, NO FIGURE, NO DURATION, the one player name and the host's
+// one label (pr/shock-events-display, pr/event-wording).
 //
 //   npx tsx scripts/diagnostics/event-news-coverage-check.ts
 //
@@ -11,29 +11,29 @@
 // screens read them (utils/yearEvents.eventNewsByYear; the banner is the year's
 // items, Events so far every year's):
 //
-//   1. THE BANNER, in the year it fires, names it by its player name — and a
-//      regional one with its region, saying its large claim lands there and
-//      the whole line's costs rise — on the team's own lines. Investment Loss
-//      and Member Withdrawal included: they act off the map and used to reach
-//      neither.
+//   1. THE BANNER, in the year it fires, names it by its player name alone (a
+//      regional one too: no region) with the board's sentence, word for word
+//      (WORDING) and nothing more, on the team's own lines. Investment Loss
+//      and Member Withdrawal included: they act off the map.
 //   2. EVENTS SO FAR lists it in that year and in no year after — no
 //      later-year note for an effect still in force (that would say when it
-//      ends). Nuclear Verdict and Social Inflation carry the line on older
-//      claims, word for word, with no length; no other event has one.
-//      Legislation Change and WC Legislation say older claims will also cost
-//      more; Member Withdrawal keeps "from next year".
-//   2b. NO DURATION: every player string — label, description, the older-claims
-//      line, in every year, on three lines and on WC alone, and every
-//      description the game can show — is scanned for a duration phrase
-//      (DURATION below). Players are not told how long an event lasts; hosts
-//      keep the full details.
+//      ends).
+//   2b. NO REGION, FIGURE OR DURATION: every player string — label and
+//      description, in every year, on three lines and on WC alone, and every
+//      description the game can show — is scanned for a region (REGION), a
+//      figure, and a duration phrase (DURATION). The engine still places a
+//      regional event's large claim; hosts keep the full details.
 //   3. ON WC ALONE: an event that touches WC or the whole pool is news on WC
 //      alone; one that does not is no news.
 //   4. ONE NAME: the Year Walkthrough's name for every catalogue key is the
 //      player's, the host's label is '#n Name', and the Year Walkthrough gives
 //      Investment Loss and Member Withdrawal their rows.
+//   5. THE RESULTS CARD, THE "EVENTS THIS YEAR" ROW AND THE CLAIMS name an
+//      event by its player name alone — no region, no "in force since year N"
+//      (hidden today, held anyway). The Year Walkthrough keeps its region row.
+//   Investment Loss names no lines: its sentence says what it touched.
 //
-// ⚠ THE EXPECTATIONS ARE WRITTEN OUT HERE — the names, the years, the notes —
+// ⚠ THE EXPECTATIONS ARE WRITTEN OUT HERE — the names, the wording, the years —
 // not read from the code they grade. Each part has a CONTROL that breaks it at
 // runtime, asserts the part now FAILS, and restores it.
 // ============================================================================
@@ -43,12 +43,15 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { eventDescription, eventNewsByYear, EVENT_DESCRIPTIONS, type EventNews } from '../../src/utils/yearEvents';
+import { claimEventLabel, eventDescription, eventLabel, eventNewsByYear, EVENT_DESCRIPTIONS, yearEvents, type EventNews } from '../../src/utils/yearEvents';
+import { RESULT_METRICS } from '../../src/utils/resultMetrics';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   catalogueDisplayName, hostShockLabel, POOL_WIDE_EVENTS, SHOCK_EVENTS, SHOCK_EVENT_LABELS,
 } from '../../src/utils/shockLosses';
 import { buildYearWalkthrough } from '../../src/utils/yearWalkthrough';
-import type { CoverageLine, GameSetupSettings, GameState, Region, ResultSet } from '../../src/types/simulation';
+import type { Claim, CoverageLine, GameSetupSettings, GameState, LineResultSet, Occurrence, ResultSet } from '../../src/types/simulation';
 
 // ---- THE DESIGN, WRITTEN OUT ------------------------------------------------
 // id -> [player name, host name, regional, lines it touches (all three lines in play), WC alone touched?]
@@ -66,20 +69,27 @@ const DESIGN: Record<string, [string, string, boolean, CoverageLine[], boolean]>
   '#11': ['Large Investment Loss', 'Large Investment Loss', false, [], true],
   '#12': ['Large Member Withdrawal', 'Large Member Withdrawal', false, ['WC', 'GL', 'Property'], true],
 };
-// id -> the banner's line on older claims, word for word (no other event has one).
-const LASTING: Record<string, string> = {
-  '#7': 'It also makes older liability claims grow.',
-  '#8': 'Older liability claims will also grow.',
+// id -> the board's sentence, word for word: the whole description.
+const WORDING: Record<string, string> = {
+  '#1': 'A major earthquake strikes, damaging buildings and injuring people at work.',
+  '#2': 'A severe winter storm brings heavy rain, snow and flooding.',
+  '#3': 'A wildfire spreads, burning buildings and land.',
+  '#4': 'A new law widens what injured parties can recover, on both new and existing claims.',
+  '#5': 'The state raises the medical fee schedule, so treating injured workers costs more.',
+  '#6': 'A recession takes hold, and members and their workforces feel the strain.',
+  '#7': 'A jury returns an exceptionally large award in a liability lawsuit.',
+  '#8': 'Juries and claimants push liability awards and settlements higher.',
+  '#9': 'A pandemic spreads, and illness among workers rises.',
+  '#10': 'Prices rise quickly, and the cost of settling claims rises with them.',
+  '#11': "Financial markets fall sharply, and the pool's invested assets lose value.",
+  '#12': 'A large member has left the pool.',
 };
-// id -> what the description must say (the older-claims effect, with no length).
-const SAYS: Record<string, RegExp> = {
-  '#4': /older liability claims will also cost more\.$/,
-  '#5': /older WC claims will also cost more\.$/,
-  '#12': /a quarter of each line's book from next year/,
-};
+// ⚠ A REGION: the word, or any of the game's four.
+const REGION = /\bregion|\b(North|Central|South|East)\b/i;
+// ⚠ A FIGURE: a digit, a percent or a dollar.
+const FIGURE = /[0-9%$]/;
 // ⚠ A DURATION PHRASE: how long an effect lasts, or when it ends. "this year's
-// claims" and "this year" (when it happens) are not; "from next year" (when
-// Member Withdrawal starts) is not.
+// claims" and "this year" (when it happens) are not.
 const DURATION = new RegExp([
   'this year alone', 'this year only', 'in this year', 'rest of the game', 'for (the )?(good|ever)', 'permanent',
   '\\b(one|two|three|four|five|six|seven|eight|nine|ten|\\d+) (more )?years?\\b', 'year \\d+ of \\d+',
@@ -137,20 +147,11 @@ function partNews(): string[] {
     if (b.length !== 1) { out.push(`${id}: the ${2025 + FIRE} banner has ${b.length} items named "${name}" (${banner(news, FIRE).map(n => n.label).join(' | ')})`); continue; }
     const n = b[0];
     for (let y = 1; y <= YEARS; y++) if (y !== FIRE && banner(news, y).length) out.push(`${id}: a banner in year ${y} (${banner(news, y).map(x => x.label).join(' | ')})`);
-    if (regional) {
-      const region = n.label.match(/— (\w+) region$/)?.[1];
-      if (!region) out.push(`${id}: the label names no region ("${n.label}")`);
-      else if (!n.description.includes(`lands in the ${region} region`) || !n.description.includes('whole')) {
-        out.push(`${id}: the description does not say the claim lands in ${region} and the whole line's costs rise ("${n.description}")`);
-      }
-    } else if (n.label !== name) out.push(`${id}: label "${n.label}", wanted "${name}"`);
+    if (n.label !== name) out.push(`${id}: label "${n.label}", wanted "${name}"${regional ? ' (a regional event: no region)' : ''}`);
     if (JSON.stringify(n.lines) !== JSON.stringify(lines)) out.push(`${id}: lines ${n.lines.join(',')}, wanted ${lines.join(',')}`);
-    if (id === '#11' && !/invested assets/.test(n.affects ?? '')) out.push(`#11: says it affects "${n.affects}", wanted the invested assets`);
-    if (id === '#11' && !/investment returns fall sharply this year/i.test(n.description)) out.push(`#11: "${n.description}"`);
-    if (id === '#12' && !/a quarter of each line's book from next year/.test(n.description)) out.push(`#12: "${n.description}"`);
-    if (id === '#9' && !/liability claim/.test(n.description)) out.push(`#9: no liability claim in "${n.description}"`);
-    if (SAYS[id] && !SAYS[id].test(n.description)) out.push(`${id}: "${n.description}", wanted ${SAYS[id]}`);
-    if ((n.lasting ?? null) !== (LASTING[id] ?? null)) out.push(`${id}: older-claims line ${n.lasting ? `"${n.lasting}"` : 'absent'}, wanted ${LASTING[id] ? `"${LASTING[id]}"` : 'none'}`);
+    if (n.description !== WORDING[id]) out.push(`${id}: description "${n.description}", wanted "${WORDING[id]}"`);
+    const extra = Object.keys(n).filter(k => !['key', 'label', 'description', 'lines'].includes(k));
+    if (extra.length) out.push(`${id}: an extra field on the news (${extra.join(', ')})`);
     const rows = panel(news);
     if (!rows.some(r => r.y === FIRE && r.n.label === n.label)) out.push(`${id}: not in Events so far for ${2025 + FIRE}`);
     const later = rows.filter(r => r.y !== FIRE);
@@ -164,17 +165,69 @@ function partNews(): string[] {
 function partNoDuration(): string[] {
   const out: string[] = [];
   const scan = (where: string, text: string | undefined) => {
-    const m = text?.match(DURATION);
-    if (m) out.push(`${where}: "${m[0]}" in "${text}"`);
+    for (const [what, re] of [['duration', DURATION], ['region', REGION], ['figure', FIGURE]] as const) {
+      const m = text?.match(re);
+      if (m) out.push(`${where}: ${what} "${m[0]}" in "${text}"`);
+    }
   };
   for (const [kind, gs] of [['three lines', games], ['WC alone', wcGames]] as const) {
     for (const [id, rs] of gs) {
       for (const { y, n } of panel(newsOf(rs))) {
-        for (const [f, t] of [['label', n.label], ['description', n.description], ['older-claims line', n.lasting]] as const) scan(`${id} ${kind} year ${y} ${f}`, t);
+        for (const [f, t] of [['label', n.label], ['description', n.description]] as const) scan(`${id} ${kind} year ${y} ${f}`, t);
       }
     }
   }
-  for (const name of Object.keys(EVENT_DESCRIPTIONS)) for (const r of [undefined, 'Central' as Region]) scan(`description of ${name}`, eventDescription(name, r));
+  for (const name of Object.keys(EVENT_DESCRIPTIONS)) scan(`description of ${name}`, eventDescription(name));
+  return out;
+}
+
+// ---- 5. RESULTS, EVENTS THIS YEAR, CLAIMS -----------------------------------------
+// The Results page's events card, the "Events This Year" results row and the
+// claims list and download name an event by its player name alone: no region,
+// no "in force since year N" (pr/event-wording). The Year Walkthrough keeps its
+// region row (not read here). Each event's game, every year, the pool and each
+// line; every claim an event brought; and the card's source, which prints the
+// label.
+let metricOf = (r: LineResultSet) => String(RESULT_METRICS.find(m => m.key === 'yearEvents')!.value(r));
+let claimLabelOf = (c: Claim, o?: Occurrence) => claimEventLabel(c, o);
+let resultsPageSource = readFileSync(fileURLToPath(new URL('../../src/pages/ResultsPage.tsx', import.meta.url)), 'utf8');
+const SINCE = /in force|since year/i;
+function partResults(): string[] {
+  const out: string[] = [];
+  const scan = (where: string, text: string) => {
+    for (const [what, re] of [['region', REGION], ['"in force since"', SINCE], ['duration', DURATION]] as const) {
+      const m = text.match(re);
+      if (m) out.push(`${where}: ${what} "${m[0]}" in "${text}"`);
+    }
+  };
+  for (const [id, rs] of games) {
+    const [name, , regional] = DESIGN[id];
+    let named = 0;
+    for (const r of rs.filter(x => x.yearNumber >= 1)) {
+      const scopes: [string, LineResultSet][] = [['pool', r as unknown as LineResultSet],
+        ...Object.entries(r.byLine ?? {}).map(([l, x]) => [l, x] as [string, LineResultSet])];
+      for (const [scope, x] of scopes) {
+        scan(`${id} year ${r.yearNumber} ${scope} Events This Year`, metricOf(x));
+        for (const ev of yearEvents(x)) {
+          if (eventLabel(ev.name) !== ev.name) out.push(`${id} year ${r.yearNumber} ${scope}: card label "${eventLabel(ev.name)}", wanted "${ev.name}"`);
+        }
+        if (scope === 'pool') continue;
+        const occ = new Map((x.occurrences ?? []).map(o => [o.id, o]));
+        for (const c of x.claims ?? []) {
+          const label = claimLabelOf(c, c.occurrenceId !== undefined ? occ.get(c.occurrenceId) : undefined);
+          if (label === undefined) continue;
+          scan(`${id} year ${r.yearNumber} ${scope} claim ${c.id}`, label);
+          if (c.shockId === id && label === name) named++;
+        }
+      }
+    }
+    if (regional && named === 0) out.push(`${id}: no claim labelled "${name}" (the regional event's large claim)`);
+  }
+  // The card prints eventLabel and nothing after it.
+  // (What it prints, not its comments: the year it read off the event.)
+  const printed = resultsPageSource.match(/in force since year \{|\bev\.sinceYear\b/);
+  if (printed) out.push(`ResultsPage.tsx still prints the year an event began ("${printed[0]}")`);
+  if (/eventLabel\([^)]*region/.test(resultsPageSource)) out.push('ResultsPage.tsx passes a region to eventLabel');
   return out;
 }
 
@@ -214,15 +267,18 @@ function partWalkthrough(): string[] {
   return out;
 }
 
-console.log('1-2. Every event: the banner, Events so far, the older-claims line (three lines)');
+console.log('1-2. Every event: the banner and Events so far, in the board\'s wording (three lines)');
 check(partNews(), 'all twelve reach the banner and Events so far in the year they fire, and no later year');
-console.log('2b. No duration');
-check(partNoDuration(), 'no player text says how long an event lasts');
+console.log('2b. No region, figure or duration');
+check(partNoDuration(), 'no player text names a region, gives a figure or says how long an event lasts');
 console.log('3. A team writing WC alone');
 check(partWcAlone(), 'an event is news on WC alone exactly when it touches WC or the pool');
 console.log('4. One name');
 check(partNames(), "every catalogue key reads the player's name; the host's label is '#n Name'");
 check(partWalkthrough(), 'the Year Walkthrough gives Investment Loss and Member Withdrawal rows');
+
+console.log('5. Results card, "Events This Year" row, claims list and download');
+check(partResults(), 'the name alone: no region, no "in force since"');
 
 console.log('Controls');
 const pool = POOL_WIDE_EVENTS as string[];
@@ -241,21 +297,50 @@ control('a later-year note put back (Social Inflation, "year 2 of 3")', () => {
   };
   return () => { newsOf = real; };
 }, partNews);
-const descs = EVENT_DESCRIPTIONS as Record<string, (r?: Region) => string>;
+const descs = EVENT_DESCRIPTIONS as Record<string, string>;
 for (const [name, phrase] of [
   ['Economic Recession', ' The effect is felt in this year alone.'],
   ['Pandemic', ' The effect is felt in this year alone.'],
   ['Legislation Change', ' It lasts for the rest of the game.'],
 ] as const) {
   control(`a duration phrase back in ${name} ("${phrase.trim()}")`, () => {
-    const f = descs[name]; descs[name] = r => f(r) + phrase; return () => { descs[name] = f; };
+    const f = descs[name]; descs[name] = f + phrase; return () => { descs[name] = f; };
   }, partNoDuration);
 }
-control('a duration back on the older-claims line ("for three years")', () => {
+control('a region back in the name ("Earthquake — Central region")', () => {
   const real = newsOf;
-  newsOf = rs => new Map([...real(rs)].map(([y, ns]) => [y, ns.map(n => (n.lasting ? { ...n, lasting: n.lasting.replace(/\.$/, ' for three years.') } : n))]));
+  newsOf = rs => new Map([...real(rs)].map(([y, ns]) => [y, ns.map(n => (n.label === 'Earthquake' ? { ...n, label: 'Earthquake — Central region' } : n))]));
   return () => { newsOf = real; };
 }, partNoDuration);
+control('a region back in a description (Wildfire: "lands in the North region")', () => {
+  const f = descs['Wildfire']; descs['Wildfire'] = f + ' Its large property claim lands in the North region.'; return () => { descs['Wildfire'] = f; };
+}, partNoDuration);
+control('a figure back (Member Withdrawal: "25% of each line\'s book")', () => {
+  const f = descs['Large Member Withdrawal']; descs['Large Member Withdrawal'] = "Members leave: 25% of each line's book."; return () => { descs['Large Member Withdrawal'] = f; };
+}, partNoDuration);
+control('an extra line back (Social Inflation: "Older liability claims will also grow.")', () => {
+  const f = descs['Social Inflation']; descs['Social Inflation'] = f + ' Older liability claims will also grow.'; return () => { descs['Social Inflation'] = f; };
+}, partNews);
+control('an extra field back on the news (a "lasting" line on Nuclear Verdict)', () => {
+  const real = newsOf;
+  newsOf = rs => new Map([...real(rs)].map(([y, ns]) => [y, ns.map(n => (n.label === 'Nuclear Verdict' ? { ...n, lasting: 'It also makes older liability claims grow.' } : n))]));
+  return () => { newsOf = real; };
+}, partNews);
+control('a region back in the "Events This Year" row ("Earthquake — Central region: 1 claim")', () => {
+  const real = metricOf;
+  metricOf = r => real(r).replace(/\bEarthquake\b/, 'Earthquake — Central region');
+  return () => { metricOf = real; };
+}, partResults);
+control('a region back on the claims ("Wildfire — North region")', () => {
+  const real = claimLabelOf;
+  claimLabelOf = (c, o) => { const l = real(c, o); return l === 'Wildfire' ? 'Wildfire — North region' : l; };
+  return () => { claimLabelOf = real; };
+}, partResults);
+control('"in force since year N" back on the Results card', () => {
+  const real = resultsPageSource;
+  resultsPageSource = real + '\n<span>in force since year {ev.sinceYear}</span>';
+  return () => { resultsPageSource = real; };
+}, partResults);
 control("#11's player name put back to the catalogue key", () => {
   const l = SHOCK_EVENT_LABELS['#11'] as { eventName: string };
   const n = l.eventName; l.eventName = 'Investment Loss'; return () => { l.eventName = n; };

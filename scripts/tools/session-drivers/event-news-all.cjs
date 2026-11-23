@@ -7,19 +7,16 @@
 //
 // Test player (the host's setup in solo, no sign-in), scenario 16, three
 // lines, one game per event: the event alone in year 2. After the second lock
-// the banner names it by its player name (a regional one with its region,
-// saying the large claim lands there and the whole line's costs rise) on the
-// lines it touches, with no figure; the Decisions page lists it under Events
-// so far. Investment Loss says what it touched is the invested assets; Member
-// Withdrawal that a quarter of each line's book leaves from next year. Nuclear
-// Verdict's and Social Inflation's banners carry the line on older claims, word
-// for word, and the two law changes say older claims will also cost more.
-// ⚠ NO DURATION: players are not told how long an event lasts, so no banner and
-// no Events so far row may carry a duration phrase (DURATION, the same list as
-// event-news-coverage-check), and Social Inflation's game plays two more years
-// and Nuclear Verdict's one more with no later-year note and no banner — a note
-// would tell them when the effect ends. With --shots, each banner is saved as
-// <id>-<name>.png, and Social Inflation's Events so far two years on.
+// the banner reads, exactly, its player name, the board's sentence (WORDING
+// below, the same as event-news-coverage-check) and "Your lines affected" on the
+// lines it touches (Investment Loss: no lines line — its sentence says what it
+// touched) — nothing more. The Decisions page lists it under Events so far, as exactly.
+// ⚠ NO REGION, FIGURE OR DURATION anywhere on either (the engine still places a
+// regional event's large claim), and no extra line on older claims or on what
+// to expect. Social Inflation's game plays two more years and Nuclear Verdict's
+// one more with no later-year note and no banner — a note would tell players
+// when the effect ends. With --shots, each banner is saved as <id>-<name>.png,
+// and Social Inflation's Events so far two years on.
 //
 // The same twelve, through the engine on three lines and on WC alone, with
 // controls: scripts/diagnostics/event-news-coverage-check.ts.
@@ -39,21 +36,25 @@ const shotsAt = process.argv.indexOf('--shots');
 const SHOTS = shotsAt > 0 ? process.argv[shotsAt + 1] : null;
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 
-// id -> [player name, regional, lines named on the banner (three lines in play), the text it must carry]
+// id -> [player name, lines named on the banner (three lines in play), the board's sentence, word for word]
 const EVENTS = {
-  '#1': ['Earthquake', true, LINE_NAMES, /whole of each line/],
-  '#2': ['Winterstorm', true, ['Property'], /whole line/],
-  '#3': ['Wildfire', true, ['Property'], /whole line/],
-  '#4': ['Legislation Change', false, ['General Liability'], /older liability claims will also cost more\. Your lines/],
-  '#5': ['Workers Compensation Legislation: Increased Medical Fee Schedule', false, ["Workers' Compensation"], /older WC claims will also cost more\. Your lines/],
-  '#6': ['Economic Recession', false, ["Workers' Compensation", 'General Liability'], /liability claims cost more\. Your lines/],
-  '#7': ['Nuclear Verdict', false, ['General Liability'], /one very large liability claim this year\. It also makes older liability claims grow\. Your lines/],
-  '#8': ['Social Inflation', false, ['General Liability'], /a large liability claim is brought\. Older liability claims will also grow\. Your lines/],
-  '#9': ['Pandemic', false, ["Workers' Compensation", 'General Liability'], /large liability claim is brought over the illness\. Your lines/],
-  '#10': ['Economic Inflation', false, LINE_NAMES, /settling claims/],
-  '#11': ['Large Investment Loss', false, [], /investment returns fall sharply this year.*Affects your pool's invested assets/],
-  '#12': ['Large Member Withdrawal', false, LINE_NAMES, /a quarter of each line's book from next year/],
+  '#1': ['Earthquake', LINE_NAMES, 'A major earthquake strikes, damaging buildings and injuring people at work.'],
+  '#2': ['Winterstorm', ['Property'], 'A severe winter storm brings heavy rain, snow and flooding.'],
+  '#3': ['Wildfire', ['Property'], 'A wildfire spreads, burning buildings and land.'],
+  '#4': ['Legislation Change', ['General Liability'], 'A new law widens what injured parties can recover, on both new and existing claims.'],
+  '#5': ['Workers Compensation Legislation: Increased Medical Fee Schedule', ["Workers' Compensation"],
+    'The state raises the medical fee schedule, so treating injured workers costs more.'],
+  '#6': ['Economic Recession', ["Workers' Compensation", 'General Liability'], 'A recession takes hold, and members and their workforces feel the strain.'],
+  '#7': ['Nuclear Verdict', ['General Liability'], 'A jury returns an exceptionally large award in a liability lawsuit.'],
+  '#8': ['Social Inflation', ['General Liability'], 'Juries and claimants push liability awards and settlements higher.'],
+  '#9': ['Pandemic', ["Workers' Compensation", 'General Liability'], 'A pandemic spreads, and illness among workers rises.'],
+  '#10': ['Economic Inflation', LINE_NAMES, 'Prices rise quickly, and the cost of settling claims rises with them.'],
+  '#11': ['Large Investment Loss', [], "Financial markets fall sharply, and the pool's invested assets lose value."],
+  '#12': ['Large Member Withdrawal', LINE_NAMES, 'A large member has left the pool.'],
 };
+// ⚠ A REGION: the word, or any of the game's four.
+const REGION = /\bregion|\b(North|Central|South|East)\b/i;
+const noRegion = text => { const m = text.match(REGION); return m ? `"${m[0]}" in: ${text}` : ''; };
 
 // ⚠ A DURATION PHRASE (the coverage check's list): how long an effect lasts or when it ends.
 const DURATION = new RegExp([
@@ -69,12 +70,16 @@ for (const was of ['The effect is felt in this year alone.', 'It also makes olde
   ok(noDuration(was) !== '', `control: the duration check catches "${was}"`);
 }
 
+for (const was of ['Earthquake — Central region. A major earthquake strikes.', 'Its large property claim lands in the North region.']) {
+  ok(noRegion(was) !== '', `control: the region check catches "${was}"`);
+}
+
 (async () => {
   await requireServer();
   delete process.env.ADMIN_TOKEN;
   const browser = await launchBrowser();
   const errors = [];
-  for (const [id, [name, regional, lines, must]] of Object.entries(EVENTS)) {
+  for (const [id, [name, lines, wording]] of Object.entries(EVENTS)) {
     console.log(`${id} ${name}`);
     const page = await (await browser.newContext({ baseURL: BASE, viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 })).newPage();
     page.on('pageerror', e => errors.push(`${id}: ${e.message}`));
@@ -114,15 +119,14 @@ for (const was of ['The effect is felt in this year alone.', 'It also makes olde
     const items = (await page.locator('[data-testid="event-news-item"]').allInnerTexts()).map(t => t.trim().replace(/\s+/g, ' '));
     const it = items.find(t => t.startsWith(name)) ?? '';
     ok(items.length === 1 && it !== '', `it names ${name}`, items.join(' | '));
-    if (regional) {
-      const region = (it.match(/— (\w+) region\./) ?? [])[1];
-      ok(!!region && it.includes(`lands in the ${region} region`), 'its region, and that its large claim lands there', it);
-    }
-    ok(must.test(it), 'and says what happened', it);
+    const expected = id === '#11' ? `${name}. ${wording}` : `${name}. ${wording} Your lines affected: ${lines.join(', ')}.`;
+    ok(it === expected, `exactly its name, the board's sentence${id === '#11' ? ' and no lines line' : ' and the lines affected'}`, it);
+    if (id === '#11') ok(!/Affects|Your lines affected/.test(it), 'Investment Loss: no "Affects" or lines line', it);
     const named = linesIn((it.split('Your lines affected:')[1] ?? ''));
     ok(JSON.stringify(named) === JSON.stringify(lines), 'on the lines it touches', named.join(', ') || '(none)');
-    ok(!/\$|\d/.test(it), 'no figure', '');
+    ok(!/\$|\d|%/.test(it), 'no figure', '');
     ok(noDuration(it) === '', 'no duration', noDuration(it));
+    ok(noRegion(it) === '', 'no region', noRegion(it));
     if (SHOTS) {
       const slug = name.toLowerCase().replace(/[^a-z]+/g, '-').replace(/-+$/, '');
       await banner.screenshot({ path: path.join(SHOTS, `${id.slice(1).padStart(2, '0')}-${slug}.png`) });
@@ -131,7 +135,10 @@ for (const was of ['The effect is felt in this year alone.', 'It also makes olde
     await page.waitForTimeout(400);
     const listed = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim().replace(/\s+/g, ' '));
     ok(listed.length === 1 && listed[0].startsWith(`${year} ${name}`), 'Events so far lists it in its year', listed.join(' | '));
+    const row = id === '#11' ? `${year} ${name} — ${wording}` : `${year} ${name} — ${wording} (${lines.join(', ')})`;
+    ok(listed[0] === row, "Events so far: exactly its name and the board's sentence", listed[0]);
     ok(listed.every(t => noDuration(t) === ''), 'Events so far: no duration', listed.map(noDuration).filter(Boolean).join(' | '));
+    ok(listed.every(t => noRegion(t) === ''), 'Events so far: no region', listed.map(noRegion).filter(Boolean).join(' | '));
     if (id === '#7' || id === '#8') {
       const extra = id === '#8' ? 2 : 1;
       for (let i = 0; i < extra; i++) await lock();

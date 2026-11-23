@@ -194,10 +194,8 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
               {yearEvents(result).map(ev => (
                 <div key={ev.key} className="pl-8 text-sm">
                   <p className="font-semibold text-amber-900">
-                    {eventLabel(ev.name, ev.region)}
-                    {ev.sinceYear !== undefined && (
-                      <span className="ml-2 font-normal text-amber-700">in force since year {ev.sinceYear}</span>
-                    )}
+                    {/* ⚠ THE NAME ALONE: no region, no "in force since year N" (pr/event-wording). */}
+                    {eventLabel(ev.name)}
                     {/* ⚠ NO "in N of M worlds" — players are never told about the
                         worlds (docs/PENDING_MULTIPLAYER.md §0). The figures below are
                         the averaged row's, as every figure on the page is. */}

@@ -393,7 +393,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
         return evs.map(ev => {
           // An averaged row (loss engine commit 4b) says in how many worlds it fired.
           // ⚠ NO "(in N of M worlds)" — players are never told about the worlds.
-          const label = eventLabel(ev.name, ev.region);
+          const label = eventLabel(ev.name);
           const claims = Number.isInteger(ev.claims) ? String(ev.claims) : ev.claims.toFixed(1);
           if (ev.claims > 0) return `${label}: ${claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
           // An uplift on the year's ordinary losses: real dollars, no claim.
