@@ -224,6 +224,26 @@
 // against a 6.88% bar and EXITS 2 (GL's roster no longer moves, 0.000%, so
 // MAX_EXPOSURE_MOVE is not needed for it). The break "AD on, every λ 0" exits 1
 // on the AD arm.
+//
+// ⚠ RESTATED FOR THE NARROWER RANGES (pr/development-ranges: Low 0–5%, Mid
+// 3–8%, High 7–15%, from 1–5%, 5–15%, 15–20%). THE GAMES NOW PLAY HIGH. The
+// arm and its first control measure whether the rate picks up, and the
+// still-book bar could see, a ramp of a known size — the size the old Mid gave
+// (λ mean 10%). The new Mid (mean 5.5%) no longer makes one: at Mid the shipped
+// cell read +3.05% (arm +3.43%, paired SE 0.09%), under the still-book bar, and
+// the first control did not fire. The new High (mean 11%) is the level nearest
+// the old Mid, and restores it. Measured, 24 games x 10 years, Property, on
+// this branch (AD-off twin −0.38% throughout — nothing it reads moved):
+//
+//     level (new range)    shipped drift   AD arm (on − off)   paired SE   control 1
+//     Low   (0%-5%)          +1.37%          +1.75%              0.07%      does not fire; arm under the 2% floor
+//     Mid   (3%-8%)          +3.05%          +3.43%              0.09%      does not fire
+//     High  (7%-15%)         +6.13%          +6.51%              0.15%      fires   <- the games
+//
+// So both questions keep their meaning at High: adverse development of the
+// size the arm was tuned on reaches the rate, and the still-book bar would
+// see it. At Mid or Low this gate would fail on its controls, not on the
+// game — a statement about the level it plays, not about the ranges.
 // ============================================================================
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -278,13 +298,16 @@ type Track = Record<string, { rate: number[]; exposure: number[] }>;
 function playOne(seed: number): Track {
   const id = `EPD${seed}`;
   const inst = generateGameInstance(id, 6_100_000 + seed * 7919);
-  // ⚠ MID ON EVERY LINE, EXPLICITLY. The adverse-development arm measures
-  // whether the rate picks up a ramp of a known size, and its control was
-  // tuned on Mid (6.80%; Low's 2.89% would not fire it). The default moved to
-  // Low (ADVERSE_DEVELOPMENT_DEFAULT_LEVEL), so the arm names its level rather
-  // than inheriting it. With adverse development off the levels are not read.
+  // ⚠ HIGH ON EVERY LINE, EXPLICITLY (was Mid until pr/development-ranges; see
+  // the header). The adverse-development arm measures whether the rate picks
+  // up a ramp of a known size, and its control was tuned on the old Mid (λ
+  // 5–15%, 6.80%; the old Low's 2.89% would not fire it). The new High (7–15%)
+  // is the level nearest it: +6.13%. The new Mid reads +3.05% and does not
+  // fire it. The default is Low (ADVERSE_DEVELOPMENT_DEFAULT_LEVEL), so the
+  // arm names its level rather than inheriting it. With adverse development
+  // off the levels are not read.
   const setup = { poolName: 'Drift', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
-    developmentLevels: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } as const };
+    developmentLevels: { WC: 'High', GL: 'High', Property: 'High' } as const };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
@@ -473,19 +496,19 @@ if (!shipped || !control || !stillTwin) {
   if (AD_SHIPPED && !ad.ok) {
     failed.push(`ADVERSE DEVELOPMENT DOES NOT REACH THE RATE. ${ASSERTED_LINE}'s drift with it on less its AD-off twin `
       + `reads ${(100 * ad.m).toFixed(2)}% (paired SE ${(100 * ad.se).toFixed(2)}%), and it must exceed `
-      + `max(${SIGMA} paired SEs, ${100 * DETECTION_FLOOR}%): the rate is meant to pick it up as it emerges in the experience (+5.98% at Mid when this `
-      + 'was restated). Either the experience is read before the development is booked, or the rate now anticipates it.');
+      + `max(${SIGMA} paired SEs, ${100 * DETECTION_FLOOR}%): the rate is meant to pick it up as it emerges in the experience (+6.51% at High when this `
+      + 'was last restated, pr/development-ranges). Either the experience is read before the development is booked, or the rate now anticipates it.');
   }
 
   // IN-FILE CONTROLS on the recorded drifts — each must FAIL (see the header).
   if (AD_SHIPPED) {
-    const c1 = stillBookFires(shipped.drifts).fires;
+    const c1v = stillBookFires(shipped.drifts), c1 = c1v.fires;
     const c2 = !adReaches(stillTwin.drifts, stillTwin.drifts).ok;
-    console.log(`  control: the AD-on drifts graded as the still book  ${c1 ? 'fires (caught)' : 'DOES NOT FIRE'}`);
+    console.log(`  control: the AD-on drifts graded as the still book  ${c1 ? 'fires (caught)' : 'DOES NOT FIRE'}  (${(100 * c1v.m).toFixed(2)}% against a ${(100 * c1v.threshold).toFixed(2)}% bar)`);
     console.log(`  control: AD-off set against itself in the AD arm    ${c2 ? 'fails (caught)' : 'DOES NOT FAIL'}`);
     if (!c1 || !c2) {
       failed.push(`THE CONTROL IS NOT CAUGHT: ${!c1 ? `the shipped AD-on drifts (${(100 * sm).toFixed(2)}%) pass the still-book bar, so that bar can no longer see a ramp of adverse development's size — `
-        + `measured at Mid it fires at 6.80%; at Low (2.89%) it would not — the games set Mid explicitly, so if Mid's range moved, re-read this control` : ''}`
+        + `measured at High (7–15%) it fires at 6.13%; at Mid (3–8%, 3.05%) and Low (0–5%, 1.37%) it does not — the games set High explicitly, so if High's range moved, re-read this control` : ''}`
         + `${!c1 && !c2 ? '; ' : ''}${!c2 ? 'the AD arm passes a cell against itself' : ''}.`);
     }
   }

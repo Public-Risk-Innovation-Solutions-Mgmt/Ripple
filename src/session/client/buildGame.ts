@@ -34,7 +34,7 @@ import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
   'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment' | 'developmentLevels'
-  | 'developmentLevelsByYear' | 'shocksOn' | 'marketVersion'> & Partial<Pick<RoomView, 'teamPoolNames'>>;
+  | 'developmentLevelsByYear' | 'shocksOn' | 'marketVersion' | 'market'> & Partial<Pick<RoomView, 'teamPoolNames'>>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -78,7 +78,13 @@ export function buildTeamGame(
     ...(r.shocksOn !== undefined ? { shocksOn: r.shocksOn } : {}),
     // THE ROOM'S MARKET VERSION (pr/market-new-version): only a New-version room
     // writes it; every other room builds exactly as before.
-    ...(r.marketVersion === 'new' ? { marketVersion: 'new' as const } : {}),
+    // ⚠ AND ONLY WITH THE MARKET ON (pr/admin-fixed-variable-split): New's fixed
+    // admin is booked only in a year with a market result, so a New room with the
+    // market Off books every dollar of admin as a share of premium, and its game
+    // carries no version — its Annual Statement keeps the single General Admin
+    // Expense line (utils/fixedAdmin showsAdminSplit). The engine books such a
+    // room's admin identically either way.
+    ...(r.marketVersion === 'new' && (r.market ?? 'off') !== 'off' ? { marketVersion: 'new' as const } : {}),
     // ⚠ THE HOST SCHEDULES THE SHOCKS. On the new loss engine a session fires
     // only what the room scheduled and consults no probability; singleplayer
     // leaves this absent and draws from the catalogue. Read by nothing with

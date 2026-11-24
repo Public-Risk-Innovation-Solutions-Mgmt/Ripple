@@ -29,6 +29,20 @@ and dividend / (assessment) per line, and on the Pool view the asset mix and eac
 recorded decision; the history years before play show the prior board's. A sticky index links each section and
 marks the one in view. The Excel and PDF downloads carry the Market Survey and Decisions sections too.
 
+**Admin, split into Fixed and Variable** (New-version market rooms with the market on only): in place of the single
+General Admin Expense line, the Net Income Statement shows **General Admin Expense — Fixed**, **General Admin
+Expense — Variable** and **Total General Admin Expense** (today's figure, its % of Premium under it as before), for
+the Pool and each line, in every year column, Prior and All Years included. Fixed is the fixed admin as booked
+(below, under the New market): 25% of the line's year-1 admin dollars, growing 3% a year, in each year the line has
+a market result; the Pool's is the lines' sum. Variable is the rest of the admin booked — this year's 75% share of
+premium and the year's overrun on the whole — so Fixed + Variable is the Total exactly. History years, and any year
+a team has no market result (it never locked), are all Variable. Under the table a note reads "Fixed admin doesn't
+shrink when your book does." Every other figure, the Total and every ratio are unchanged. The Excel and PDF
+downloads show the same rows and note. Current rooms, New rooms with the market Off (no admin is fixed there),
+Single player and Test player keep the single General Admin Expense line. Fixed is worked out from the results (the
+year-1 admin and the stored market results), not stored, so a New room created before this, and one from before
+the level rescale (no scale stamp), splits the same way.
+
 **Hosted.** A host runs an event for teams on their own devices; viewers watch a team.
 
 - **Host** (`/host`, admin sign-in). Tabs: Game Setup · Teams · Charts · Decisions. Creates the room, follows the
@@ -63,7 +77,7 @@ add, reset, disable or delete other admins.
 | First program year | 2027 | |
 | Number of teams | 3 | a label; it limits nothing |
 | Coverage lines | all three | every team writes the room's lines |
-| Adverse development, per line | Low | None, Low (1–5%), Mid (5–15%), High (15–20%) |
+| Adverse development, per line | Low | None, Low (0–5%), Mid (3–8%), High (7–15%) |
 | Adverse development by year | Simple | Simple: the level above, every year. Advanced: a table, a row per year and a column per line, set as in Edit game (a level applies from that year onward); it starts from the simple choices, and going back to Simple warns that the per-year choices are lost |
 | Shock schedule | empty | add events by year, or Randomise (2–4 events, never year 1) |
 | Market competition | Medium | Off, Low, Medium, High (section 5). A room created before the setting reads Off |
@@ -320,7 +334,8 @@ High setting, compares the same whole rates (cover included), and changes four v
   25% of its year-1 admin dollars on that line, growing 3% a year, plus 75% of this year's admin as a share of
   premium; the year's admin overrun then applies as before. The member charge is unchanged — the rate still prices
   admin at 20% of premium — so a book lost to price leaves its fixed part behind. Current rooms, rooms with the market
-  Off, Single player and Test player book admin as before. The share was 50%; it is 25% to ease a shrinking team's
+  Off, Single player and Test player book admin as before. The Annual Statement shows the fixed part on its own
+  line (General Admin Expense — Fixed, above). The share was 50%; it is 25% to ease a shrinking team's
   admin. In a five-team room at 45 / 55 / 65 / 75 / 85% funding (WC only, scenario 4, no events, eight room codes)
   the 85% team's 2031 admin falls from 30.0% to 25.1% and its combined ratio from 146.6% to 141.8%; it still loses
   61% of its book (the share moves cost, not members). Accepted with it: moderate overpricing (about 75–80% funding)
@@ -404,6 +419,24 @@ rest to none or zero.
     shows the event's number and an *Events* key above the charts gives each in full with its year.
 - **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate
   (plus 2–3 points on a line once Legislation Change or Workers Comp Legislation has fired, above).
+  - **The ranges, drawn evenly each year for each open prior year:** Low 0–5%, Mid 3–8%, High 7–15%. They are the
+    same in every mode that has a level: a hosted room (simple or advanced), Test player and Edit game. Single player
+    has none.
+  - **Unpriced:** no level adds anything to the rate; development reaches the rate only as it shows up in the
+    experience.
+  - **Why narrowed (they were Low 1–5%, Mid 5–15%, High 15–20%):** the old Mid and High swamped even 90% funding.
+    Measured in a 16-team room (the eight player types, two seats each), five years, market Medium, no events,
+    every line at one level, scenarios 1, 6 and 16:
+
+    | Level | 90% team's mean combined ratio, old → new | 90% team's year-5 surplus ÷ opening, old → new |
+    |---|---|---|
+    | None | 88% | ×2.59–3.05 |
+    | Low | 91–92% → 90–91% | ×2.33–2.66 → ×2.38–2.73 |
+    | Mid | 99–100% → 94–95% | ×1.63–1.68 → ×2.09–2.32 |
+    | High | 109–110% → 101–102% | ×0.53–0.83 → ×1.51–1.54 |
+
+    At the old High even the 90% team lost 17–47% of its surplus in five quiet years, and the 65% team went below
+    zero in two of the three scenarios. With the new ranges no team of any type went below zero at any level.
 - **Per-claim covers** pay on large claims; **the aggregate cover** pays on the year's attritional losses (normal
   plus surges) above its attachment. Both are offered in every game.
 - **Risk control** is charged in the rate and booked as an expense; it cuts that year's normal losses by,

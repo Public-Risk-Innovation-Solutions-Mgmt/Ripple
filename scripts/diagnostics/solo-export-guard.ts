@@ -1362,7 +1362,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // raw text; with the key normalised all 48 are identical to the control. The
 // statement workbooks are byte-identical. The rescaled levels are New-version
 // market rooms only; no single-player figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v144.json');
+// v145: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges,
+// merged with aws bdf0ac1; numbered past every export and render baseline on
+// any branch). The control: aws bdf0ac1 reproduced v144 on all 48 keys. 24 of
+// 48 move — the 24 Results workbooks, both arms — and only in one line: the
+// Version row (save key v61 -> v62). Text-diffed against bdf0ac1's own text
+// (GUARD_TEXT_DIR): 48 lines differ, every one the Version row; with the key
+// normalised all 48 files are identical to the control. The guard's games are
+// single player, which plays with adverse development Off, so no figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v145.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
