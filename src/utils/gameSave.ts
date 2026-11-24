@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v57';
+export const SAVE_KEY = 'riskpool_gamestate_v59';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -363,7 +363,13 @@ export const SAVE_KEY = 'riskpool_gamestate_v57';
 // market room's members taken in now arrive at 0.95, not 1.00, so its stored
 // results and every later year's step differ from a v56 save's. Single player,
 // Test player and Current rooms play as before. v56 is retired.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56'];
+// ⚠ v59: NEW-VERSION FIXED ADMIN AT 25% (pr/market-fixed-admin-25). A
+// New-version market room's admin booked now holds 25% of year-1 admin fixed,
+// not 50%, so its results — which a reload replays — differ from a v57 save's.
+// Single player, Test player and Current rooms play as before. v57 is retired.
+// ⚠ v58 IS SKIPPED, NOT RETIRED: it is pr/named-scenarios', open and not yet
+// merged, so no two pull requests share a key.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57'];
 
 /**
  * Fields dropped on the way out.

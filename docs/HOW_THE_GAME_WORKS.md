@@ -301,11 +301,17 @@ High setting, compares the same whole rates (cover included), and changes four v
   27.1 / 19.5 ($M, 45% to 85%) at 1.00 to 17.0 / 24.9 / 29.0 / 27.5 / 19.5 at 0.95, the middle team is still first
   in every room code tested (16 of 16, with the three-team 35% / Expected / 85% room), and the cheapest team stays
   at least $11.2M behind it.
-- **Fixed admin** (New-version rooms with the market on only): each team's admin booked on a line is 50% of its
-  year-1 admin dollars on that line, growing 3% a year, plus 50% of this year's admin as a share of premium; the
-  year's admin overrun then applies as before. The member charge is unchanged — the rate still prices admin at 20% of
-  premium — so a book lost to price leaves its fixed half behind. Current rooms, rooms with the market Off, Single
-  player and Test player book admin as before.
+- **Fixed admin** (New-version rooms with the market on only, every level): each team's admin booked on a line is
+  25% of its year-1 admin dollars on that line, growing 3% a year, plus 75% of this year's admin as a share of
+  premium; the year's admin overrun then applies as before. The member charge is unchanged — the rate still prices
+  admin at 20% of premium — so a book lost to price leaves its fixed part behind. Current rooms, rooms with the market
+  Off, Single player and Test player book admin as before. The share was 50%; it is 25% to ease a shrinking team's
+  admin. In a five-team room at 45 / 55 / 65 / 75 / 85% funding (WC only, scenario 4, no events, eight room codes)
+  the 85% team's 2031 admin falls from 30.0% to 25.1% and its combined ratio from 146.6% to 141.8%; it still loses
+  61% of its book (the share moves cost, not members). Accepted with it: moderate overpricing (about 75–80% funding)
+  can come out ahead — the 75% team is first in 5 of 8 codes there (the 65% team in the other 3), and in a realistic
+  15-team room 70–75% and 80% split first place 4–4 — and on the rate curve +15% beats 0% by up to 0.08 on two seeds
+  (scenarios 20 and 16, Medium, events off).
 
 Why: measured in hosted rooms, today's market pays for overpricing at every setting (the 15% leaver cap saturates
 and the 50% fade erases the selection). With the New values a team's surplus peaks near the indicated rate. Every

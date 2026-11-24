@@ -23,6 +23,7 @@ import { useRoom } from '../client/useRoom';
 import { eventStatusOf, teamDisplayName, teamLabel } from '../contract';
 import { EditGamePanel } from '../../components/EditGamePanel';
 import type { YearSettings } from '../../utils/gameEdits';
+import { MARKET_NEW_FIXED_ADMIN } from '../../data/pricingParameters';
 
 interface Props {
   code: string;
@@ -440,7 +441,7 @@ export default function HostRoomScreen({ code }: Props) {
                     Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>
                     {' '}· <span data-testid="market-version-shown" className="font-medium text-slate-700">{room!.marketVersion === 'new' ? 'New' : 'Current'} version</span>.
                     Advancing moves members between teams on the rates they locked.
-                    {room!.marketVersion === 'new' ? ' Half of each team\'s admin is fixed at its year-1 dollars, growing 3% a year.' : ''}
+                    {room!.marketVersion === 'new' ? ` ${MARKET_NEW_FIXED_ADMIN.share * 100}% of each team's admin is fixed at its year-1 dollars, growing ${MARKET_NEW_FIXED_ADMIN.trend * 100}% a year.` : ''}
                   </p>
                 )}
                 {(room?.market ?? 'off') === 'off' && room?.marketVersion === 'new' && (

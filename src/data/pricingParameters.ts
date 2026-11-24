@@ -2939,7 +2939,7 @@ export const MARKET_OUTSIDE_QUALITY = 'same mix' as const;
 // test seats, the more surplus they ended with, because the 15% leaver cap
 // saturates and the 50% fade erases the selection within two years. The New
 // version makes leaving stronger and more selective, keeps the selection longer,
-// and holds half of each team's admin fixed so that a shrinking book carries its
+// and holds part of each team's admin fixed (25%, MARKET_NEW_FIXED_ADMIN) so a shrinking book carries some of its
 // overheads — so a team's surplus peaks near the indicated rate, not above it.
 //
 // THE MARKET STILL COMPARES WHOLE RATES, cover included: no reinsurance change.
@@ -3004,6 +3004,37 @@ export const MARKET_NEW: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewL
 };
 
 /**
+ * FIXED ADMIN AT 25% (pr/market-fixed-admin-25; it was 50%). The fixed part is a
+ * quarter of each team's year-1 admin dollars on the line, still growing 3% a
+ * year, at every level (Low / Medium / High), with k and every other market
+ * setting unchanged.
+ *
+ * ⚠ WHY 25%: it eases a shrinking team's admin. ACCEPTED, knowingly: moderate
+ * overpricing (about 75–80% funding) can come out ahead, and +15% beats 0% by
+ * up to 0.08 on two seeds. Measured by the spiral-test chat (November 2026;
+ * scratch switches on aws 7af0fc6, nothing committed; New, Medium, eight room
+ * codes per room, WC only, scenario 4, no events, adverse development
+ * None / None / Low / Low / Mid):
+ *   five teams 45 / 55 / 65 / 75 / 85% (New Members 10%), 2031 surplus $M:
+ *     50%  17.0 / 24.9 / 29.0 / 27.5 / 19.5 (65% first 8 of 8)
+ *     25%  14.4 / 22.7 / 27.9 / 27.8 / 22.0 (65% first 3, 75% first 5)
+ *     the 85% team: admin 30.0% → 25.1%, combined 146.6% → 141.8%, book kept
+ *     39% either way (the fixed share moves cost, not members);
+ *   fifteen teams, a realistic mix, every team keeping both covers: first
+ *     place 70–75% 7 of 8 and 80% 1 at 50%; 70–75% 4 and 80% 4 at 25%; the 85%
+ *     team admin 23.5% → 21.8%, combined 120.0% → 118.4%;
+ *   the rate curve, six-team setting (two seats at the offset, four at 0%),
+ *     events off, +15% minus 0% (test seats' year-5 surplus ÷ opening):
+ *     82670 −0.17 → −0.03; 88719 −0.22 → −0.04; scenario 20 −0.10 → +0.08;
+ *     scenario 16 −0.07 → +0.04; scenario 1 −0.19 → −0.05; fifteen-team
+ *     setting 82670 −0.32 → −0.16, scenario 20 −0.35 → −0.16. The peak stays
+ *     at +5% (scenario 16 ties +5% and +10% at 25%); −15% falls by 0.12–0.19.
+ * Medium k × 4 would have restored every seed (margin 0.08) and was not
+ * adopted; at 20% no version kept a middle team (65–75%) first in the 15-team
+ * room.
+ *
+ * THE ORIGINAL TEXT, AT 50%:
+ *
  * FIXED ADMIN — New-version rooms with the market on ONLY. Each team's admin
  * booked on a line is `share` × its year-1 admin dollars on that line, grown
  * `trend` a year from year 1, plus (1 − share) × this year's admin as a share of
@@ -3018,7 +3049,7 @@ export const MARKET_NEW: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewL
  * into the charge itself was rejected: it reopens the loophole (a shrinking
  * book's rate rises with its fixed admin). 3% a year is the expense trend.
  */
-export const MARKET_NEW_FIXED_ADMIN = { share: 0.50, trend: 0.03 } as const;
+export const MARKET_NEW_FIXED_ADMIN = { share: 0.25, trend: 0.03 } as const;
 
 /**
  * INTAKE QUALITY 0.95 — New-version market rooms only (pr/market-new-intake,
@@ -3502,14 +3533,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `${MARKET_NEW_FIXED_ADMIN.share * 100}% of each team's year-1 admin dollars per line, growing `
           + `${MARKET_NEW_FIXED_ADMIN.trend * 100}% a year`,
         unit: 'of the admin booked, New-version rooms with the market on only',
-        what: 'The admin booked is the fixed part plus the other half of this year\'s admin as a share of premium, then '
+        what: 'The admin booked is the fixed part plus the rest of this year\'s admin as a share of premium, then '
           + 'the year\'s overrun as today. The member charge is unchanged. Current rooms, rooms with the market Off, '
           + 'Single player and Test player book admin as today.',
         basis: 'CHOSEN',
         note: 'Measured (lever-test chat): with all admin a share of premium a shrinking book sheds its overheads, so '
           + 'overpricing costs nothing. Applied to every game it rewards growth in single player (+0.45 of surplus for '
           + 'New Members 10% against 0%), so it is held to market rooms; charging the fixed part in the rate was '
-          + 'rejected (it reopens the loophole). 3% a year is the expense trend.',
+          + 'rejected (it reopens the loophole). 3% a year is the expense trend. Set to 25% (from 50%) to ease a '
+          + 'shrinking team\'s admin (five-team room, the 85% team: admin 30.0% → 25.1%, combined 146.6% → 141.8%), '
+          + 'accepting that moderate overpricing (about 75–80% funding) can come out ahead and that +15% beats 0% by '
+          + 'up to 0.08 on two seeds (scenarios 20 and 16, Medium, events off; spiral-test chat).',
       }],
     ],
   },
