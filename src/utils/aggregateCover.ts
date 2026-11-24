@@ -24,7 +24,7 @@
 // ============================================================================
 
 import {
-  AGGREGATE_COVER_DEFAULT, AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, R_MODEL, SHOCK_A_YEARS, coversInEveryGame,
+  AGGREGATE_COVER_DEFAULT, AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, R_MODEL, SHOCK_A_YEARS, coversInEveryGame, coverPriceFactorFor,
   T_COVER_FREQUENCY, type AggregateCoverOption,
 } from '../data/pricingParameters';
 import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
@@ -160,7 +160,7 @@ export interface AggregateCoverQuote {
   limit: number;
   /** At the shock assumptions' odds, in dollars. */
   expectedRecovery: number;
-  /** expectedRecovery x the option's load. */
+  /** expectedRecovery x the option's load x the cover price factor in a played year (COVER_PRICE_FACTOR). */
   price: number;
 }
 
@@ -184,7 +184,8 @@ export function aggregateCoverQuote(
   return {
     optionId, expectedNormal, averageSurge: avg, expectedAttritional,
     attachment: o.attachment * expectedAttritional, limit: o.limit * expectedAttritional,
-    expectedRecovery, price: expectedRecovery * o.load,
+    // The price a team pays: x the cover price factor in a played year (COVER_PRICE_FACTOR).
+    expectedRecovery, price: expectedRecovery * o.load * coverPriceFactorFor(yearNumber),
   };
 }
 

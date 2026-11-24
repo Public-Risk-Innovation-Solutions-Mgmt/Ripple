@@ -36,8 +36,14 @@ Expense — Variable** and **Total General Admin Expense** (today's figure, its 
 the Pool and each line, in every year column, Prior and All Years included. Fixed is the fixed admin as booked
 (below, under the New market): 25% of the line's year-1 admin dollars, growing 3% a year, in each year the line has
 a market result; the Pool's is the lines' sum. Variable is the rest of the admin booked — this year's 75% share of
-premium and the year's overrun on the whole — so Fixed + Variable is the Total exactly. History years, and any year
-a team has no market result (it never locked), are all Variable. Under the table a note reads "Fixed admin doesn't
+premium and the year's overrun on the whole — so Fixed + Variable is the Total exactly. Any played year a team has
+no market result (it never locked) is all Variable. The history years show a split too, for display only: each
+line's Fixed is its year-1 fixed admin stepped back 3% a year (2026 = year 1's ÷ 1.03, 2025 = ÷ 1.03², …), and
+Variable is the rest of that year's admin. The engine booked all history admin as a share of premium, and it still
+does: openings, rates and results don't move. Before year 1 is played there is no year-1 fixed admin to step back
+from, so history Fixed and Variable show "—". A line that never had a market result shows Fixed 0 in history too.
+A hosted New room with a single team splits the same way: the market runs with one team, so Fixed shows in its
+played years. Under the table a note reads "Fixed admin doesn't
 shrink when your book does." Every other figure, the Total and every ratio are unchanged. The Excel and PDF
 downloads show the same rows and note. Current rooms, New rooms with the market Off (no admin is fixed there),
 Single player and Test player keep the single General Admin Expense line. Fixed is worked out from the results (the
@@ -382,6 +388,16 @@ the prior board funded at 65% and bought covers, so a team that locks year 1 unt
 last year unless it sets funding and covers back up. Within a year, changes not yet locked are kept as now (a reload
 restores the year's draft, not last year's). A hosted team that does not lock a year plays the reset for it (section
 2). The Annual Statement's Decisions section records what was actually played each year.
+
+**Cover costs twice its table price** (`COVER_PRICE_FACTOR`, ×2.0, in the parameters file) — the per-claim layers
+and the aggregate covers alike, in every scenario and mode, and in every year: the prior board's pre-game history pays
+the doubled price too, so each scenario's opening surplus and premium-to-surplus reflect it (the scenario seeds are
+unchanged; the opening bars were restated to what they now achieve). Recoveries, attachments and limits are unchanged.
+The prices on the Decisions page, the Rate Indication and the statements are the doubled ones, which the engine
+charges. Why: with GL and Property large claims, cover was too clear a choice at the table's price; doubling makes it
+cost more in quiet years. A team that buys back the prior board's covers therefore pays about what the history paid
+for its reinsurance in 2027 — the history paid the doubled price too — so the price of cover adds no jump to its 2027
+rate.
 
 **Where the rest comes in:**
 
