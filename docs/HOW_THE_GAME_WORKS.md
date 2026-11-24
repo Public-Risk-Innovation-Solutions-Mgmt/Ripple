@@ -389,7 +389,9 @@ the doubled price too, so each scenario's opening surplus and premium-to-surplus
 unchanged; the opening bars were restated to what they now achieve). Recoveries, attachments and limits are unchanged.
 The prices on the Decisions page, the Rate Indication and the statements are the doubled ones, which the engine
 charges. Why: with GL and Property large claims, cover was too clear a choice at the table's price; doubling makes it
-cost more in quiet years.
+cost more in quiet years. A team that buys back the prior board's covers therefore pays about what the history paid
+for its reinsurance in 2027 — the history paid the doubled price too — so the price of cover adds no jump to its 2027
+rate.
 
 **Where the rest comes in:**
 
