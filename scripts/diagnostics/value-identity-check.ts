@@ -1662,7 +1662,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   NOTHING ELSE: in Y1–Y2 no rate, premium, expected cost or cover price
 //   moves; no exposure or member count moves in any year; no field is added
 //   or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v99.json');
+// v100: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; STARTING_CAPITAL
+// WC $2.0M, GL $8.0M, Property $8.5M, from $0 / $8.06M / $8.53M). Captured with
+// --write after the control: aws 61fcf79 against v99 HOLDS. Diffed field by
+// field against v99 — 5,104 of 39,600 move, in 19 fields, on all 24 instances
+// (both arms, every line and the pool, Y1–Y5):
+//   THE SURPLUS AND WHAT IS EARNED ON IT (300 each): beginingSurplus,
+//     endingSurplus, surplusFromIncome, investedAssets, beginningInvestments,
+//     endingInvestments, investmentIncome, netIncome, totalAssets,
+//     availableFunding, availableSurplus, fundingGap, capitalFundingGap,
+//     excessAvailableSurplus, excessCapitalRatio, capitalAdequacyRatio.
+//     Ending surplus WC +$2.38M to +$2.80M, GL -$0.07M to -$0.08M, Property
+//     -$0.04M: the capital's difference and the investment income on it.
+//   FLOAT NOISE: surplusTieOutDifference (232, ±3e-8 dollars), beginningCash
+//     (39, ±1e-8 dollars), investmentReturnRate (33, ±1e-17).
+//   NOTHING ELSE: no premium, rate, charge, expected or incurred loss,
+//   reserve, exposure, member count, cover cost or recovery moves (pricing
+//   reads no surplus), and no field is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v100.json');
 
 function seedOf(id: string) {
   let h = 5381;

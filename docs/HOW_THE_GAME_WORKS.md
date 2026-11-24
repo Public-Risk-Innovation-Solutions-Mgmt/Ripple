@@ -219,11 +219,14 @@ table, adds New Members drawn around 5% (2% spread, seeded per scenario; 2021 ad
 penalty that year), renews everyone (Non-Renewal 0%), buys the $19M xs $1M per-claim cover and the 125/50
 aggregate cover, and holds its invested assets at 20% cash / 75% bonds / 5% equities. These are recorded as the year's decisions, so the Annual Statement's Decisions section shows
 them. The history ends on today's 2026 book: each earlier year is the next year's book over (1 + its New Members).
-Each line starts the pre-game on its paid-in capital — WC $0, GL $8.06M, Property $8.53M — and opens where the
-history ends. Each scenario plays one fixed seed, picked from 1–120,000 so its opening landed within 5% of the
+Each line starts the pre-game on its paid-in capital — WC $2.0M, GL $8.0M, Property $8.5M, round figures (they were
+$0, $8.06M and $8.53M, solved to land the seeds on target on average) — and opens where the history ends. The round
+figures lift every WC opening surplus by about $2.4M (the $2M and six years' investment income on it) and lower GL's
+and Property's by under $0.1M; year 1's premium does not move, so WC opens 10–18% thinner in premium to surplus than
+before. No scenario now opens within 5% of its targets on every line; the worst is 19.8% off (scenario 10's WC). Each scenario plays one fixed seed, picked from 1–120,000 so its opening landed within 5% of the
 scenario's premium-to-surplus targets on every line (measured at Expected with no cover) and its ten years run
 steadily. The board's mix moving to 20/75/5 shifted every opening surplus by up to about 3.6%; the seeds were kept,
-so 13 of the 20 now open within 5% on every line and the worst is 7.3% off (scenario 6's WC). Scenario 20 was
+so 13 of the 20 opened within 5% on every line (worst 7.3%, scenario 6's WC) until the round capital above. Scenario 20 was
 re-picked on today's pre-game: seed 76975, the steadiest of the seeds opening within 5% of its targets (within 4.7%
 on every line, its 2027 rates up on every line). Its old seed plays on as the named scenario **Test Seed**, beside
 **Staff Retreat** (seed 82670); a named scenario is offered and shown by name, has no target and is never the
