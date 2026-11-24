@@ -41,7 +41,7 @@ export const PDF_FONT_SIZE = 9;
 export const PDF_ROW_HEIGHT = 11.5;
 /** A blank row only spaces the sections, as on the screen: half a row. */
 export const PDF_BLANK_HEIGHT = 6;
-const heightOf = (i: number) => (TEMPLATE_ROWS[i].kind === 'blank' ? PDF_BLANK_HEIGHT : PDF_ROW_HEIGHT);
+const heightOf = (i: number, rows: readonly TemplateRow[] = TEMPLATE_ROWS) => (rows[i].kind === 'blank' ? PDF_BLANK_HEIGHT : PDF_ROW_HEIGHT);
 const HEADER_FONT_SIZE = 8;
 /** Column B (labels), then the seven figure columns C to I — Prior, the five years, All Years — 732pt across. */
 const LABEL_WIDTH = 228;
@@ -66,7 +66,7 @@ const colW = (c: number) => (c === 2 ? LABEL_WIDTH : FIGURE_WIDTH);
 export function pdfCellText(row: TemplateRow, i: number, c: number, ts: TemplateStatement): string {
   if (c === 2) return row.kind === 'blank' ? '' : row.label.trim();
   if (row.kind === 'header') {
-    if (c === 3) return showsPrior(i) ? 'Prior' : '';
+    if (c === 3) return showsPrior(i, ts.rows) ? 'Prior' : '';
     if (c === 9) return row.allYears ? ALL_YEARS_LABEL : '';
     const y = ts.years[c - 4];
     return row.dates ? yearEnd(y) : String(y);
@@ -84,32 +84,37 @@ export function pdfCellText(row: TemplateRow, i: number, c: number, ts: Template
  * The statement's rows in units that stay on one page where they fit: each
  * section from its title, the Reinsurance section cut at its blocks.
  */
-function units(): number[][] {
+function units(rows: readonly TemplateRow[]): number[][] {
   const out: number[][] = [[]];
   let inReinsurance = false;
-  TEMPLATE_ROWS.forEach((row, i) => {
+  rows.forEach((row, i) => {
     if (row.kind === 'title') { inReinsurance = row.label.trim().startsWith('Reinsurance'); out.push([]); }
-    else if (inReinsurance && row.kind === 'header' && isBlockName(row.label) && out[out.length - 1].some(j => TEMPLATE_ROWS[j].kind === 'header')) out.push([]);
+    else if (inReinsurance && row.kind === 'header' && isBlockName(row.label) && out[out.length - 1].some(j => rows[j].kind === 'header')) out.push([]);
     out[out.length - 1].push(i);
   });
   return out.filter(u => u.length > 0);
 }
 
-/** Each page's statement rows, for one statement: whole units where they fit, a unit taller than a page row by row. */
-export function pdfPagePlan(): number[][] {
+/**
+ * Each page's statement rows, for one statement: whole units where they fit, a
+ * unit taller than a page row by row. `rows` is the statement's (ts.rows):
+ * TEMPLATE_ROWS, or ADMIN_SPLIT_ROWS in a New-version market room.
+ */
+export function pdfPagePlan(rows: readonly TemplateRow[] = TEMPLATE_ROWS): number[][] {
   const room = BOTTOM - TOP;
   const pages: number[][] = [[]];
   let used = 0;
-  const height = (rows: number[]) => rows.reduce((t, i) => t + heightOf(i), 0);
-  for (const u of units()) {
+  const heightOf_ = (i: number) => heightOf(i, rows);
+  const height = (us: number[]) => us.reduce((t, i) => t + heightOf_(i), 0);
+  for (const u of units(rows)) {
     // A unit that does not fit in what is left of the page starts a new one.
     if (used + height(u) > room && pages[pages.length - 1].length > 0) { pages.push([]); used = 0; }
     for (const i of u) {
-      if (used + heightOf(i) > room) { pages.push([]); used = 0; }
+      if (used + heightOf_(i) > room) { pages.push([]); used = 0; }
       // A blank row that would open a page adds nothing there.
-      if (pages[pages.length - 1].length === 0 && TEMPLATE_ROWS[i].kind === 'blank') continue;
+      if (pages[pages.length - 1].length === 0 && rows[i].kind === 'blank') continue;
       pages[pages.length - 1].push(i);
-      used += heightOf(i);
+      used += heightOf_(i);
     }
   }
   return pages.filter(p => p.length > 0);
@@ -118,12 +123,12 @@ export function pdfPagePlan(): number[][] {
 type Doc = InstanceType<typeof import('jspdf').jsPDF>;
 
 function drawRow(doc: Doc, row: TemplateRow, i: number, y: number, ts: TemplateStatement, red: [number, number, number]) {
-  const h = heightOf(i);
+  const h = heightOf(i, ts.rows);
   // Lines first, as the template draws them: each cell's own sides, thin.
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.5);
   for (let c = 2; c <= 9; c++) {
-    const s = cellBorders(i, c), x = colX(c), w = colW(c);
+    const s = cellBorders(i, c, ts.rows), x = colX(c), w = colW(c);
     if (s.includes('L')) doc.line(x, y, x, y + h);
     if (s.includes('R')) doc.line(x + w, y, x + w, y + h);
     if (s.includes('T')) doc.line(x, y, x + w, y);
@@ -134,7 +139,7 @@ function drawRow(doc: Doc, row: TemplateRow, i: number, y: number, ts: TemplateS
   for (let c = 2; c <= 9; c++) {
     const text = pdfCellText(row, i, c, ts);
     if (!text) continue;
-    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFont('helvetica', bold ? 'bold' : row.kind === 'note' ? 'italic' : 'normal');
     doc.setTextColor(...(row.kind === 'figure' && c > 2 && text.startsWith('-') ? red : [0, 0, 0] as [number, number, number]));
     const x = colX(c), w = colW(c);
     if (c === 2) {
@@ -294,16 +299,15 @@ export async function buildStatementsPdf(statements: TemplateStatement[], poolNa
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter', compress: true });
   doc.setProperties({ title: `Annual Statement - ${poolName}` });
   doc.setFontSize(PDF_FONT_SIZE);
-  const plan = pdfPagePlan();
   let first = true;
   const headers: string[] = [];
   for (const ts of statements) {
-    for (const rows of plan) {
+    for (const rows of pdfPagePlan(ts.rows)) {
       if (!first) doc.addPage('letter', 'landscape');
       first = false;
       headers.push(pdfHeaderText(poolName, ts));
       let y = TOP;
-      for (const i of rows) { drawRow(doc, TEMPLATE_ROWS[i], i, y, ts, negativeRgb); y += heightOf(i); }
+      for (const i of rows) { drawRow(doc, ts.rows[i], i, y, ts, negativeRgb); y += heightOf(i, ts.rows); }
     }
     // The statement's Market Survey section, from a new page, after its last.
     const survey = surveys[statements.indexOf(ts)];

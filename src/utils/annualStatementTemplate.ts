@@ -62,6 +62,7 @@ import { lineDisplayName } from './lineDisplay';
 import { TEMPLATE_BORDERS } from './annualStatementBorders';
 import { marketSeedOf } from './bookUnits';
 import { deriveSubRng } from './random';
+import { fixedAdminOf, showsAdminSplit } from './fixedAdmin';
 import type { CoverageLine, GameState, LineResultSet, LineView, ResultSet } from '../types/simulation';
 
 export type FigureFormat = 'dollars' | 'pct' | 'ratio' | 'exposure' | 'rate';
@@ -74,7 +75,9 @@ export type TemplateRow =
   | { kind: 'header'; label: string; dates?: boolean; allYears?: boolean }
   /** A heading with no figures of its own (the Contributions' two claim groups). */
   | { kind: 'heading'; label: string }
-  | { kind: 'figure'; label: string; key: string; format: FigureFormat };
+  | { kind: 'figure'; label: string; key: string; format: FigureFormat }
+  /** A line of words across the row, no lines (the admin split's note, ADMIN_SPLIT_ROWS). */
+  | { kind: 'note'; label: string };
 
 const B: TemplateRow = { kind: 'blank' };
 const blanks = (n: number): TemplateRow[] => Array.from({ length: n }, () => B);
@@ -246,6 +249,39 @@ export const TEMPLATE_ROW_OF: readonly number[] = TEMPLATE_ROWS.map((_, i) =>
   (i + 1 <= INSERTED_AFTER_TEMPLATE_ROW ? i + 1 : i + 1 === INSERTED_AFTER_TEMPLATE_ROW + 1 ? INSERTED_AFTER_TEMPLATE_ROW : i));
 export const isInsertedRow = (i: number) => i + 1 === INSERTED_AFTER_TEMPLATE_ROW + 1;
 
+// ============================================================================
+// THE ADMIN SPLIT — New-version market rooms only (utils/fixedAdmin
+// showsAdminSplit), where part of each line's admin is fixed. The statement's
+// rows there are ADMIN_SPLIT_ROWS: TEMPLATE_ROWS with General Admin Expense
+// replaced by its Fixed and Variable parts and their total (the row the single
+// line was, under a new label, "% of Premium" under it as before), and the second
+// blank row under Operating Ratio carrying the note. Every other row is
+// TEMPLATE_ROWS' own, its lines its own (the three admin rows take General Admin
+// Expense's, the note the blank's, which has none). Current rooms, single player
+// and Test player keep TEMPLATE_ROWS, which the template gate holds to the file.
+// ============================================================================
+export const ADMIN_FIXED_LABEL = 'General Admin Expense — Fixed';
+export const ADMIN_VARIABLE_LABEL = 'General Admin Expense — Variable';
+export const ADMIN_TOTAL_LABEL = 'Total General Admin Expense';
+export const FIXED_ADMIN_NOTE = 'Fixed admin doesn\'t shrink when your book does.';
+const ADMIN_ROW = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'admin');
+/** The note's row: the second blank under Operating Ratio (the first closes the table's box). */
+const NOTE_ROW = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'operatingRatio') + 2;
+export const ADMIN_SPLIT_ROWS: readonly TemplateRow[] = [
+  ...TEMPLATE_ROWS.slice(0, ADMIN_ROW),
+  F(ADMIN_FIXED_LABEL, 'adminFixed', 'dollars'),
+  F(ADMIN_VARIABLE_LABEL, 'adminVariable', 'dollars'),
+  F(ADMIN_TOTAL_LABEL, 'admin', 'dollars'),
+  ...TEMPLATE_ROWS.slice(ADMIN_ROW + 1, NOTE_ROW),
+  { kind: 'note', label: FIXED_ADMIN_NOTE },
+  ...TEMPLATE_ROWS.slice(NOTE_ROW + 1),
+];
+/** Each ADMIN_SPLIT_ROWS row's TEMPLATE_ROWS row: the three admin rows General Admin Expense's, the note the blank's. */
+const SPLIT_STANDARD_ROW: readonly number[] = ADMIN_SPLIT_ROWS.map((_, i) => (i < ADMIN_ROW ? i : i <= ADMIN_ROW + 2 ? ADMIN_ROW : i - 2));
+/** Row i of a layout (TEMPLATE_ROWS or ADMIN_SPLIT_ROWS) as its TEMPLATE_ROWS row, for its section and its lines. */
+export const standardRowOf = (i: number, rows: readonly TemplateRow[] = TEMPLATE_ROWS): number =>
+  (rows === ADMIN_SPLIT_ROWS ? SPLIT_STANDARD_ROW[i] : i);
+
 export interface LabelChange { templateRow: number; from: string; to: string; why: string }
 /** Every column-B text the statement changes, by the template row it stands on (1-based). */
 export const LABEL_CHANGES: readonly LabelChange[] = [
@@ -272,7 +308,7 @@ const FIRST_ALL_YEARS_ROW = TEMPLATE_ROWS.findIndex(r => r.kind === 'title' && r
  * Underwriting) leave C and I blank, their lines kept, so every table's box is
  * the same seven columns wide and the years line up down the page.
  */
-export const hasAllYears = (i: number): boolean => i > FIRST_ALL_YEARS_ROW;
+export const hasAllYears = (i: number, rows: readonly TemplateRow[] = TEMPLATE_ROWS): boolean => standardRowOf(i, rows) > FIRST_ALL_YEARS_ROW;
 export const showsPrior = hasAllYears;
 
 /** The Reinsurance blocks' names, which head their blocks in bold in the label column. */
@@ -288,7 +324,7 @@ const BLANK_FIRST_YEAR = new Set(['exposureChange', 'rateChange']);
  */
 export function shownFigure(row: TemplateRow, i: number, k: number, ts: TemplateStatement): Figure | undefined {
   if (row.kind !== 'figure') return undefined;
-  if (k === 0 && !showsPrior(i)) return undefined;
+  if (k === 0 && !showsPrior(i, ts.rows)) return undefined;
   if (k === 1 && BLANK_FIRST_YEAR.has(row.key)) return undefined;
   return ts.figures[row.key][k];
 }
@@ -299,9 +335,9 @@ export function shownFigure(row: TemplateRow, i: number, k: number, ts: Template
  * row above's), with column I given column H's lines in the first three
  * sections, which have no All Years, so every table's box is the same width.
  */
-export function cellBorders(i: number, c: number): string {
-  const t = TEMPLATE_BORDERS[TEMPLATE_ROW_OF[i] - 1];
-  if (c === 9 && !hasAllYears(i)) return t[7];
+export function cellBorders(i: number, c: number, rows: readonly TemplateRow[] = TEMPLATE_ROWS): string {
+  const t = TEMPLATE_BORDERS[TEMPLATE_ROW_OF[standardRowOf(i, rows)] - 1];
+  if (c === 9 && !hasAllYears(i, rows)) return t[7];
   return t[c - 1];
 }
 /**
@@ -311,7 +347,7 @@ export function cellBorders(i: number, c: number): string {
  * is BLANK there (undefined).
  */
 export function allYearsCell(row: TemplateRow, i: number, ts: TemplateStatement): Figure | undefined {
-  if (row.kind !== 'figure' || row.format !== 'dollars' || !hasAllYears(i)) return undefined;
+  if (row.kind !== 'figure' || row.format !== 'dollars' || !hasAllYears(i, ts.rows)) return undefined;
   const xs = ts.figures[row.key].filter((x): x is number => x !== null);
   return xs.length === 0 ? null : xs.reduce((t, x) => t + x, 0);
 }
@@ -334,6 +370,8 @@ export interface TemplateStatement {
   years: number[];
   /** Keyed by TemplateRow.key: Prior, then the five years. Dollars are DOLLARS here; the page and the file show thousands. */
   figures: Record<string, Figure[]>;
+  /** Its rows: TEMPLATE_ROWS, or ADMIN_SPLIT_ROWS in a New-version market room (showsAdminSplit). Row i is the file's row i + 1. */
+  rows: readonly TemplateRow[];
 }
 
 /** The statement's units: dollars in thousands, the same as the statement has always shown. */
@@ -430,6 +468,17 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   figures.lossLaePct = sixOf(op, 'Loss & LAE Ratio');
   figures.admin = sixOf(op, 'General Admin Expense');
   figures.riskControl = sixOf(op, 'Additional Admin Expense (risk control)');
+  // THE ADMIN SPLIT (New-version market rooms): Fixed as the engine books it
+  // (utils/fixedAdmin, before the overrun), Variable the rest of the admin
+  // booked, so the two add to General Admin Expense exactly; Prior is the years
+  // rolled out, summed. A history year's admin is all Variable.
+  const split = showsAdminSplit(gs);
+  if (split) {
+    const fixedOf = (r: ResultSet) => fixedAdminOf(gs, r, scope, full);
+    figures.adminFixed = [figures.admin[0] === null ? null : rolled.reduce((t, r) => t + fixedOf(r), 0),
+      ...window.map((r, k) => (figures.admin[k + 1] === null ? null : fixedOf(r)))];
+    figures.adminVariable = zip(figures.admin, figures.adminFixed, (a, f) => a - f);
+  }
   // Each admin row's own share of Written Premium (the template's one "% of Premium" covered both).
   figures.adminPct = zip(figures.admin, figures.premium, ratio);
   figures.otherAdminPct = zip(figures.riskControl, figures.premium, ratio);
@@ -639,6 +688,7 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
     columns: ['Prior', ...window.map(r => `${r.calendarYear}`)],
     years: window.map(r => r.calendarYear),
     figures,
+    rows: split ? ADMIN_SPLIT_ROWS : TEMPLATE_ROWS,
   };
 }
 
@@ -660,7 +710,7 @@ export function settlementDraw(gameSeed: number, yearNumber: number, line: Cover
 export function noFigureRows(ts: TemplateStatement): string[] {
   const out: string[] = [];
   let section = '';
-  TEMPLATE_ROWS.forEach((r, i) => {
+  ts.rows.forEach((r, i) => {
     if (r.kind === 'title') section = r.label.trim();
     if (r.kind === 'header' && r.label.trim()) section = section.startsWith('Reinsurance') ? `Reinsurance ${r.label.trim()}` : section;
     if (r.kind !== 'figure') return;
