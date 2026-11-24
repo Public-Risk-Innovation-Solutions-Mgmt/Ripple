@@ -14,13 +14,13 @@
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
 //
-// ⚠ RESTATED FOR pr/pregame-65: WC now opens on the play default's per-claim
-// cover, $19M xs $1M (PLAY_DEFAULTS), not None. The cover block opens on it,
-// moves the Reinsurance line by choosing None (38 xs 2 and 19 xs 1 both read
-// $0.11 per $100 with the default aggregate cover beside them, so None is the
-// move that shows at the panel's rounding), still selects 38 xs 2 alone, and
-// requires the panel to return exactly when the default, $19M xs $1M, is chosen
-// again. Against the aws build (None the default) the opening check fails.
+// ⚠ RESTATED FOR pr/decision-reset: every year opens on the reset, year 1
+// included, so WC opens on NO cover again (it opened on the prior board's
+// $19M xs $1M since pr/pregame-65), with no aggregate cover beside it. The cover
+// block opens on None, moves the Reinsurance line by choosing 38 xs 2, still
+// selects 38 xs 2 alone, and requires the panel to return exactly when None is
+// chosen again. THE CONTROL: the $19M xs $1M opening is refused — against the
+// aws build (opens on it) the opening check fails.
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
@@ -241,13 +241,14 @@ async function plrIs(rc) {
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
   // THE T COVERS (wip/shocks). A solo game's shocks are on, so None and all
-  // eight covers are offered, $19M xs $1M the default (pr/pregame-65); each
-  // shows its name and price.
+  // eight covers are offered, None where every year opens (pr/decision-reset);
+  // each shows its name and price.
   // Choosing one moves only the Reinsurance row: the pure premium is never
   // lowered by cover.
   const T_COVERS = ['$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M', '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M'];
-  const DEFAULT_COVER = '$19M xs $1M';
-  ok(await chosen(DEFAULT_COVER) && !(await chosen('none')), `WC opens on the default cover, ${DEFAULT_COVER}`);
+  const PRIOR_BOARD_COVER = '$19M xs $1M';
+  ok(await chosen('none') && !(await chosen(PRIOR_BOARD_COVER)), 'WC opens on the reset: no cover (None)');
+  ok(!(await chosen(PRIOR_BOARD_COVER)), `control — not on the prior board's ${PRIOR_BOARD_COVER} (the opening before the reset)`);
   const offered = [];
   for (const id of T_COVERS) if (await page.$(`[data-testid="reins-option-WC-${id}"]`) !== null) offered.push(id);
   ok(offered.length === 8, `all eight T covers are offered (${offered.join(', ')})`);
@@ -256,20 +257,18 @@ async function plrIs(rc) {
   // year 1, growth 1: WC 38 xs 2 = 1.2 x (5.25% x $2.5M + 2.25% x $21M) = $724,500.
   ok(/\$724,500\/yr/.test(wcPrice), `38 xs 2 on WC shows its year-1 price by the method ("${wcPrice}")`);
   const ppLine = t => (t.match(/Pure premium[^+]*/) || [''])[0];
-  const atDefault = await panelText();
+  const atNone = await panelText();
   await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');
   await page.waitForTimeout(800);
-  ok(await chosen('$38M xs $2M') && !(await chosen(DEFAULT_COVER)) && !(await chosen('none')), 'clicking 38 xs 2 selects it, and only it');
+  const at38 = await panelText();
+  ok(await chosen('$38M xs $2M') && !(await chosen(PRIOR_BOARD_COVER)) && !(await chosen('none')), 'clicking 38 xs 2 selects it, and only it');
+  ok(reinsLine(at38) !== reinsLine(atNone),
+     `the Reinsurance line moves with the cover ("${reinsLine(atNone)}" -> "${reinsLine(at38)}")`);
+  ok(ppLine(at38) === ppLine(atNone), `the pure premium does not move ("${ppLine(atNone)}")`);
   await page.click('[data-testid="reins-option-WC-none"]');
   await page.waitForTimeout(800);
-  const atNone = await panelText();
-  ok(await chosen('none') && !(await chosen(DEFAULT_COVER)), 'clicking None selects it, and only it');
-  ok(reinsLine(atNone) !== reinsLine(atDefault),
-     `the Reinsurance line moves with the cover ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
-  ok(ppLine(atNone) === ppLine(atDefault), `the pure premium does not move ("${ppLine(atDefault)}")`);
-  await page.click(`[data-testid="reins-option-WC-${DEFAULT_COVER}"]`);
-  await page.waitForTimeout(800);
-  ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
+  ok(await chosen('none') && !(await chosen('$38M xs $2M')), 'clicking None selects it, and only it');
+  ok(await panelText() === atNone, 'and the panel returns exactly when None, the reset, is chosen again');
 
   // ---- ten worlds (loss engine commit 4b) ----------------------------------
   // Lock a year. Players are never told about the worlds: neither the Results

@@ -275,6 +275,15 @@ completing retry against both `LocalSessionTransport` and `DynamoSessionTranspor
   `padYear` allows.
 - **Team order:** the roster is a map with no order, so teams sort on a `joinedAt` stamp, with
   `teamId` breaking ties.
+- **The decision reset (pr/decision-reset):** a room created from it on carries `decisionReset: true`
+  (stamped by the server; older rooms keep carrying a team's last lock). In such a room, a result post
+  (`submit` with `result` and no `decisions`) may carry `market`: the team's input at the NEXT round's
+  starting values (the reset), kept on that result item as `roundStartMarket` (localStorage:
+  `roundStartMarketByYear`) while the round is the room's current one. At the advance, a team that did not
+  lock the year counts at it (`StoredMarketTeamInput.reset`); one with neither is `missing`. ⚠ **Deploy
+  the front end first, or both together** — the reverse of the order above. A new front end against an old
+  handler sees no `decisionReset` and keeps the old rule, consistently; an old front end against a new
+  handler would carry a team's last lock in a room whose market step counts it at the reset.
 - **Team numbers:** each roster entry holds `teamNumber` and the header holds `nextTeamNumber`
   (contract `teamNumbers`). A new team takes `nextTeamNumber` in the join's roster `Update`, which
   is conditioned on the counter still being the value read, so two teams joining together cannot

@@ -329,18 +329,22 @@ async function main() {
   const { marketByYearForEngine } = await import('../../src/session/market');
   const { buildTeamGame, replayTeamYears } = await import('../../src/session/client/buildGame');
   const { marketLockInputFor } = await import('../../src/session/client/marketLock');
-  const { decisionsForYear, decisionsToJson } = await import('../../src/session/client/decisions');
+  const { decisionsToJson } = await import('../../src/session/client/decisions');
+  const { defaultDecisionSet, roundStartDecisions } = await import('../../src/utils/decisionDefaults');
 
   const t = new LocalSessionTransport({ latencyMs: 0 });
-  const stored: Record<Level, { code: string; seed: string; years: Record<string, StoredMarketYear>; posted: Record<string, Record<string, MarketLockInput>> }> = {} as never;
+  // A result post's body: only the market step is read here, so the figures are placeholders.
+  const figs = { endingSurplus: 1, actualLossRatioPricingBasis: 0.8, poolPremium: 1, activeExposure: 1, selectedFundingConfidenceLevel: 0.6, netUltimateLoss: 1 };
+  const summary = (y: number) => ({ yearNumber: y, calendarYear: 2026 + y, pool: figs, byLine: Object.fromEntries(LINES.map(l => [l, figs])) }) as never;
+  const stored: Record<Level, { code: string; seed: string; years: Record<string, StoredMarketYear>; posted: Record<string, Record<string, MarketLockInput>>; starts: Record<string, Record<string, MarketLockInput>> }> = {} as never;
   // Per team: rate factor, New Members, Non-Renewal — per line a little different.
   const plan = [
     { name: 'Alder', f: 0.94, nm: 0.10, nr: 0.00 },
     { name: 'Birch', f: 0.98, nm: 0.06, nr: 0.03 },
     { name: 'Cedar', f: 1.00, nm: 0.04, nr: 0.05 },
-    { name: 'Dogwood', f: 1.05, nm: 0.02, nr: 0.08 },   // skips year 3
-    { name: 'Elm', f: 1.12, nm: 0.00, nr: 0.10 },       // unlocked in year 2, not re-locked
-    { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00 },        // never locks
+    { name: 'Dogwood', f: 1.05, nm: 0.02, nr: 0.08 },   // skips year 3: plays, and counts at, the reset
+    { name: 'Elm', f: 1.12, nm: 0.00, nr: 0.10 },       // unlocked in year 2, not re-locked: the reset too
+    { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00 },        // never locks and never posts: left out
     // A sixth team in the step, so averaging over N − 1 = 5 rivals × 4 is not the sum (at five it would be).
     { name: 'Gum', f: 0.97, nm: 0.03, nr: 0.02 },
   ];
@@ -353,14 +357,28 @@ async function main() {
     for (const p of plan) joined.push(await t.join({ code: made.code, teamName: p.name, role: 'player' }));
     const base = buildTeamGame((await t.read({ code: made.code, token: host })).room, LINES).gameState;
     const posted: Record<string, Record<string, MarketLockInput>> = {};
+    const starts: Record<string, Record<string, MarketLockInput>> = {};
     for (let year = 1; year <= 4; year++) {
+      // THE DECISION RESET: every team's client posts the year before's result with
+      // the round's start — its input at the reset, struck on its own game — as
+      // useSessionGame does. Fir's browser is never open, so it posts nothing.
+      for (let i = 0; i < plan.length; i++) {
+        const p = plan[i];
+        if (p.name === 'Fir') continue;
+        const me = await t.read({ code: made.code, token: joined[i].teamToken });
+        const g = replayTeamYears(buildTeamGame(me.room, LINES).gameState, year, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear), me.room.decisionReset === true).state;
+        const start = marketLockInputFor(g, roundStartDecisions(year, false), year)!;
+        await t.submit({ code: made.code, token: joined[i].teamToken, yearNumber: year - 1, result: summary(year - 1), market: start });
+        (starts[p.name] ??= {})[String(year)] = start;
+      }
       for (let i = 0; i < plan.length; i++) {
         const p = plan[i];
         if (p.name === 'Fir' || (p.name === 'Dogwood' && year === 3)) continue;
         const me = await t.read({ code: made.code, token: joined[i].teamToken });
         // The team's own game, on its own stored results: the book it posts is its game's.
-        const g = replayTeamYears(buildTeamGame(me.room, LINES).gameState, year, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear)).state;
-        const d = decisionsForYear(year, undefined, false);
+        const g = replayTeamYears(buildTeamGame(me.room, LINES).gameState, year, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear), me.room.decisionReset === true).state;
+        // The opening defaults, every year the team locks (its own choice, every year).
+        const d = defaultDecisionSet(year, false);
         for (const [j, line] of LINES.entries()) {
           d.byLine[line] = { ...d.byLine[line], newMembers: Math.max(0, p.nm - 0.01 * j), nonRenewal: p.nr };
         }
@@ -377,12 +395,12 @@ async function main() {
       await t.advance({ code: made.code, token: host, expectedYear: year });
     }
     const room = (await t.read({ code: made.code, token: host })).room;
-    stored[level] = { code: made.code, seed: room.seed, years: room.marketByYear!, posted };
+    stored[level] = { code: made.code, seed: room.seed, years: room.marketByYear!, posted, starts };
     void base;
   }
 
   for (const level of ['low', 'medium', 'high'] as Level[]) {
-    const { code, seed, years, posted } = stored[level];
+    const { code, seed, years, posted, starts } = stored[level];
     let diffs: string[] = [], rules: string[] = [];
     const inputProblems: string[] = [];
     let movedTeams = 0;
@@ -393,29 +411,32 @@ async function main() {
       diffs = diffs.concat(differences(s.result, re.result, s.untakenDropped, re.untaken).map(d => `y${y} ${d}`));
       rules = rules.concat(ruleProblems(s).map(d => `y${y} ${d}`));
       for (const [n, inp] of Object.entries(s.inputs)) {
-        const lastLock = Object.keys(posted[n] ?? {}).map(Number).filter(k => k <= y).sort((a, b) => b - a)[0];
-        if (lastLock === undefined) { inputProblems.push(`y${y} ${n} counted though it never locked`); continue; }
-        if (inp.stale !== (lastLock !== y) || inp.fromYear !== lastLock) inputProblems.push(`y${y} ${n}: stale/fromYear wrong`);
+        // THE DECISION RESET: the year's own lock, or — not locked — the round's
+        // start the team posted, at its own book. Never an earlier lock.
+        const lock = posted[n]?.[String(y)], start = starts[n]?.[String(y)];
+        if (!lock && !start) { inputProblems.push(`y${y} ${n} counted though it neither locked nor posted the round's start`); continue; }
+        if (inp.stale !== false || inp.fromYear !== y || (inp.reset === true) !== !lock) inputProblems.push(`y${y} ${n}: stale/reset/fromYear wrong`);
         for (const line of LINES) {
-          const want = posted[n][String(lastLock)].byLine[line]!;
+          const want = (lock ?? start)!.byLine[line]!;
           const got = inp.byLine[line]!;
           if (got.rate !== want.rate || got.newMembers !== want.newMembers || got.nonRenewal !== want.nonRenewal) {
             inputProblems.push(`y${y} ${n} ${line}: the stored rate or decisions are not the ones posted`);
           }
-          const pr = prev?.result[n]?.[line];
-          const book = inp.stale && pr ? pr.bookAfter * (1 - pr.engineNonRenewal) : want.book;
-          if (Math.abs(got.book - book) > 1e-9 * book) inputProblems.push(`y${y} ${n} ${line}: book ${got.book} ≠ ${book}`);
+          if (Math.abs(got.book - want.book) > 1e-9 * want.book) inputProblems.push(`y${y} ${n} ${line}: book ${got.book} ≠ ${want.book}`);
         }
       }
       if (!s.missing.includes('Fir') || s.inputs.Fir) inputProblems.push(`y${y}: the team that never locked is not left out`);
       movedTeams += Object.values(s.result).filter(r => LINES.some(l => (r[l]?.outExposure ?? 0) > 0)).length;
     }
     ok(diffs.length === 0, `${level}: every stored result, four years × three lines × six teams, matches the independent recompute`, diffs.slice(0, 5).join('; '));
-    ok(inputProblems.length === 0, `${level}: every stored input is the team's posted rate and decisions (a stale team's last lock, on its carried book; Fir left out)`, inputProblems.slice(0, 5).join('; '));
+    ok(inputProblems.length === 0, `${level}: every stored input is the team's posted rate and decisions (a team that did not lock, its round-start input at the reset; Fir left out)`, inputProblems.slice(0, 5).join('; '));
     ok(rules.length === 0, `${level}: every stored result keeps the rules`, rules.slice(0, 5).join('; '));
     ok(movedTeams > 0, `${level}: members moved (${movedTeams} team-years lost members)`);
-    ok(years['2']?.inputs.Elm?.stale === true && years['2']?.inputs.Elm?.fromYear === 1, `${level}: Elm, unlocked in year 2 and not re-locked, counts at its year-1 lock`);
-    ok(years['3']?.inputs.Dogwood?.stale === true, `${level}: Dogwood, which skipped year 3, counts at its year-2 lock`);
+    ok(years['2']?.inputs.Elm?.reset === true && years['2']?.inputs.Elm?.stale === false && years['2']?.inputs.Elm?.byLine.WC?.rate === starts.Elm['2'].byLine.WC!.rate,
+      `${level}: Elm, unlocked in year 2 and not re-locked, counts at the reset — not its year-1 lock`);
+    ok(years['3']?.inputs.Dogwood?.reset === true && years['3']?.inputs.Dogwood?.byLine.WC?.rate === starts.Dogwood['3'].byLine.WC!.rate
+      && years['3']?.inputs.Dogwood?.byLine.WC?.rate !== posted.Dogwood['2'].byLine.WC!.rate,
+      `${level}: Dogwood, which skipped year 3, counts at the reset — not its year-2 lock`);
   }
 
   // ---- controls on the recompute ----
@@ -579,7 +600,7 @@ async function main() {
     const b = await t.join({ code: made.code, teamName: 'Dear', role: 'player' });
     const r0 = (await t.read({ code: made.code, token: host })).room;
     const g0 = buildTeamGame(r0, ['WC']).gameState;
-    const d = decisionsForYear(1, undefined, false);
+    const d = defaultDecisionSet(1, false);
     d.byLine.WC = { ...d.byLine.WC, newMembers: 0.10, nonRenewal: 0.03 };
     const m = marketLockInputFor(g0, d, 1)!;
     await t.submit({ code: made.code, token: a.teamToken, yearNumber: 1, decisions: decisionsToJson(d), market: m });

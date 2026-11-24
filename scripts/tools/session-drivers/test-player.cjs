@@ -112,22 +112,42 @@ async function olderYearsIncurred(page) {
 const pydByYear = save => (save?.lockedResults ?? []).map(r => ['WC', 'GL', 'Property'].reduce((a, l) => a + Math.abs(r.byLine?.[l]?.priorYearDevelopment ?? 0), 0));
 // Year 1's prior-year development by line, replayed out of the browser on the
 // solo game's own setup with the given levels: as App opens it and plays the
-// default decisions.
+// decisions it opens on — the reset (pr/decision-reset, year 1 included).
 function replayYear1(levels, schedule) {
   const out = execFileSync('npx', ['tsx', '-e',
     `import { openSoloInstance } from './src/utils/soloGame';
      import { runPriorHistory } from './src/utils/priorHistoryEngine';
-     import { defaultDecisionSet } from './src/utils/decisionDefaults';
+     import { resetDecisionSet } from './src/utils/decisionDefaults';
      import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from './src/utils/worlds';
      const { setup, instance } = openSoloInstance({ poolName: 'Ripple Public Entity Risk Pool', gameLength: 5, startingYear: 2027,
        instanceId: '${SCENARIO}', activeLines: ['WC', 'GL', 'Property'], developmentLevels: ${JSON.stringify(levels)} }${schedule ? `, { schedule: ${JSON.stringify(schedule.map(([shockId, yearNumber]) => ({ shockId, yearNumber })))} }` : ''});
      const { poolState, priorHistory } = runPriorHistory(instance, setup);
-     const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
-     const done = commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), []));
+     const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: resetDecisionSet(1), priorHistory });
+     const done = commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, resetDecisionSet(1)), []));
      const r = done.lockedResults[0];
      console.log(JSON.stringify(Object.fromEntries(['WC', 'GL', 'Property'].map(l => [l, r.byLine[l].priorYearDevelopment]))));`],
   { cwd: REPO, encoding: 'utf8' }).trim().split('\n').pop();
   return JSON.parse(out);
+}
+// THE DECISION RESET (pr/decision-reset): year 1 opens on the reset and, locked
+// untouched, is played on it; after the lock, year 2 opens on it again. THE
+// CONTROL: year 1 was not played on the prior board's 65% with its covers (the
+// opening before the reset). Carry-forward's own control is lock-confirm's,
+// which moves a decision in year 1 in single player and Test player.
+const isReset = d => !!d && ['WC', 'GL', 'Property'].every(l => {
+  const x = d.byLine?.[l];
+  return x && x.fundingAtExpected === true && x.reinsuranceOption === 'none' && (x.aggregateCover ?? 'none') === 'none'
+    && (x.newMembers ?? 0) === 0 && (x.nonRenewal ?? 0) === 0 && (x.riskControlIncentivePct ?? 0) === 0
+    && x.dividendAmount === 0 && x.assessmentAmount === 0;
+}) && d.assetAllocation?.cashPct === 20 && d.assetAllocation?.bondsPct === 75 && d.assetAllocation?.equitiesPct === 5;
+function checkReset(save, mode) {
+  ok(isReset(save?.currentDecisions) && save.currentDecisions.yearNumber === 2,
+    `${mode}: after year 1 locks, year 2 opens on the reset — Expected, no cover, 0% sliders, no dividend or assessment, 20/75/5`,
+    JSON.stringify(save?.currentDecisions?.byLine?.WC ?? null).slice(0, 160));
+  const year1 = save?.playedYears?.[0]?.decisions;
+  ok(isReset(year1), `${mode}: year 1 was played on the reset — it opened on it, at Expected with no cover`);
+  const priorBoard = d => !!d && ['WC', 'GL', 'Property'].some(l => d.byLine?.[l]?.fundingAtExpected === false && d.byLine?.[l]?.fundingConfidenceLevel === 0.65);
+  ok(!priorBoard(year1), `${mode}: control — year 1 was not played on the prior board's 65% (the opening before the reset)`);
 }
 const devOf = save => Object.fromEntries(['WC', 'GL', 'Property'].map(l => [l, save?.lockedResults?.[0]?.byLine?.[l]?.priorYearDevelopment]));
 const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[l]) && Math.abs(a[l] - b[l]) <= 1e-6 * Math.max(1, Math.abs(b[l])));
@@ -172,6 +192,7 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(sameDev(got, off) && !sameDev(got, mid),
       'Single player: year 1 develops the older years by nothing — its prior-year development is the Off replay\'s, not the Mid replay\'s',
       `played ${JSON.stringify(got)}; Off ${JSON.stringify(off)}; Mid ${JSON.stringify(mid)}`);
+    checkReset(played, 'Single player');
     // And by the second lock, on the statement a player reads: every older year's Total Net Incurred is 0.
     const second = await lockYear(page, 3);
     const older = await olderYearsIncurred(page);
@@ -261,6 +282,7 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(sameDev(got, chosen) && Math.abs(got.GL - glLow.GL) > 1,
       'Test player: year 1 plays the levels chosen — a replay\'s at WC High, GL None, Property Low, and GL\'s development is not the one GL at Low books',
       `played ${JSON.stringify(got)}; chosen ${JSON.stringify(chosen)}; GL at Low ${glLow.GL}`);
+    checkReset(played, 'Test player');
 
     // Then reload.
 

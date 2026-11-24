@@ -1962,7 +1962,30 @@ const BASELINE = process.env.RENDER_BASELINE
 // "riskpool_gamestate_v59" -> "riskpool_gamestate_v61". With the key normalised
 // all 26 are identical to the control. The rescaled levels are New-version
 // market rooms only; no single-player figure moves. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v145.json');
+// v149: THE DECISION RESET (pr/decision-reset; v146-v148 left for the branches
+// in flight beside it — export v148 is this branch's), on aws bdf0ac1, which
+// reproduces v145 here 174 of 174. Every round opens on the reset — funding at
+// Expected, no cover, 0% sliders, no dividend or assessment, 20/75/5 — year 1
+// included, where it opened on the prior board's 65% with $19M xs $1M and the
+// 125/50 aggregate cover. Word-diffed (RENDER_TEXT_DIR both sides), 93 move, 81
+// match:
+//   y0, Year Walkthrough (13): the save key alone, "riskpool_gamestate_v61" ->
+//     "riskpool_gamestate_v63".
+//   y0, Decisions (13): the reset itself — the new line "Every decision starts
+//     each year at the reset …", the funding label "(65%)" -> "Expected
+//     (~51%/~52%)" with no "Reset to Expected" button, the cover prices to $0.00,
+//     "Expected to surplus" +$1.1M-1.7M -> +$0.00M, and the year-1 rates lower
+//     (GL $4.41 -> $4.21, the "vs last year" change +1.6% -> -7.1% on one line):
+//     year-1 rates drop from 2026's, as docs/HOW_THE_GAME_WORKS.md section 6 says.
+//   y2 (67: header 5, Introduction 5, Rate Indication 5, Decisions 13, Decision
+//     History 13, Annual Statement 13, Year Walkthrough 13): the two years the
+//     configurations play are played on what the game opens on — the reset now —
+//     so the year-2 figures follow (surplus, combined ratio, the statement, the
+//     indication, the walkthrough's codes), Decision History's covers read "Full
+//     retention — no reinsurance", and Decisions carries the reset line.
+// Value identity and the export guard play their own decisions every year and
+// do not move but for the save key (export v148).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v149.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

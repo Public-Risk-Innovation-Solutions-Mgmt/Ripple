@@ -157,8 +157,8 @@ export interface GameShellProps {
    * activity", driving the Decisions sub-menu's "n of N" badge, keyed by
    * LineView so Pool ('pool') and each line share one map. Today a caller
    * sets a line from one signal (its reinsurance choice differing from
-   * carry-forward) and Pool from one of its own (investment allocation
-   * differing from carry-forward); more can OR into either side later.
+   * the round's start) and Pool from one of its own (investment allocation
+   * differing from the round's start); more can OR into either side later.
    * `undefined` (the default) renders no badge at all, which is what a
    * caller that has not wired this up yet — solo, today — gets.
    */
@@ -166,7 +166,7 @@ export interface GameShellProps {
   /**
    * ⚠ A SEPARATE SIGNAL FROM lineActivity, NOT A DUPLICATE OF IT — clicking
    * Next (TabNav's onNext) means "I reviewed this tab," independent of
-   * whether anything on it actually changed from carry-forward. Called with
+   * whether anything on it actually changed from the round's start. Called with
    * the tab being LEFT. Absent: Next behaves as a plain step, same as before
    * this existed.
    */

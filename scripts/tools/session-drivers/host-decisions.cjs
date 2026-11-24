@@ -8,14 +8,12 @@
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
 //
-// ⚠ RESTATED FOR pr/pregame-65: the play defaults now carry the prior board's
-// covers, so a team locked on the defaults shows "$19M xs $1M + aggregate
-// stop-loss 125% / 50%" in the Reinsurance column (was None), and the funding
-// column reads 65%. The cover's name carries its terms as shares of expected
-// losses (125% / 50%), so the "real percentage" check reads every cell but the
-// Reinsurance one — the allocation bug it was added for lived in the
-// allocation column, which it still reads. Against the aws build (None,
-// Expected) the restated Reinsurance check fails, as it must.
+// ⚠ RESTATED FOR pr/decision-reset: every year opens on the reset, year 1
+// included, so a team that locks untouched shows "None" in the Reinsurance
+// column again (the prior board's "$19M xs $1M + aggregate stop-loss 125% /
+// 50%" since pr/pregame-65). The "real percentage" check still reads every cell
+// but the Reinsurance one. Against the aws build (the prior board's covers) the
+// restated Reinsurance check fails, as it must.
 const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
@@ -139,11 +137,9 @@ async function join(ctx, code, name) {
   ok(rows.every(r => !/Decisions not recorded/.test(r.join(' '))),
      'and none reads "not recorded" — the posted rows carry their decisions block');
   // The Reinsurance column is each line's cover, by name (stable-scenarios
-  // commit 6: the aggregate stop). Both teams locked on the defaults, so it
-  // reads the default covers — the prior board's, carried (PLAY_DEFAULTS):
-  // $19M xs $1M and the aggregate cover 125% / 50%, in every game, shocks on or
-  // off (COVERS_IN_EVERY_GAME; this room schedules no shocks).
-  ok(rows.every(r => r[3] === '$19M xs $1M + aggregate stop-loss 125% / 50%'),
+  // commit 6: the aggregate stop). Both teams locked untouched, so it reads the
+  // reset's: no per-claim cover and no aggregate cover (pr/decision-reset).
+  ok(rows.every(r => r[3] === 'None'),
      `the Reinsurance column shows the package the team chose (${rows.map(r => r[3]).join(', ')})`);
   // Simple underwriting: the two underwriting sliders, by name, as percentages
   // — both teams locked on the defaults, 0% and 0%.

@@ -114,10 +114,12 @@ function startStub() {
   await options.first().waitFor({ timeout: 30000 });
   const n = await options.count();
   ok(n >= 2, `WC offers at least two reinsurance options to choose between (found ${n})`);
-  // Pick whichever of the first two is NOT already selected, so this edit is
-  // guaranteed to be a real change rather than a no-op re-click of the default.
-  const already = await options.first().getAttribute('class');
-  const target = (already ?? '').includes('border-blue-500') ? options.nth(1) : options.first();
+  // Pick an option that is NOT already selected and is NOT "none" (the decision
+  // reset's cover), so this edit is a real change AND one the reset would undo
+  // next year — which section "year 2" below reads.
+  const ids = await options.evaluateAll(els => els.map(e => ({ id: e.getAttribute('data-testid'), on: (e.getAttribute('class') ?? '').includes('border-blue-500') })));
+  const pick = ids.find(o => !o.on && !o.id.endsWith('-none'));
+  const target = device.locator(`[data-testid="${pick.id}"]`);
   const targetTestId = await target.getAttribute('data-testid');
   await target.click();
   ok((await target.getAttribute('class') ?? '').includes('border-blue-500'),
@@ -168,6 +170,43 @@ function startStub() {
     }, code) }),
   })).json();
   ok(afterLock?.you?.draft === undefined, "the server's own read confirms the draft is gone, not just the UI");
+
+  // ---- year 2: THE DECISION RESET, then the round's own draft --------------
+  // pr/decision-reset: every decision resets at the start of each new round, so
+  // year 2 opens with NO cover — not year 1's ${targetTestId}. A year-2 edit then
+  // drafts and survives a reload as before: the reload restores THE ROUND'S
+  // draft, not last year's choice and not the reset.
+  await host.click('[data-testid="advance"]');
+  await device.waitForSelector('text=Lock Program Year 2028', { timeout: 180000 });
+  // After the advance the screen may stand on another tab, where a second
+  // "Workers' Compensation" button (the line-view bar) also shows: open Decisions, then its WC tab.
+  await device.getByRole('button', { name: 'Decisions', exact: true }).first().click();
+  await device.getByRole('button', { name: "Workers' Compensation" }).first().click();
+  const none = device.locator('[data-testid="reins-option-WC-none"]');
+  await none.waitFor({ timeout: 30000 });
+  ok((await none.getAttribute('class') ?? '').includes('border-blue-500'),
+    'year 2 opens on the reset: no cover selected on WC');
+  ok(!((await device.locator(`[data-testid="${targetTestId}"]`).getAttribute('class')) ?? '').includes('border-blue-500'),
+    `control: year 1's ${targetTestId} does not carry into year 2`);
+  ok(await device.locator('[data-testid="session-strip"][data-draft]').count() === 0, 'and nothing is drafted for year 2 yet');
+  const ids2 = await options.evaluateAll(els => els.map(e => e.getAttribute('data-testid')));
+  const pick2 = ids2.find(id => !id.endsWith('-none') && id !== targetTestId) ?? targetTestId;
+  await device.locator(`[data-testid="${pick2}"]`).click();
+  await device.waitForFunction(
+    () => document.querySelector('[data-testid="session-strip"]')?.dataset.draft === 'saved',
+    null, { timeout: 10000 },
+  );
+  await device.reload();
+  await device.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
+  // After the advance the screen may stand on another tab, where a second
+  // "Workers' Compensation" button (the line-view bar) also shows: open Decisions, then its WC tab.
+  await device.getByRole('button', { name: 'Decisions', exact: true }).first().click();
+  await device.getByRole('button', { name: "Workers' Compensation" }).first().click();
+  const back = device.locator(`[data-testid="${pick2}"]`);
+  await back.waitFor({ timeout: 30000 });
+  ok((await back.getAttribute('class') ?? '').includes('border-blue-500')
+    && !((await none.getAttribute('class')) ?? '').includes('border-blue-500'),
+    `after a reload in year 2, the round's draft (${pick2}) is restored — not last year's choice, not the reset`);
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');

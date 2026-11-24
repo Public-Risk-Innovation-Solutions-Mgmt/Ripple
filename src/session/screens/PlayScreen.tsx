@@ -220,7 +220,7 @@ export default function PlayScreen({ code, role }: Props) {
   // shown beside the status strip's locked/open indicator.
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const lastSavedDecisions = useRef<string | null>(null);
-  // ⚠ ALWAYS CARRY-FORWARD, EVEN WHEN A DRAFT IS WHAT'S SHOWN — the sub-menu's
+  // ⚠ ALWAYS THE ROUND'S START, EVEN WHEN A DRAFT IS WHAT'S SHOWN — the sub-menu's
   // per-line activity indicator asks "has this line changed from what happens
   // if nothing is touched this year", not "does it differ from the draft",
   // so the baseline is the same decisionsForYear() seed regardless of which
@@ -228,7 +228,7 @@ export default function PlayScreen({ code, role }: Props) {
   const baselineDecisions = useRef<DecisionSet | null>(null);
   // ⚠ A SEPARATE ACTIVITY SIGNAL, NOT A DATA DIFF — "clicked Next past this
   // tab" means the team reviewed it, whether or not anything on it actually
-  // changed from carry-forward. Same lifetime as baselineDecisions: reset
+  // changed from the round's start. Same lifetime as baselineDecisions: reset
   // once per year, beside it.
   const reviewedViaNext = useRef<Set<LineView>>(new Set());
 
@@ -268,9 +268,10 @@ export default function PlayScreen({ code, role }: Props) {
     }
   }, [error, token, code]);
 
-  // Reseed on year change, from the last submitted set. For a player that is
-  // carry-forward; for a viewer it is simply what the team it watches last
-  // locked, which is the most recent thing there is to show.
+  // Reseed on year change: the round's own locked set if there is one, else the
+  // round's starting values — the reset, every round (decisionDefaults
+  // resetDecisionSet). Nothing carries from the year before, for a player or a
+  // viewer of one.
   const seededYear = useRef<number | null>(null);
   // Per team NAME: the token this tab minted for its first join attempt, held
   // so a retry presents the same one. See JoinRequest.token.
@@ -280,14 +281,14 @@ export default function PlayScreen({ code, role }: Props) {
     if (seededYear.current === room.currentYear) return;
     seededYear.current = room.currentYear;
     // Seeding the editable set is the same question the replay asks: what was
-    // this team playing in this year? For an unlocked year that is the most
-    // recent lock before it — carry-forward, unchanged in meaning.
+    // this team playing in this year? For an unlocked year that is the round's
+    // start — the reset — and never an earlier lock.
     // The room's shocks: a host-scheduled room fires its schedule, so its
     // switch is whether anything is scheduled (shockLosses.gameShocksOn).
-    const carryForward = decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0);
-    baselineDecisions.current = carryForward;
+    const roundStart = decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0, room.decisionReset === true);
+    baselineDecisions.current = roundStart;
     reviewedViaNext.current = new Set();
-    // ⚠ A SAVED DRAFT WINS OVER CARRY-FORWARD, THE FIRST TIME THIS YEAR IS
+    // ⚠ A SAVED DRAFT WINS OVER THE ROUND'S START, THE FIRST TIME THIS YEAR IS
     // SEEDED. This runs exactly once per year transition, before anything is
     // held locally for that year yet, so the draft (if any) is always "newer
     // than anything held locally" in the simple sense Mike's guide asks for —
@@ -300,7 +301,7 @@ export default function PlayScreen({ code, role }: Props) {
       lastSavedDecisions.current = JSON.stringify(restored);
       return;
     }
-    setDecisions(carryForward);
+    setDecisions(roundStart);
   }, [room, you, role]);
 
   // ---- per-tab activity, for the Decisions sub-menu's indicator -----------
@@ -309,7 +310,7 @@ export default function PlayScreen({ code, role }: Props) {
   // selection, its funding confidence level (the slider OR the Expected
   // toggle — either one moving counts, same as the funding panel's own
   // "changed from Expected" read), and Pool's investment allocation, each
-  // compared against carry-forward — PLUS "clicked Next past this tab"
+  // compared against the round's start — PLUS "clicked Next past this tab"
   // (reviewedViaNext), which is not a data comparison at all. More signals
   // can OR in later; this is deliberately a first slice, not the finished
   // rule. `undefined` while there is no baseline yet (still loading) —
@@ -833,7 +834,9 @@ export default function PlayScreen({ code, role }: Props) {
                 )}
 
                 <span className="text-black" data-testid="viewer-basis">
-                  decisions as last locked
+                  {room.decisionReset
+                    ? (locked ? 'decisions as locked' : 'decisions not locked yet: the round\'s starting values')
+                    : 'decisions as last locked'}
                 </span>
 
                 {!complete && outstanding.length > 0 && (

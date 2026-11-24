@@ -76,8 +76,13 @@ import type { SessionTransport } from '../../src/session/contract';
 import { isSessionError, newSessionToken, SessionError, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
 import type { CoverageLine } from '../../src/types/simulation';
 import { decisionsForYear, decisionsToJson, governingYear } from '../../src/session/client/decisions';
+import { resetDecisionSet } from '../../src/utils/decisionDefaults';
+/** Compact JSON, for comparing two decision sets whole. */
+const jsonOf = (x: unknown) => JSON.stringify(x);
 import { buildTeamGame, replayTeamYears } from '../../src/session/client/buildGame';
 import { marketLockInputFor } from '../../src/session/client/marketLock';
+import { roundStartDecisions } from '../../src/utils/decisionDefaults';
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import { marketByYearForEngine } from '../../src/session/market';
 import { MARKET_BOOK_RISK_FADE } from '../../src/data/pricingParameters';
 import type { MarketLockInput } from '../../src/session/contract';
@@ -233,6 +238,8 @@ interface StoreHooks {
   unversion(code: string): Promise<void>;
   /** MARKET LEVEL RESCALE: take the room's level-table stamp off the stored record — a New room from before the rescale. */
   unscale(code: string): Promise<void>;
+  /** THE DECISION RESET: take the room's decisionReset stamp off the stored record — a room from before the reset. */
+  unreset(code: string): Promise<void>;
   /**
    * TEAM-CHOSEN POOL NAMES: take teamPoolNames off the stored room — a room from
    * before teams named their pools — and, given `from`/`to`, store one team's
@@ -244,7 +251,7 @@ let store: StoreHooks;
 
 /** The localStorage room record — the localStorage pass and the stub server's store alike. */
 const localStore: StoreHooks = (() => {
-  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; marketScale?: number; teamPoolNames?: boolean; teams: Array<{ name: string; teamNumber?: number }> };
+  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; marketScale?: number; decisionReset?: boolean; teamPoolNames?: boolean; teams: Array<{ name: string; teamNumber?: number }> };
   const get = (code: string): Rec => JSON.parse(globalThis.localStorage.getItem(ROOM_KEY_PREFIX + code)!) as Rec;
   const put = (code: string, r: Rec) => globalThis.localStorage.setItem(ROOM_KEY_PREFIX + code, JSON.stringify(r));
   return {
@@ -254,6 +261,7 @@ const localStore: StoreHooks = (() => {
     async unmarket(code) { const r = get(code); delete r.market; put(code, r); },
     async unversion(code) { const r = get(code); delete r.marketVersion; put(code, r); },
     async unscale(code) { const r = get(code); delete r.marketScale; put(code, r); },
+    async unreset(code) { const r = get(code); delete r.decisionReset; put(code, r); },
     async legacyRoom(code, from, to) {
       const r = get(code); delete r.teamPoolNames;
       if (from && to) for (const x of r.teams) if (x.name === from) x.name = to;
@@ -492,26 +500,25 @@ async function main(): Promise<void> {
     eq(afterAdv.room.teams[0].lockedYear, 1, 'the year a team last locked survives the advance');
   }
 
-  // ---- carry-forward ---------------------------------------------------
+  // ---- the decision reset (was carry-forward) -------------------------
   {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
     const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    eq((await t.read({ code })).room.decisionReset, true, 'a new room carries the decision reset (RoomView.decisionReset)');
 
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'deliberate') });
     await step(t, code, hostToken);
 
-    // ⚠ THE WHOLE POINT OF CARRY-FORWARD. The team did NOT lock for year 2. What
-    // it gets back must still be the deliberate choice it made in year 1 —
-    // reverting to engine defaults here would silently undo a decision the team
-    // made on purpose, and it would look like the team had chosen the default.
+    // ⚠ THE RESET, WHICH REPLACED CARRY-FORWARD. The team did NOT lock year 2,
+    // so it plays the round's start — the reset — never its year-1 choice.
     const mine = await t.read({ code, token: p.teamToken });
     eq(mine.room.currentYear, 2, 'the room moved on to year 2');
     eq(mine.room.teams[0].locked, false, 'the team has not locked for year 2');
-    ok(mine.you.decisionsByYear !== undefined, 'an unlocked team still has a decision history to carry from');
-    eq(governingYear(2, mine.you.decisionsByYear), 1, 'year 2 is governed by year 1 — the last lock BEFORE it');
-    eq((decisionsForYear(2, mine.you.decisionsByYear) as unknown as { marker: string }).marker, 'deliberate',
-       'the carried decisions are the last DELIBERATE ones, not defaults');
+    eq(governingYear(2, mine.you.decisionsByYear), null, 'no lock governs year 2 — year 1\'s does not carry into it');
+    const played2 = decisionsForYear(2, mine.you.decisionsByYear, true, mine.room.decisionReset === true);
+    eq((played2 as unknown as { marker?: string }).marker, undefined, 'the unlocked year does not play the year-1 lock');
+    eq(jsonOf(played2), jsonOf(resetDecisionSet(2, true)), 'it plays the reset: Expected, no cover, 0% sliders, no dividend or assessment, the default mix');
   }
 
   // ---- the decision history -------------------------------------------
@@ -540,12 +547,15 @@ async function main(): Promise<void> {
     // ⚠ THE ASSERTION THE OLD SHAPE COULD NOT MAKE. With one slot, every one of
     // these read 'y4' — which is precisely why a reload replayed years the team
     // never played.
-    const marker = (y: number) => (decisionsForYear(y, h) as unknown as { marker: string }).marker;
+    const marker = (y: number) => (decisionsForYear(y, h) as unknown as { marker?: string }).marker;
     eq(marker(1), 'y1', 'year 1 replays on year 1');
     eq(marker(2), 'y2', 'year 2 replays on year 2, NOT on the latest set');
-    eq(marker(3), 'y2', 'the skipped year 3 carries forward from year 2, the last lock before it');
+    eq(marker(3), undefined, 'the skipped year 3 plays the reset, not year 2 — the last lock before it no longer carries');
+    eq(jsonOf(decisionsForYear(3, h)), jsonOf(resetDecisionSet(3, true)), 'the skipped year plays exactly the reset');
     eq(marker(4), 'y4', 'year 4 replays on year 4');
-    eq(governingYear(3, h), 2, 'and the governing year for a skipped year is named, not inferred');
+    eq(governingYear(3, h), null, 'and no lock governs a skipped year');
+    // A room from before the reset (decisionReset absent) keeps its old rule, so its replays do not move.
+    eq((decisionsForYear(3, h, true, false) as unknown as { marker: string }).marker, 'y2', 'in a room from before the reset, the skipped year still plays the last lock before it');
 
     // Re-submitting a year replaces THAT year and leaves the others alone.
     await step(t, code, hostToken);
@@ -2020,7 +2030,19 @@ async function main(): Promise<void> {
     ok(c2.poolState.lines.WC!.bookExposure! < game0.poolState.lines.WC!.bookExposure!,
       "the dearest team's book is smaller after members leave");
 
-    // YEAR 2: Alpha locks; Bravo locks and is unlocked and does not re-lock; Charlie does not lock.
+    // YEAR 2 — THE DECISION RESET: Alpha locks; Bravo locks and is unlocked and
+    // does not re-lock; Charlie does not lock; Delta never does anything. Each
+    // team's client posts its year-1 result with the NEXT round's start — its
+    // input at the reset, struck on its own game (SubmitRequest.market).
+    const c1 = replayTeamYears(buildTeamGame(cRead.room, WC).gameState, 2, cRead.you?.decisionsByYear, marketByYearForEngine(cRead.you?.marketByYear));
+    const cStart = marketLockInputFor(c1.state, roundStartDecisions(2, gameShocksOn(c1.state.setup, c1.state.instance)), 2);
+    ok(cStart !== null, "Charlie's game strikes its round-start input for year 2, at the reset");
+    await rejects(t.submit({ code, token: C.teamToken, yearNumber: 1, result: summaryFor(1, 1000), market: { byLine: {} } }),
+      'INVALID_REQUEST', 'a round-start input missing a line the room plays is refused');
+    await t.submit({ code, token: C.teamToken, yearNumber: 1, result: summaryFor(1, 1000), market: cStart! });
+    const bStart = scaled(base!, 0.7);
+    await t.submit({ code, token: B.teamToken, yearNumber: 1, result: summaryFor(1, 1000), market: bStart });
+    await t.submit({ code, token: A.teamToken, yearNumber: 1, result: summaryFor(1, 1000), market: scaled(base!, 0.2) });
     const d2 = decisionsToJson(decisionsForYear(2, undefined, true));
     await t.submit({ code, token: A.teamToken, yearNumber: 2, decisions: d2, market: inputs[0] });
     await t.submit({ code, token: B.teamToken, yearNumber: 2, decisions: decisionsFor(2, 'b2-unlocked'), market: scaled(base!, 0.5) });
@@ -2028,18 +2050,47 @@ async function main(): Promise<void> {
     await step(t, code, host);
     const y2 = (await t.read({ code, token: host })).room.marketByYear?.['2'];
     eq(json((await t.read({ code, token: host })).room.marketByYear?.['1']), json(y1), 'year 1\'s step is stored once and not rerun');
-    eq(y2?.inputs.Bravo?.stale, true, 'a team unlocked and not re-locked counts at its previous lock (flagged to the host)');
-    eq(y2?.inputs.Bravo?.byLine.WC?.rate, inputs[1].byLine.WC!.rate, 'at its last LOCKED rate, not the one it sent and had unlocked');
+    eq(y2?.inputs.Charlie?.reset, true, 'a team that did not lock counts at the reset (flagged to the host)');
+    eq(y2?.inputs.Charlie?.stale, false, 'not at its last lock');
+    eq(json(y2?.inputs.Charlie?.byLine.WC), json(cStart!.byLine.WC), 'at the rate, book and market decisions the reset gives on its own game');
+    ok(y2?.inputs.Charlie?.byLine.WC?.rate !== inputs[2].byLine.WC!.rate, 'and not its year-1 locked rate');
+    eq(y2?.inputs.Bravo?.reset, true, 'a team unlocked and not re-locked counts at the reset too');
+    eq(y2?.inputs.Bravo?.byLine.WC?.rate, bStart.byLine.WC!.rate, 'at its round-start rate — not the set it sent and had unlocked, nor its year-1 lock');
     eq((await t.read({ code, token: B.teamToken })).you?.decisionsByYear?.['2'], undefined,
-      'and its unlocked set is gone, so its game plays its previous lock');
-    eq(y2?.inputs.Charlie?.stale, true, 'a team that did not lock counts at its last locked rate');
-    eq(y2?.inputs.Charlie?.fromYear, 1, 'which the host can see is year 1\'s');
-    eq(y2?.inputs.Alpha?.stale, false, 'a team that locked counts at what it locked');
-    const cPrev = y1!.result.Charlie!.WC!;
-    eq(y2?.inputs.Charlie?.byLine.WC?.book, cPrev.bookAfter * (1 - cPrev.engineNonRenewal),
-      "a team that did not lock counts on its book carried forward from last year's step");
+      'and its unlocked set is gone, so its game plays the reset');
+    eq(y2?.inputs.Alpha?.reset, undefined, 'a team that locked counts at what it locked, its round-start input unused');
+    eq(y2?.inputs.Alpha?.byLine.WC?.rate, inputs[0].byLine.WC!.rate, 'its locked rate');
+    eq(json(y2?.missing), json(['Delta']), 'a team with no lock and no round-start input is left out — nothing carries');
     eq(y2?.result.Alpha?.WC?.bookRiskBefore, 1 + (1 - MARKET_BOOK_RISK_FADE) * (y1!.result.Alpha!.WC!.bookRisk - 1),
       "each year's book risk starts from last year's, faded halfway to 1.00");
+    // THE GAME PLAYS WHAT THE MARKET COUNTED: Charlie's year 2 replays on the reset, on two devices alike.
+    const cRead2 = await t.read({ code, token: C.teamToken });
+    eq(jsonOf(decisionsForYear(2, cRead2.you?.decisionsByYear, false, cRead2.room.decisionReset === true)), jsonOf(resetDecisionSet(2, false)),
+      "Charlie's game plays the reset in year 2");
+    const playTo3 = (r: RoomView, you: typeof cRead2.you) =>
+      replayTeamYears(buildTeamGame(r, WC).gameState, 3, you?.decisionsByYear, marketByYearForEngine(you?.marketByYear), r.decisionReset === true).produced.map(p => json(p.result));
+    const cAgain = await t.join({ code, teamName: 'Charlie', role: 'player', token: C.teamToken });
+    eq(json(playTo3(cRead2.room, cRead2.you)), json(playTo3(cAgain.room, (await t.read({ code, token: C.teamToken })).you)),
+      'a rejoin on a second device replays the reset year byte-identical');
+
+    // A ROOM FROM BEFORE THE RESET keeps its rule: an unlocked team counts at its last lock, `stale`.
+    const pre = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 3, startingYear: 2027, eventName: 'Pre-reset', expectedTeams: 2, lines: WC, shocks: [], market: 'high' });
+    await store.unreset(pre.code);
+    eq((await t.read({ code: pre.code })).room.decisionReset, undefined, 'a room from before the reset reads no decisionReset');
+    const p1 = await t.join({ code: pre.code, teamName: 'Old One', role: 'player' });
+    const p2 = await t.join({ code: pre.code, teamName: 'Old Two', role: 'player' });
+    await t.submit({ code: pre.code, token: p1.teamToken, yearNumber: 1, decisions: dj, market: inputs[0] });
+    await t.submit({ code: pre.code, token: p2.teamToken, yearNumber: 1, decisions: dj, market: inputs[2] });
+    await step(t, pre.code, pre.hostToken);
+    await t.submit({ code: pre.code, token: p2.teamToken, yearNumber: 1, result: summaryFor(1, 1000), market: scaled(base!, 0.3) });
+    await t.submit({ code: pre.code, token: p1.teamToken, yearNumber: 2, decisions: d2, market: inputs[0] });
+    await step(t, pre.code, pre.hostToken);
+    const preY = (await t.read({ code: pre.code, token: pre.hostToken })).room.marketByYear;
+    eq(preY?.['2']?.inputs['Old Two']?.stale, true, 'there, a team that did not lock still counts at its last locked rate');
+    eq(preY?.['2']?.inputs['Old Two']?.byLine.WC?.rate, inputs[2].byLine.WC!.rate, 'its year-1 lock — a round-start input is ignored');
+    const prePrev = preY!['1'].result['Old Two']!.WC!;
+    eq(preY?.['2']?.inputs['Old Two']?.byLine.WC?.book, prePrev.bookAfter * (1 - prePrev.engineNonRenewal),
+      "on its book carried forward from last year's step");
 
     // MARKET OFF: a lock needs no market input, and an advance stores no step.
     const off = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Off', expectedTeams: 1, lines: WC, shocks: [], market: 'off' });
@@ -2523,6 +2574,9 @@ async function dynamoPasses(): Promise<number> {
       },
       async unversion(code) {
         await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE marketVersion' }));
+      },
+      async unreset(code) {
+        await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE decisionReset' }));
       },
       async unscale(code) {
         await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE marketScale' }));

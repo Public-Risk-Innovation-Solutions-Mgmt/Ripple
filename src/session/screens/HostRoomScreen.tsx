@@ -433,9 +433,17 @@ export default function HostRoomScreen({ code }: Props) {
                       ? 'No teams have joined yet.'
                       : 'Every team that has joined is locked in.'
                     : <>Waiting on <span data-testid="outstanding" className="font-medium text-slate-700">{outstanding.map(teamLabel).join(', ')}</span>.
-                      {' '}<span data-testid="outstanding-note">If you advance now, a team that has not locked plays its last locked decisions
-                      {(room?.market ?? 'off') !== 'off' ? ', and the market counts it at its last locked rate' : ''}
-                      {' '}(one that never locked plays the defaults{(room?.market ?? 'off') !== 'off' ? ' and stays out of the market' : ''}).</span></>}
+                      {' '}<span data-testid="outstanding-note">{room?.decisionReset
+                        // THE DECISION RESET: an unlocked team plays the round's starting
+                        // values (decisionDefaults roundStartDecisions), never its last lock.
+                        ? <>If you advance now, a team that has not locked plays the reset decisions: funding at Expected,
+                          no reinsurance cover, 0% New Members, Non-Renewal and risk control, no dividend or assessment,
+                          and the default asset mix
+                          {(room.market ?? 'off') !== 'off' ? ', and the market counts it at the rate they give' : ''}.</>
+                        // A room from before the reset still carries the last lock.
+                        : <>If you advance now, a team that has not locked plays its last locked decisions
+                          {(room?.market ?? 'off') !== 'off' ? ', and the market counts it at its last locked rate' : ''}
+                          {' '}(one that never locked plays the defaults{(room?.market ?? 'off') !== 'off' ? ' and stays out of the market' : ''}).</>}</span></>}
                 </p>
                 {(room?.market ?? 'off') !== 'off' && (
                   <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">

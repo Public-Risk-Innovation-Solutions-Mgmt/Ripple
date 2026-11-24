@@ -6,8 +6,7 @@ import type { ScheduledShock } from './types/shocks';
 import { gameShocksOn } from './utils/shockLosses';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
-import { defaultDecisionSet } from './utils/decisionDefaults';
-import { carryDecisions } from './utils/carryDecisions';
+import { defaultDecisionSet, roundStartDecisions } from './utils/decisionDefaults';
 import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SavedGame, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
 import { restoreSavedGame } from './utils/saveRestore';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
@@ -79,7 +78,7 @@ export default function App() {
               setGameState(r.gameState);
               setStartingFinancials(r.startingFinancials);
               setInitialMembers(r.initialMembers);
-              setCurrentDecisions(r.currentDecisions ?? defaultDecisionSet(r.gameState.currentYearNumber, gameShocksOn(r.gameState.setup, r.gameState.instance)));
+              setCurrentDecisions(r.currentDecisions ?? roundStartDecisions(r.gameState.currentYearNumber, gameShocksOn(r.gameState.setup, r.gameState.instance)));
               setActiveTab('dashboard');
               setRestoring(null);
             })
@@ -189,15 +188,18 @@ export default function App() {
       isComplete: false,
       poolState,
       lockedResults: [],
-      currentDecisions: defaultDecisionSet(1, gameShocksOn(setup, instance)),
+      // Year 1 opens on the reset too (decisionDefaults roundStartDecisions).
+      currentDecisions: roundStartDecisions(1, gameShocksOn(setup, instance)),
       priorHistory,
       earlyPreGameHistory,
     };
     // THE WORLDS (loss engine commit 4b): every world opens on this position.
     const gs = openWorlds(opened);
 
-    // The default cover follows the game's shock switch: None while it is off.
-    const cd = defaultDecisionSet(1, gameShocksOn(setup, instance));
+    // THE DECISION RESET, YEAR 1 INCLUDED: the game opens at Expected with no cover
+    // (resetDecisionSet), not the prior board's 65% and covers, which only the
+    // pre-game plays.
+    const cd = roundStartDecisions(1, gameShocksOn(setup, instance));
 
     setGameState(gs);
     setStartingFinancials(sf);
@@ -221,27 +223,16 @@ export default function App() {
   // Commit a fully-resolved year (loan offers, if any, already handled) — the
   // average across the worlds, with the worlds themselves.
   const commitYear = useCallback((baseGs: GameState, settled: SettledYear) => {
-    const result = settled.result;
     const nextYearNumber = baseGs.currentYearNumber + 1;
     const isComplete = nextYearNumber > baseGs.setup.gameLength;
-    // ⚠ EVERY DECISION CARRIES INTO THE NEXT YEAR, as a hosted team's does
-    // (carryDecisions.ts): the year opens on the set it was played on, and only
-    // the first year opens on the defaults. Single player and Test player both
-    // commit here.
-    //
-    // ⚠ CARRIED FROM `settled.played.decisions`, THE SET THE YEAR WAS PLAYED ON,
-    // not from `currentDecisions`. This function is handed the state it
-    // committed; reading the live editing buffer instead would carry forward
-    // whatever the player had half-typed when the year locked.
-    //
-    // ⚠ RISK-CONTROL PROGRAMS STILL COME OFF THE POOL ROW'S OWN ECHO
-    // (result.pool.riskControlProgramIds), which is what the engine actually
-    // charged and benefited, so the carry-forward and the derived tenure read
-    // the same source. The engine has no notion of continuing — it reads the
-    // list it is given — and the pre-game, which runs on defaultDecisionSet,
-    // commits nothing.
-    const nextDecisions: DecisionSet = carryDecisions(
-      settled.played.decisions, nextYearNumber, result.pool?.riskControlProgramIds ?? [],
+    // ⚠ EVERY DECISION RESETS AT THE START OF THE NEXT ROUND (decisionDefaults
+    // resetDecisionSet): funding at Expected, no cover, New Members, Non-Renewal
+    // and risk control 0%, no dividend or assessment, the default asset mix. The
+    // player sets them again each year; nothing carries from the year just
+    // played. Single player and Test player both commit here. What was played
+    // stays in the save (playedYears) and on the Annual Statement.
+    const nextDecisions: DecisionSet = roundStartDecisions(
+      nextYearNumber, gameShocksOn(baseGs.setup, baseGs.instance),
     );
 
     const newGs: GameState = {

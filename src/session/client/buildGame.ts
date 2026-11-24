@@ -26,7 +26,7 @@ import { openingRoster } from '../../game/openingRoster';
 import { scenarioInstance } from '../../utils/instanceGenerator';
 import { runPriorHistory } from '../../utils/priorHistoryEngine';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, surplusRange, type SurplusRange } from '../../utils/worlds';
-import { defaultDecisionSet } from '../../utils/decisionDefaults';
+import { defaultDecisionSet, roundStartDecisions } from '../../utils/decisionDefaults';
 import type { CoverageLine, GameSetupSettings, GameState, MarketLineInput, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
@@ -133,13 +133,15 @@ export interface ProducedYear {
 }
 
 // Advance a team's game to `targetYear` (exclusive) on its own recorded
-// decisions — the carry-forward rule is decisionsForYear's. Returns the new
+// decisions — an unlocked year plays its round's start (decisionsForYear). Returns the new
 // state and every year it produced, oldest first.
 export function replayTeamYears(
   start: GameState,
   targetYear: number,
   decisionsByYear: Record<string, JsonValue> | undefined,
   market?: Record<string, Partial<Record<CoverageLine, MarketLineInput>>>,
+  /** The room's RoomView.decisionReset: a year not locked plays its round's start. Absent is on. */
+  reset = true,
 ): { state: GameState; produced: ProducedYear[] } {
   // MARKET COMPETITION: the team's stored market results, every year's, on the
   // setup the engine reads (setup.marketByYear; bookUnderwriting.ts). Each year
@@ -160,7 +162,7 @@ export function replayTeamYears(
     // the room stores a history: it runs on a reload, replaying every year from
     // the seed, and reading one slot for all of them produced results the team
     // never played.
-    const decisions = decisionsForYear(year, decisionsByYear, gameShocksOn(state.setup, state.instance));
+    const decisions = decisionsForYear(year, decisionsByYear, gameShocksOn(state.setup, state.instance), reset);
     const played = playWorldsYear(state, decisions);
 
     // ⚠ AN UNRESOLVED LOAN OFFER IS DECLINED, AND THAT IS A REAL
@@ -181,7 +183,7 @@ export function replayTeamYears(
       currentYearNumber: nextYear,
       isComplete: nextYear > state.setup.gameLength,
       ...commitSettledYear(state, settled),
-      currentDecisions: defaultDecisionSet(nextYear, gameShocksOn(state.setup, state.instance)),
+      currentDecisions: reset ? roundStartDecisions(nextYear, gameShocksOn(state.setup, state.instance)) : defaultDecisionSet(nextYear, gameShocksOn(state.setup, state.instance)),
     };
     produced.push({ result: settled.result, poolState: settled.poolState, gameState: state, surplusRange: surplusRange(state, year) });
   }

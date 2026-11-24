@@ -22,6 +22,9 @@
 // ⚠ THE HOSTED ROOM NEEDS ADMIN_TOKEN (the host screen's sign-in); run it with
 // the admin-token hook, as the other host drivers are.
 //
+// 5. The next year opens on the decision reset in each mode, and year 1's
+//    assessment does not carry (a control that fails if carry-forward returns).
+//
 // 4. Single player, in a window 420px tall: the box fits inside the window and
 //    scrolls, and "Lock decisions" can be scrolled to.
 // ============================================================================
@@ -107,6 +110,29 @@ async function dismissAllWays(page) {
   return closed;
 }
 
+/**
+ * 5. THE DECISION RESET (pr/decision-reset): the next year's box reads the reset
+ * — funding at Expected, no cover, no dividend or assessment, the default mix —
+ * on every line. THE CONTROL: year 1's "Assessment $3.00M" on GL, which
+ * carry-forward would show, is refused. "Go back" leaves the year as it was.
+ */
+async function checkResetBox(page, mode, year) {
+  await lockButton(page).click();
+  const box = page.locator(BOX);
+  await box.waitFor({ timeout: 10000 });
+  const text = (await box.innerText()).replace(/\s+/g, ' ');
+  const lines = await box.locator('[data-testid^="lock-confirm-line-"]').allInnerTexts();
+  const reset = lines.length === 3 && lines.every(t => {
+    const x = t.replace(/\s+/g, ' ');
+    return /Funding Expected/.test(x) && /Covers Full retention — no reinsurance/.test(x) && /No dividend or assessment/.test(x)
+      && /Underwriting Non-renewal 0% · New members 0%/.test(x) && /Risk control 0% of the rate/.test(x);
+  });
+  ok(text.includes(`Lock your ${year} decisions?`) && reset && /Cash 20% · Bonds 75% · Equities 5%/.test(text),
+    `${mode}: year ${year} opens on the reset — funding at Expected, no cover, 0% underwriting and risk control, no dividend or assessment, the default mix`, text.slice(0, 160));
+  ok(!/Assessment \$3\.00M/.test(text), `${mode}: control — year 1's GL assessment ($3M) does not carry into ${year}`);
+  await box.getByRole('button', { name: 'Go back', exact: true }).click();
+}
+
 async function confirmLock(page) {
   await lockButton(page).click();
   const box = page.locator(BOX);
@@ -164,6 +190,7 @@ async function soloMode(browser, mode, start) {
   ok(after?.currentYearNumber === 2 && after?.lockedResults?.length === 1 && after.lockedResults[0].byLine.GL.decisions.assessmentAmount === 3e6,
     `${mode}: "Lock decisions" locks the year once — one locked year, with the decisions the box showed`,
     JSON.stringify({ year: after?.currentYearNumber, locked: after?.lockedResults?.length }));
+  await checkResetBox(page, mode, 2028);
   ok(errors.length === 0, `${mode}: no page errors`, errors[0] ?? '');
   await page.context().close();
 }
@@ -239,6 +266,10 @@ async function hostedMode(browser) {
     ok(after?.currentYear === 1 && after.teams.length === 1 && after.teams[0].lockedYear === 1,
       'hosted: the room holds the team\'s lock for the year, and waits for the host to advance',
       JSON.stringify({ year: after?.currentYear, locked: after?.teams?.map(t => t.lockedYear) }));
+    // The host advances; the team's year 2 opens on the reset.
+    await host.click('[data-testid="advance"]');
+    await team.waitForSelector('text=Lock Program Year 2028', { timeout: 180000 });
+    await checkResetBox(team, 'hosted', 2028);
     ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
   } finally {
     try { process.kill(-stub.pid); } catch { /* already gone */ }
