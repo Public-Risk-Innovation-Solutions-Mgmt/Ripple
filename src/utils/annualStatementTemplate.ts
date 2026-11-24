@@ -471,11 +471,16 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   // THE ADMIN SPLIT (New-version market rooms): Fixed as the engine books it
   // (utils/fixedAdmin, before the overrun), Variable the rest of the admin
   // booked, so the two add to General Admin Expense exactly; Prior is the years
-  // rolled out, summed. A history year's admin is all Variable.
+  // rolled out, summed. A history year shows year 1's fixed admin stepped back
+  // 3% a year — display only — and no figure before year 1 is played. Year 1 is
+  // read from the whole game, not cut at the as-of year, so a history year
+  // splits alike in every view.
   const split = showsAdminSplit(gs);
   if (split) {
-    const fixedOf = (r: ResultSet) => fixedAdminOf(gs, r, scope, full);
-    figures.adminFixed = [figures.admin[0] === null ? null : rolled.reduce((t, r) => t + fixedOf(r), 0),
+    const game = [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? []), ...gs.lockedResults];
+    const fixedOf = (r: ResultSet) => fixedAdminOf(gs, r, scope, game);
+    const priors = rolled.map(fixedOf);
+    figures.adminFixed = [figures.admin[0] === null || priors.some(x => x === null) ? null : priors.reduce((t, x) => t! + x!, 0),
       ...window.map((r, k) => (figures.admin[k + 1] === null ? null : fixedOf(r)))];
     figures.adminVariable = zip(figures.admin, figures.adminFixed, (a, f) => a - f);
   }
