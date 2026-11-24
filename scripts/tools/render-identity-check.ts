@@ -1969,7 +1969,21 @@ const BASELINE = process.env.RENDER_BASELINE
 // riskpool_gamestate_v61 -> v62. The harness plays single player, which has
 // adverse development Off, so no figure moves; the host's setup screen, which
 // prints the ranges, is not among its screens. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v146.json');
+// v148: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; v147 is the
+// export guard's). The control: aws 61fcf79's own build reproduced v146, 174 of
+// 174. 140 of 174 move, and word-diffed against 61fcf79's own text
+// (RENDER_TEXT_DIR) every one keeps its word count and moves only figures:
+// the header's surplus chip on all 140 (GL scenario 7: $20.92M -> $20.85M);
+// on the Annual Statement (26) Paid in Capital, Earned Surplus, Net Worth,
+// Investment Income, Net Operating Income, Invested Assets, the to-Surplus
+// ratios and Operating Ratio, and the Decisions index's surplus column; on the
+// Decisions screen (26) Surplus available; on the Introduction (16) the
+// opening surplus; on the Year Walkthrough (26) the investment income,
+// dividends, surplus and capital steps' figures and Year codes, and the
+// Version (riskpool_gamestate_v62 -> v63); Decision History, Rate Indication
+// and the header only the chip. No rate or premium figure moves; no key added
+// or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v148.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
