@@ -1955,7 +1955,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // With the key normalised all 26 are identical to the control. The fixed admin
 // at 25% is New-version market rooms only; no single-player figure moves. 148
 // match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v144.json');
+// v145: THE SAVE KEY v59 -> v61 (pr/market-level-rescale; v60 is left for the
+// adverse-development ranges branch), on aws a7f4131, which reproduces v144 here
+// 174 of 174. Word-diffed (RENDER_TEXT_DIR both sides), 26 move — every Year
+// Walkthrough, by one line each and one word: the save key it shows,
+// "riskpool_gamestate_v59" -> "riskpool_gamestate_v61". With the key normalised
+// all 26 are identical to the control. The rescaled levels are New-version
+// market rooms only; no single-player figure moves. 148 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v145.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

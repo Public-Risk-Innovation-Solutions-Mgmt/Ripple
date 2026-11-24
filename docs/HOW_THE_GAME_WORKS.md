@@ -286,13 +286,23 @@ High setting, compares the same whole rates (cover included), and changes four v
 
 | | Low | Medium | High |
 |---|---|---|---|
-| k (WC / GL / Property) | 1.200 / 1.236 / 1.234 | 2.100 / 2.163 / 2.160 | 3.600 / 3.708 / 3.702 |
-| Average leaver at a 10%+ gap | 0.75 | 0.65 | 0.55 |
-| Leaver cap | 20% of the book a year | 25% | 30% |
-| Book risk fade | 35% a year | 25% | 20% |
+| k (WC / GL / Property) | 1.200 / 1.236 / 1.234 | 1.650 / 1.700 / 1.697 | 2.100 / 2.163 / 2.160 |
+| Average leaver at a 10%+ gap | 0.75 | 0.70 | 0.65 |
+| Leaver cap | 20% of the book a year | 22.5% | 25% |
+| Book risk fade | 35% a year | 30% | 25% |
 
-- **Buckets widened.** The five risk buckets are widened in log space — each (raw ÷ 1.02) to the power 1.25 / 1.75 /
-  2.25 (Low / Medium / High), renormalised so the even mix still averages 1.00 — and the average leaver at a 10%+ gap
+- **The levels were rescaled** (`MARKET_NEW`): Low is unchanged; High is what Medium was; Medium is new, halfway
+  between them on every setting; the former High (k 3.600 / 3.708 / 3.702, leaver 0.55, cap 30%, fade 20%) is dropped
+  for new rooms. A New-version room is stamped with the table it was created on (`marketScale`), so a room created
+  before the rescale — at any level, the former High included — keeps playing the values it started with
+  (`MARKET_NEW_SCALE_1`), and its Game Setup says so. Why: each level's best price now steps up from High to Low. On
+  the six-team rate curve (fixed admin 25%, events off; Staff Retreat, Test Seed, scenarios 20, 16 and 1) the best
+  price is Low +15% (+10% on scenario 1), Medium +10% on all five, High +5% (scenario 16 ties +5% and +10%); −15% is
+  the same at every level. In a realistic five-team room (45–85%, WC only, scenario 4, no events, eight room codes)
+  first place is High 65% 3 / 75% 5, Medium 75% 8, Low 85% 7 / 75% 1, and the 85% team keeps 39% / 48% / 62% of its
+  book; in a realistic 15-team room it is High 70–80%, Medium 80% 5 / 85% 3, Low 85% 8.
+- **Buckets widened.** The five risk buckets are widened in log space — each (raw ÷ 1.02) to the power 1.25 / 1.5 /
+  1.75 (Low / Medium / High), renormalised so the even mix still averages 1.00 — and the average leaver at a 10%+ gap
   is 1 − that power × 0.20. The widened buckets also carry the outside supply's draw.
 - **Intake slightly better than average.** The members a team takes in — price leavers from dearer teams and
   outside members — arrive at a fixed quality of 0.95 (book-risk effect; 1.00 is average), not at the leavers'
