@@ -1347,7 +1347,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v58). Text-diffed against 7af0fc6's own text (GUARD_TEXT_DIR): 48 lines
 // differ, every one the Version row. The guard's games play harness ids, no
 // scenario, so neither the named scenarios nor slot 20's seed reach them.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v142.json');
+// v143: THE SAVE KEY v58 -> v59 (pr/market-fixed-admin-25), on aws 1fae189,
+// which reproduces v142 here 48 of 48. Text-diffed (GUARD_TEXT_DIR both sides):
+// the 24 Results workbooks move and nothing else — 48 rows, each file's
+// Version row ("riskpool_gamestate_v58" -> "riskpool_gamestate_v59") in its
+// shown and its raw text; with the key normalised all 48 are identical to the
+// control. The statement workbooks are byte-identical. The fixed admin at 25%
+// is New-version market rooms only; no single-player figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v143.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
