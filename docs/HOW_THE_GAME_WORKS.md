@@ -366,8 +366,15 @@ value, its reason and the measurements are in `pricingParameters.ts` ("MARKET VE
 control (0–5% of the rate before reinsurance); a per-claim cover (None or one of eight layers, e.g. $9M xs $1M);
 an aggregate cover (none, 110/50, 125/50, 150/50); loan repayment while a loan is open. Pool-wide: the asset mix
 (default 20% cash, 75% bonds, 5% equities — the prior board's, in every mode). Funding defaults to 65% and the covers
-to the prior board's ($19M xs $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate drop; the
-rest to none or zero.
+to the prior board's ($19M xs $1M, aggregate 125/50), so year 1 continues the history; the rest to none or zero.
+
+**Cover costs twice its table price** (`COVER_PRICE_FACTOR`, ×2.0, in the parameters file) — the per-claim layers
+and the aggregate covers alike, in every scenario and mode, from year 1. The prior board's history keeps the table's
+prices, so every opening position is unchanged; recoveries, attachments and limits are unchanged too. The prices on
+the Decisions page, the Rate Indication and the statements are the doubled ones, which the engine charges. Why:
+with GL and Property large claims, cover was too clear a choice at the table's price; doubling makes it cost more in
+quiet years. A team keeping the prior board's covers therefore pays about twice the history's reinsurance in 2027,
+which shows as a rise in its 2027 rate.
 
 **Where the rest comes in:**
 

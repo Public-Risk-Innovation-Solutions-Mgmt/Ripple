@@ -2242,6 +2242,28 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
  * these odds — fewer where little is scheduled, none where nothing is.
  */
 export const T_COVER_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+
+/**
+ * THE PRICE OF COVER, x 2 (wip/cover-price-double) — ONE FACTOR ON EVERY COVER'S
+ * PRICE: the per-occurrence layers (tCoverPrice, the table above and its 30M /
+ * 40M multipliers) and the aggregate covers (aggregateCover.aggregateCoverQuote's
+ * expected recovery x load), in every scenario and mode. The factor applies to
+ * PLAYED YEARS ONLY (year 1 on): the prior board's history keeps the table's
+ * prices, so every scenario's opening position is unchanged. Recoveries,
+ * attachments, limits and everything else are untouched — only what a team pays.
+ * What the Decisions page, the Rate Indication and the statements show is the
+ * doubled price, the same figure the engine charges.
+ *
+ * WHY: once GL and Property carry large claims, cover at the table's price was
+ * too clear a choice — in a hosted test of fifteen teams over five years, a team
+ * with cover finished far ahead of one without in every game with an event, and
+ * gave up little in a quiet one. Doubling the price makes cover cost more in
+ * quiet years, so going without it is a real decision. Change the factor here;
+ * nothing else needs to move.
+ */
+export const COVER_PRICE_FACTOR = { factor: 2.0 };
+/** The factor on a cover's price in `yearNumber`: COVER_PRICE_FACTOR in a played year, 1 in the prior board's history. */
+export const coverPriceFactorFor = (yearNumber: number): number => (yearNumber >= 1 ? COVER_PRICE_FACTOR.factor : 1);
 export const T_COVER_30M_MULTIPLIER = 1.25;
 export const T_COVER_40M_MULTIPLIER = 1.2;
 
@@ -4273,6 +4295,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'pool\'s layer, so a player moves up a layer or keeps that risk. The tower is cut at $1M, $2M, $10M, $20M, '
           + '$30M and $40M on every line, so each option is whole layers. Replaces the aggregate stop, which stays '
           + 'dormant behind its switch.',
+      }],
+      ['Cover price factor', {
+        value: `x ${COVER_PRICE_FACTOR.factor} in played years (the prior board's history at x 1)`, unit: 'on every cover price',
+        what: 'Every cover\'s price — the per-occurrence layers and the aggregate covers — is the table\'s price x this '
+          + 'factor from year 1, in every scenario and mode. Recoveries, attachments and limits are unchanged; the prior '
+          + 'board\'s history keeps the table\'s prices, so every opening position is unchanged.',
+        basis: 'CHOSEN',
+        note: 'With GL and Property large claims, cover was too clear a choice at the table\'s price; doubling it makes '
+          + 'cover cost more in quiet years, so going without is a real decision.',
       }],
       ['Reinsurance prices', {
         value: `frequencies Low ${T_COVER_FREQUENCY.Low * 100}% · Mid ${T_COVER_FREQUENCY.Mid * 100}% · High `

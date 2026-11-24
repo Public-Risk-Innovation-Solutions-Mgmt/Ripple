@@ -1256,7 +1256,7 @@ function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumbe
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <span>{o.id === 'none' ? 'None' : o.id}</span>
-              <span className="text-xs text-black">{`${formatCurrency(optionPrice(line, o.id, factor))}/yr`}</span>
+              <span className="text-xs text-black">{`${formatCurrency(optionPrice(line, o.id, factor, yearNumber))}/yr`}</span>
             </button>
           );
         })}
