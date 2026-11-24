@@ -22,6 +22,16 @@
 //      places it DO cede through it, so the check is not vacuous — a declined
 //      Property tower costs and recovers nothing, and the aggregate is unwired.
 //
+// ⚠ RESTATED FOR wip/cover-price-double: a cover's CHARGE in a played year is
+// its option price (tCoverPrice, the method and base table, unchanged) at the
+// year's growth factor x COVER_PRICE_FACTOR (2.0, written out here as
+// CP_FACTOR); in the prior board's years (yearNumber <= 0) it is the option
+// price alone. 3's "the top layer is charged when placed" now wants 2 x the
+// option's price in years 1 and 5, and the option's price in pre-game year 0.
+// The additive-rule control still compares against the base table. New
+// controls: COVER_PRICE_FACTOR.factor = 1 at runtime (restored after) must
+// fail 3; the gate's own expectation doubling year 0 too must fail 3.
+//
 // ⚠ RESTATED FOR pr/pregame-65. The play defaults now carry the prior board's
 // covers — $19M xs $1M per claim and the 125/50 aggregate cover on attritional
 // losses (PLAY_DEFAULTS) — so "the default" is no longer None. 6's None arm is
@@ -87,7 +97,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { fullTowerOption, placementFor, tCoverPrice, tLayerExpectedCost } from '../../src/utils/reinsuranceOptions';
 import { shockCostFactor } from '../../src/utils/shockCost';
-import { AGGREGATE_STOP, MEMBER_LEVEL } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP, COVER_PRICE_FACTOR, MEMBER_LEVEL } from '../../src/data/pricingParameters';
 
 // ⚠ THE PER-OCCURRENCE TOWER WAS DORMANT BEHIND AGGREGATE_STOP from
 // stable-scenarios commit 6; since the shocks landing the stop is off as
@@ -144,6 +154,24 @@ const towerCutAsBriefed = () => LINES.every(l => cutAt(l).join('|') === CUT.join
   && REINSURANCE_TOWER[l as 'WC'].every((x, i) => x.attachment + x.limit === CUT[i + 1]));
 // An option's charge is ITS price (tCoverPrice at the year's growth factor), > 0.
 const chargedAsOption = (premium: number, price: number) => price > 0 && Math.abs(premium - price) <= 1e-9 * price;
+// wip/cover-price-double: a played year's charge is the option price x 2.0; the
+// prior board's years the option price. Written out, not read from COVER_PRICE_FACTOR.
+const CP_FACTOR = 2.0;
+const paidFactor = (y: number) => (y >= 1 ? CP_FACTOR : 1);
+/** 39 xs 1 and 38 xs 2 on every line, in pre-game year 0 and played years 1 and 5: placed on the top layer and charged `paid(y)` x the option's price. */
+function topLayerCharged(paid: (y: number) => number = paidFactor): { ok: boolean; shown: string[] } {
+  const top = (l: CoverageLine) => REINSURANCE_TOWER[l as 'WC'].length - 1;
+  const shown: string[] = [];
+  let ok = true;
+  for (const l of LINES) for (const id of ['$39M xs $1M', '$38M xs $2M']) for (const y of [0, REF_YEAR, 5]) {
+    const placed = placementFor(l, id);
+    const premium = occurrenceProgramCost(l as 'WC', placed, book(290), y).premium;
+    const price = paid(y) * tCoverPrice(l, id, shockCostFactor(l, y, 290, undefined));
+    ok &&= placed[top(l)] && chargedAsOption(premium, price);
+    if (l === 'GL' && id === '$38M xs $2M') shown.push(`y${y} ${fmt$(premium)} vs ${fmt$(price)}`);
+  }
+  return { ok, shown };
+}
 // A placement that is not an option must be refused, not priced.
 const refused = (price: () => unknown) => { try { price(); return false; } catch { return true; } };
 // The worst gap, over every WC and GL line-year, between what was ceded and the
@@ -204,16 +232,8 @@ const multsOf = (line: 'WC' | 'GL') => REINSURANCE_TOWER[line].map((_l, i) => 1 
   '3. every line\'s tower is cut at $1M, $2M, $10M, $20M, $30M and $40M (top band $10M xs $30M)', LINES.map(l => `${l} ${cutAt(l).map(x => x / 1e6).join('/')}`).join('; '));
   // The top layer charged when placed — through the real options that place it.
   const top = (l: CoverageLine) => REINSURANCE_TOWER[l as 'WC'].length - 1;
-  const shown: string[] = [];
-  let topOk = true;
-  for (const l of LINES) for (const id of ['$39M xs $1M', '$38M xs $2M']) for (const y of [REF_YEAR, 5]) {
-    const placed = placementFor(l, id);
-    const premium = occurrenceProgramCost(l as 'WC', placed, book(290), y).premium;
-    const price = tCoverPrice(l, id, shockCostFactor(l, y, 290, undefined));
-    topOk &&= placed[top(l)] && chargedAsOption(premium, price);
-    if (l === 'GL' && id === '$38M xs $2M') shown.push(`y${y} ${fmt$(premium)} vs ${fmt$(price)}`);
-  }
-  check(topOk, '3. the top layer is charged when placed: 39 xs 1 and 38 xs 2, every line, years 1 and 5, at exactly the option\'s price',
+  const { ok: topOk, shown } = topLayerCharged();
+  check(topOk, '3. the top layer is charged when placed: 39 xs 1 and 38 xs 2, every line, at exactly 2 x the option\'s price in years 1 and 5, and the option\'s price in pre-game year 0',
     `GL $38M xs $2M ${shown.join(', ')}`);
   const loneTop = REINSURANCE_TOWER.GL.map((_l, i) => i === top('GL'));
   check(refused(() => occurrenceProgramCost('GL', loneTop, book(290), REF_YEAR)),
@@ -338,6 +358,13 @@ check(!unplacedLayerSilent(byLayerOf(lows, 'GL'), 0) || !unplacedLayerSilent(byL
     'control: $38M xs $2M charged the sum of its layers (prices adding across layers) is caught by 3',
     `${fmt$(additive)} vs ${fmt$(tCoverPrice('GL', '$38M xs $2M', g))}`);
 }
+{
+  const was = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1;
+  let r: ReturnType<typeof topLayerCharged>;
+  try { r = topLayerCharged(); } finally { COVER_PRICE_FACTOR.factor = was; }
+  check(!r.ok, 'control: COVER_PRICE_FACTOR at 1 at runtime (the option price charged in played years) is caught by 3', r.shown.join(', '));
+}
+check(!topLayerCharged(() => CP_FACTOR).ok, 'control: the factor applied in the pre-game too (the gate\'s expectation doubles year 0) is caught by 3');
 check(!refused(() => 0),
   'control: a placement that is not an option PRICED instead of refused is caught by 3');
 check(worstCededGap(lows, 2e6, 38e6) >= 1, 'control: the $9M xs $1M games, read as if $38M xs $2M were bought, are caught by 6',

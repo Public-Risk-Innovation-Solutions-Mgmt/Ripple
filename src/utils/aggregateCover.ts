@@ -160,7 +160,7 @@ export interface AggregateCoverQuote {
   limit: number;
   /** At the shock assumptions' odds, in dollars. */
   expectedRecovery: number;
-  /** expectedRecovery x the option's load. */
+  /** expectedRecovery x the option's load x the cover price factor in a played year (COVER_PRICE_FACTOR). */
   price: number;
 }
 

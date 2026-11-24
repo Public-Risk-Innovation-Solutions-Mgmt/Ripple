@@ -19,7 +19,7 @@
 // ============================================================================
 import { aggregateCoverOption } from './aggregateCover';
 import { pricingLineState } from './worlds';
-import { PRICING_DATA_LAG_YEARS, RESERVE_INFLATION_PRICED_YEARS } from '../data/pricingParameters';
+import { PRICING_DATA_LAG_YEARS, RESERVE_INFLATION_PRICED_YEARS, coverPriceFactorFor } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
 import { effectiveRiskControlIncentivePct, expenseDivisor, quoteNewRateStack } from './linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
@@ -113,7 +113,10 @@ export interface ModelRate {
   aggregateCover: {
     name: string; expectedNormal: number; averageSurge: number; expectedAttritional: number;
     attachmentShare: number; limitShare: number; attachment: number; limit: number;
-    expectedRecovery: number; load: number; price: number; pricePer100: number;
+    expectedRecovery: number; load: number;
+    /** The cover price factor in the year (COVER_PRICE_FACTOR; 1 in the prior board's history): price = expectedRecovery x load x this. */
+    priceFactor: number;
+    price: number; pricePer100: number;
   } | null;
   ratePer100: number;
   /** $M — the exposure charged (the year's book; a played year's mean over worlds). */
@@ -282,7 +285,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
       return {
         name: o.name, expectedNormal: c.expectedNormal, averageSurge: c.averageSurge, expectedAttritional: c.expectedAttritional,
         attachmentShare: o.attachment, limitShare: o.limit, attachment: c.attachment, limit: c.limit,
-        expectedRecovery: c.expectedRecovery, load: o.load, price: c.price,
+        expectedRecovery: c.expectedRecovery, load: o.load, priceFactor: coverPriceFactorFor(yearNumber), price: c.price,
         pricePer100: c.price / Math.max(quotedExposure * 10_000, 1),
       };
     })(quote.aggregateCover) : null,

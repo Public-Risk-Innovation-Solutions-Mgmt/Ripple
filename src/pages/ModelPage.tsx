@@ -129,7 +129,7 @@ function SectionA({ m }: { m: ModelRate }) {
               <Step label="Attachment" op={`× ${f4(c.attachmentShare)}`} value={c.attachment} testId="model-a-agg-attachment" />
               <Step label="Limit" op={`× ${f4(c.limitShare)}`} value={c.limit} testId="model-a-agg-limit" />
               <Step label="Expected recovery" op="four surge cases, normal luck" value={c.expectedRecovery} testId="model-a-agg-recovery" />
-              <Step label="Aggregate stop-loss annual premium" op={`× load ${f4(c.load)}`} value={c.price} testId="model-a-agg-price" />
+              <Step label="Aggregate stop-loss annual premium" op={c.priceFactor !== 1 ? `× load ${f4(c.load)} × cover price factor ${f4(c.priceFactor)}` : `× load ${f4(c.load)}`} value={c.price} testId="model-a-agg-price" />
               <Step label="Aggregate stop-loss per $100" op={`÷ (${f4(m.quotedExposure)} × 10,000)`} value={c.pricePer100} testId="model-a-agg-per100" />
             </>);
           })()}

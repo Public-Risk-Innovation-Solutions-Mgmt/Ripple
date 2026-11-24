@@ -46,12 +46,24 @@
 // no aggregate cover: the play defaults' 125/50 aggregate cover would sit in
 // reinsuranceCost beside the per-claim price. New control: None put back as
 // the default must fail 1.
+//
+// ⚠ RESTATED FOR wip/cover-price-double: what a team is SHOWN and CHARGED in
+// a played year is the method x COVER_PRICE_FACTOR (2.0, written out here as
+// CP_FACTOR); the prior board's years (yearNumber <= 0) stay at the method.
+// tCoverPrice — the base table, the method — is unchanged. So 1 wants
+// optionPrice(l, id, g, 1) = 2 x the method and optionPrice(l, id, g, 0) = the
+// method; 3, which holds the brief's 2027 table, reads tCoverPrice (the base)
+// and asserts optionPrice in years 0 and -1 is that table and in years 1 and 5
+// twice it; 4 wants each line charged 2 x the method at the year's growth.
+// Recoveries and T claims are unchanged. New controls: COVER_PRICE_FACTOR.factor
+// = 1 at runtime (restored after) must fail 1, 3 and 4 (4 replays its game);
+// the gate's own expectation doubling the pre-game too must fail 1 and 3.
 // ============================================================================
 
-import { COVERS_IN_EVERY_GAME, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
+import { COVERS_IN_EVERY_GAME, COVER_PRICE_FACTOR, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
-import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
+import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds, tCoverPrice } from '../../src/utils/reinsuranceOptions';
 import { resolveShockYear } from '../../src/utils/shockLosses';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -78,6 +90,13 @@ const control = (label: string, breakIt: () => () => void, section: () => string
     `${problems.length} problem(s) when broken`);
 };
 const near = (a: number, b: number, rel = 1e-9) => Math.abs(a - b) <= rel * Math.max(1, Math.abs(b));
+// wip/cover-price-double: a played year's cover costs the table x 2.0; the prior
+// board's years the table. Written out, not read from COVER_PRICE_FACTOR.
+const CP_FACTOR = 2.0;
+const PAID = { factorFor: (y: number) => (y >= 1 ? CP_FACTOR : 1) };
+/** The control's broken expectation: the factor applied in the pre-game too. */
+const doubledPreGame = () => { const o = PAID.factorFor; PAID.factorFor = () => CP_FACTOR; return () => { PAID.factorFor = o; }; };
+const factorOne = () => { const o = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1; return () => { COVER_PRICE_FACTOR.factor = o; }; };
 
 // ---- THE BRIEF ---------------------------------------------------------------
 // [id, attachment $M, limit $M], in display order.
@@ -125,12 +144,13 @@ function sectionOptions(): string[] {
     // ...priced the same: each option offered with shocks off costs the method, as with them on.
     for (const id of reinsuranceOptionIds(l, false)) {
       const c = BRIEF_COVERS.find(x => x[0] === id);
-      for (const g of [1, 1.37]) {
-        const want$ = c ? briefPrice(l, c[1], c[2], g) : 0;
-        if (!near(optionPrice(l, id, g), want$)) out.push(`${l} ${id} with shocks off at growth ${g}: $${optionPrice(l, id, g).toFixed(2)}, the method's $${want$.toFixed(2)}`);
+      // Shown in a played year (1) at 2 x the method; in the pre-game (0) at the method.
+      for (const g of [1, 1.37]) for (const y of [1, 0]) {
+        const want$ = c ? PAID.factorFor(y) * briefPrice(l, c[1], c[2], g) : 0;
+        if (!near(optionPrice(l, id, g, y), want$)) out.push(`${l} ${id} with shocks off at growth ${g}, year ${y}: $${optionPrice(l, id, g, y).toFixed(2)}, ${PAID.factorFor(y)} x the method = $${want$.toFixed(2)}`);
       }
     }
-    if (optionPrice(l, 'none', 1.7) !== 0) out.push(`${l} None costs ${optionPrice(l, 'none', 1.7)}`);
+    for (const y of [1, 0]) if (optionPrice(l, 'none', 1.7, y) !== 0) out.push(`${l} None costs ${optionPrice(l, 'none', 1.7, y)} in year ${y}`);
   }
   return out;
 }
@@ -154,13 +174,19 @@ function sectionRecovery(): string[] {
 function sectionMethod(): string[] {
   const out: string[] = [];
   for (const l of LINES) BRIEF_COVERS.forEach(([id, att, lim], k) => {
-    const p = optionPrice(l, id, 1), want = briefPrice(l, att, lim, 1);
+    // The base table (tCoverPrice): the brief's 2027 method and $K, unchanged.
+    const p = tCoverPrice(l, id, 1), want = briefPrice(l, att, lim, 1);
     if (!near(p, want)) out.push(`${l} ${id} 2027: $${p.toFixed(2)}, the method's $${want.toFixed(2)}`);
     // The brief's $K, to its rounding: within half a thousand (its halves round down).
     if (Math.abs(p / 1000 - BRIEF_2027_K[l][k]) > 0.5 + 1e-9) out.push(`${l} ${id} 2027: $${(p / 1000).toFixed(1)}K, the brief's table ${BRIEF_2027_K[l][k]}K`);
     for (const g of [1.04, 1.37, 2.2]) {
-      const pg = optionPrice(l, id, g), wg = briefPrice(l, att, lim, g);
+      const pg = tCoverPrice(l, id, g), wg = briefPrice(l, att, lim, g);
       if (!near(pg, wg)) out.push(`${l} ${id} at growth ${g}: $${pg.toFixed(2)}, the method's $${wg.toFixed(2)}`);
+    }
+    // What a team is shown: the table in the pre-game (0, -1), 2 x it in a played year (1, 5).
+    for (const y of [0, -1, 1, 5]) for (const g of [1, 1.37]) {
+      const shown = optionPrice(l, id, g, y), wy = PAID.factorFor(y) * briefPrice(l, att, lim, g);
+      if (!near(shown, wy)) out.push(`${l} ${id} year ${y} at growth ${g}: shown $${shown.toFixed(2)}, ${PAID.factorFor(y)} x the method = $${wy.toFixed(2)}`);
     }
   });
   return out;
@@ -201,8 +227,9 @@ function playGame(): GameRun {
   return { began, perYear };
 }
 /** `lag` reads the factor that many years late — the control's broken basis. */
-function sectionInGame(lag = 0): string[] {
+function sectionInGame(lag = 0, fresh = false): string[] {
   const out: string[] = [];
+  if (fresh) game = playGame();
   game ??= playGame();
   let tSeen = 0, coversSeen = 0;
   for (let y = 1; y <= YEARS; y++) {
@@ -211,7 +238,8 @@ function sectionInGame(lag = 0): string[] {
     for (const l of LINES) {
       const g = briefFactor(game.began[gy - 1], l, gy);
       const [id, att, lim] = BRIEF_COVERS[(y + 3 * LINES.indexOf(l)) % BRIEF_COVERS.length];
-      const price = briefPrice(l, att, lim, g);
+      // Charged in a played year: 2 x the method at the year's growth.
+      const price = PAID.factorFor(y) * briefPrice(l, att, lim, g);
       const table = resolveShockYear(gs.instance, 'host', y).byLine[l].arrivals.map(a => a.size);
       game.perYear[y - 1].forEach((rows, w) => {
         const r = rows.find(x => x.line === l)!;
@@ -238,7 +266,7 @@ function sectionInGame(lag = 0): string[] {
 
 // ---- run -------------------------------------------------------------------------
 console.log('t-cover-layers-check\n');
-check(sectionOptions(), '1. every line offers None and the eight layers, $19M xs $1M the default — with shocks off too, at the same prices');
+check(sectionOptions(), '1. every line offers None and the eight layers, $19M xs $1M the default — with shocks off too, at the same prices (2 x the method shown in a played year, the method in the pre-game)');
 control('None put back as GL\'s default (the board before pr/pregame-65)', () => {
   const d = REINSURANCE_DEFAULT_OPTION as Record<string, string>; const o = d.GL; d.GL = 'none'; return () => { d.GL = o; };
 }, sectionOptions);
@@ -249,12 +277,16 @@ control('a layer dropped from the options', () => {
 control('COVERS_IN_EVERY_GAME switched off (None alone with shocks off)', () => {
   COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; };
 }, sectionOptions);
+control('COVER_PRICE_FACTOR at 1 (the table shown in played years)', factorOne, sectionOptions);
+control('the factor applied in the pre-game too (the gate\'s expectation doubles year 0)', doubledPreGame, sectionOptions);
 check(sectionRecovery(), '2. each option cedes exactly min(max(claim − attachment, 0), limit), every line, claims $0.5M to $120M');
 control('the $20M–$30M layer moved to attach at $25M', () => {
   const L = REINSURANCE_TOWER.WC[3]; const o = { a: L.attachment, l: L.limit }; L.attachment = 25e6; L.limit = 5e6;
   return () => { L.attachment = o.a; L.limit = o.l; };
 }, sectionRecovery);
-check(sectionMethod(), '3. each price is the method — 2027 to the dollar and to the brief\'s $K table, and at grown factors');
+check(sectionMethod(), '3. each price is the method — 2027 to the dollar and to the brief\'s $K table (tCoverPrice), and at grown factors; shown at the table in the pre-game, 2 x it in played years');
+control('COVER_PRICE_FACTOR at 1, on the shown prices', factorOne, sectionMethod);
+control('the factor applied in the pre-game too, on the shown prices', doubledPreGame, sectionMethod);
 control('the High frequency at 2.34%, not 2.25%', () => {
   const f = T_COVER_FREQUENCY as Record<string, number>; const of = f.High; f.High = 0.0234;
   return () => { f.High = of; };
@@ -263,9 +295,11 @@ control('a T range\'s midpoint moved (Mid on WC $3M–$7M)', () => {
   const r = SHOCK_T_CLAIM_RANGE.WC as Record<string, readonly number[]>; const o = r.Mid; r.Mid = [3e6, 7e6];
   return () => { r.Mid = o; };
 }, sectionMethod);
-check(sectionInGame(), `4. in a game, every year to ${YEARS}: each line charged the method at the year's growth, its T claims the table x the same growth, recovered the layer on each`);
+check(sectionInGame(), `4. in a game, every year to ${YEARS}: each line charged 2 x the method at the year's growth, its T claims the table x the same growth, recovered the layer on each`);
 control('the price read at the year before\'s growth', () => () => {}, () => sectionInGame(1));
 control('the price read at no growth (the 2027 table every year)', () => () => {}, () => sectionInGame(YEARS));
+// The game replayed with the factor at 1 (the table charged in played years).
+control('COVER_PRICE_FACTOR at 1, the game replayed', factorOne, () => sectionInGame(0, true));
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);
