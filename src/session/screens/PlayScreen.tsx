@@ -310,7 +310,8 @@ export default function PlayScreen({ code, role }: Props) {
   // toggle — either one moving counts, same as the funding panel's own
   // "changed from Expected" read), and Pool's investment allocation, each
   // compared against carry-forward — PLUS "clicked Next past this tab"
-  // (reviewedViaNext), which is not a data comparison at all. More signals
+  // (reviewedViaNext), which is not a data comparison at all; for Pool, also
+  // leaving it for a line (handleSelectLineView). More signals
   // can OR in later; this is deliberately a first slice, not the finished
   // rule. `undefined` while there is no baseline yet (still loading) —
   // GameShell renders nothing in that case rather than a misleading "0 of N".
@@ -334,6 +335,18 @@ export default function PlayScreen({ code, role }: Props) {
   /** TabNav's onNext — "I reviewed this tab," independent of whether its data changed. */
   function handleLineReviewed(line: LineView) {
     reviewedViaNext.current.add(line);
+  }
+
+  /**
+   * The sub-menu's line selection. LEAVING POOL FOR A LINE COUNTS POOL AS
+   * REVIEWED, exactly as Next past it does: keeping the investment mix is a
+   * valid choice, so moving on from Pool marks it done whether or not the mix
+   * changed. Lines are counted as before (selecting one marks nothing).
+   * Display only — the badge; decisions and the lock are untouched.
+   */
+  function handleSelectLineView(next: LineView) {
+    if (lineView === 'pool' && next !== 'pool') reviewedViaNext.current.add('pool');
+    setLineView(next);
   }
 
   // ---- auto-save the current year's draft (Mike's guide, Step 5) ----------
@@ -754,7 +767,7 @@ export default function PlayScreen({ code, role }: Props) {
         startingYear: room.startingYear, currentYear: room.currentYear, yearCount: room.yearCount, ownTeam: you.teamName,
       } : undefined}
       lineView={lineView}
-      onSelectLineView={setLineView}
+      onSelectLineView={handleSelectLineView}
       // A viewer passes no advance handler at all, so no button renders.
       onAdvanceYear={isViewer ? undefined : () => { void submit(); }}
       canAdvance={!locked && !submitting && !complete && !processing}
