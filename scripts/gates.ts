@@ -859,7 +859,7 @@ const DORMANT_KNOWN_RED: Record<string, { code: number; why: string }> = {
       + 'rate, and default play has moved. ⚠ NOT RE-SOLVED HERE ON PURPOSE. The loss engine changes the '
       + 'loss side of every one of these readings, so solving the boundaries against today\'s play means '
       + 'solving them twice. DEFERRED: awaiting recalibration after the loss engine, with SOLVE=1. '
-      + '⚠ RE-MEASURED ON aws cb0ac7e (pr/member-satisfaction-check-fix): it read 10 reds, two of them a TEST '
+      + '⚠ RE-MEASURED ON aws cb0ac7e AND f817793, IDENTICAL (pr/member-satisfaction-check-fix): it read 10 reds, two of them a TEST '
       + 'DEFECT, now fixed — section 6\'s one-stop arm was the literal 0.65, "one stop from where the game ships '
       + '(Expected)", and the game has shipped at 65% since pr/pregame-65, so the arm played the baseline and read '
       + 'a 0.000 footprint (the anchor limb and enrolment luck failed on a decision never taken). Derived from '
