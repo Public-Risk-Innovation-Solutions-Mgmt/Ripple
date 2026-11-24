@@ -9,13 +9,15 @@
 // loses its book), two years. On a team's Annual Statement, for the Pool and
 // each line: "General Admin Expense — Fixed", "— Variable" and "Total General
 // Admin Expense" in place of the single line, then its "% of Premium"; Fixed +
-// Variable = Total in every year column (to the thousand shown); Fixed 0 in the
-// history years and above 0 in each played year; the note "Fixed admin doesn't
+// Variable = Total in every year column (to the thousand shown); Fixed above 0
+// in every year, the history years' stepped back 3% a year from year 1's
+// (display only: 2026 = year 1's ÷ 1.03, …); the note "Fixed admin doesn't
 // shrink when your book does." under the table. The Excel download carries the
 // same rows and note on every sheet, Fixed + Variable = Total in every cell; the
 // PDF carries them. An older Current room's team (made in the browser's own
 // room store, its version taken off — no new room is Current) keeps the single General Admin
-// Expense line and no note. (The numbers themselves — Fixed recomputed, nothing
+// Expense line and no note. A New room with ONE team (no rivals) splits its
+// admin alike, Fixed above 0 in its played year. (The numbers themselves — Fixed recomputed, nothing
 // else moved — are scripts/diagnostics/admin-split-check.ts.)
 // ============================================================================
 const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
@@ -69,13 +71,13 @@ async function setSlider(page, label, steps) {
 }
 const posted = (page, y) => page.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 240000 });
 
-async function createRoom(host, API, name, version) {
+async function createRoom(host, API, name, version, teams = TEAMS.length) {
   await host.goto(`/host?api=${encodeURIComponent(API)}`);
   await host.waitForSelector('[data-testid="create-room"]', { timeout: 30000 });
   await host.fill('[data-testid="event-name"]', name);
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '3');
-  await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
+  await host.fill('[data-testid="expected-teams"]', String(teams));
   await host.uncheck('[data-testid="line-Property"]');
   // Every room created plays the New market (pr/market-new-only): there is no version to choose.
   void version;
@@ -164,8 +166,9 @@ async function operatingRows(page) {
       const off = years.map((x, k) => (x === null || v[k + 1] === null || t[k + 1] === null ? 99 : x + v[k + 1] - t[k + 1])).filter(d => Math.abs(d) > 1);
       ok(years.length === 5 && off.length === 0, `${name}, ${view}: Fixed + Variable = Total in all five year columns (to the thousand shown)`,
         `Fixed ${f.join('/')} · Variable ${v.join('/')} · Total ${t.join('/')}`);
-      ok(years.slice(0, 3).every(x => x === 0) && years.slice(3).every(x => x > 0),
-        `${name}, ${view}: Fixed 0 in the three history years, above 0 in years 1 and 2`, years.join(' / '));
+      // To the thousand shown: each year's Fixed is 1.03 × the year before's, history years included.
+      const stepped = years.every((x, k) => x > 0 && (k === 0 || Math.abs(years[k - 1] * 1.03 - x) <= 1.5));
+      ok(stepped, `${name}, ${view}: Fixed above 0 in all five years, each 1.03 × the year before — the three history years stepped back from year 1`, years.join(' / '));
       const note = await p.locator('[data-testid="statement-operating"] [data-testid="fixed-admin-note"]').allInnerTexts();
       ok(note.length === 1 && note[0].trim() === NOTE, `${name}, ${view}: the note under the table`, note.join(' | '));
       if (name === 'Elm' && view === 'Pool') await shot(p.locator('[data-testid="statement-operating"]'), '01-elm-pool-net-income.png');
@@ -230,6 +233,30 @@ async function operatingRows(page) {
       && await cur.locator('[data-testid="fixed-admin-note"]').count() === 0,
       `a Current room's team, ${view}: the single General Admin Expense line and no note`);
   }
+
+  // ---- a New room with ONE team: no rivals, the fixed admin still shows -----------------
+  const host3 = await ctx.newPage();
+  const code3 = await createRoom(host3, API, 'Admin Split Solo', 'new', 1);
+  const solo = await join(ctx, API, code3, 'Alder');
+  await lockAndConfirm(solo);
+  await solo.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
+  await host3.click('[data-testid="host-tab-setup"]');
+  await host3.waitForSelector('[data-testid="locked-Alder"]', { timeout: 30000 });
+  await host3.click('[data-testid="advance"]');
+  await host3.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '2', null, { timeout: 30000 });
+  await posted(solo, 1);
+  for (const view of VIEWS) {
+    await toStatement(solo, view);
+    const rows = await operatingRows(solo);
+    const by = k => rows.find(r => r.key === k)?.cells.map(num) ?? [];
+    const [f, v, t] = [by('adminFixed'), by('adminVariable'), by('admin')];
+    const years = f.slice(1).filter(x => x !== null);
+    const played = years[years.length - 1];
+    const sums = f.slice(1).every((x, k) => x === null || Math.abs(x + v[k + 1] - t[k + 1]) <= 1);
+    ok(years.length >= 2 && played > 0 && years.every(x => x > 0) && sums,
+      `a one-team New room, ${view}: Fixed above 0 in its played year and the history years, Fixed + Variable = Total`, `Fixed ${f.join('/')}`);
+  }
+  if (SHOTS) { await toStatement(solo, 'Pool'); await shot(solo.locator('[data-testid="statement-operating"]'), '04-solo-pool-net-income.png'); }
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors', errs[0] ?? '');

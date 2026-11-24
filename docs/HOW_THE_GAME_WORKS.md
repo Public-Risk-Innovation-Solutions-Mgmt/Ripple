@@ -36,8 +36,14 @@ Expense — Variable** and **Total General Admin Expense** (today's figure, its 
 the Pool and each line, in every year column, Prior and All Years included. Fixed is the fixed admin as booked
 (below, under the New market): 25% of the line's year-1 admin dollars, growing 3% a year, in each year the line has
 a market result; the Pool's is the lines' sum. Variable is the rest of the admin booked — this year's 75% share of
-premium and the year's overrun on the whole — so Fixed + Variable is the Total exactly. History years, and any year
-a team has no market result (it never locked), are all Variable. Under the table a note reads "Fixed admin doesn't
+premium and the year's overrun on the whole — so Fixed + Variable is the Total exactly. Any played year a team has
+no market result (it never locked) is all Variable. The history years show a split too, for display only: each
+line's Fixed is its year-1 fixed admin stepped back 3% a year (2026 = year 1's ÷ 1.03, 2025 = ÷ 1.03², …), and
+Variable is the rest of that year's admin. The engine booked all history admin as a share of premium, and it still
+does: openings, rates and results don't move. Before year 1 is played there is no year-1 fixed admin to step back
+from, so history Fixed and Variable show "—". A line that never had a market result shows Fixed 0 in history too.
+A hosted New room with a single team splits the same way: the market runs with one team, so Fixed shows in its
+played years. Under the table a note reads "Fixed admin doesn't
 shrink when your book does." Every other figure, the Total and every ratio are unchanged. The Excel and PDF
 downloads show the same rows and note. Current rooms, New rooms with the market Off (no admin is fixed there),
 Single player and Test player keep the single General Admin Expense line. Fixed is worked out from the results (the
