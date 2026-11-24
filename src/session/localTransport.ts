@@ -76,7 +76,7 @@ import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
 import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../utils/gameEdits';
 import {
-  marketLevelOf, marketVersionOf, marketYearForAdvance, requestedMarketLevel, requestedMarketVersion, teamMarketByYear,
+  MARKET_NEW_SCALE_CURRENT, marketLevelOf, marketScaleOf, marketVersionOf, marketYearForAdvance, requestedMarketLevel, requestedMarketVersion, teamMarketByYear,
   validMarketLockInput,
 } from './market';
 
@@ -408,6 +408,8 @@ interface RoomRecord {
   market?: MarketLevel;
   /** Market version: only 'new' is stored; absent (Current, or a room from before the option) reads 'current'. */
   marketVersion?: 'new';
+  /** The New version's level table: only 2 is stored; absent (a room created before the rescale) reads 1. */
+  marketScale?: 2;
   /** Every year's market step, stored once by advance (StoredMarketYear). */
   marketByYear?: Record<string, StoredMarketYear>;
   createdAt: number;
@@ -606,6 +608,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     // Market competition: absent on an older room, which reads 'off' — shown as off, not omitted.
     market: marketLevelOf(room.market),
     ...(marketVersionOf(room.marketVersion) === 'new' ? { marketVersion: 'new' as const } : {}),
+    ...(marketScaleOf(room.marketScale) === 2 ? { marketScale: 2 as const } : {}),
     ...(role === 'host' && room.marketByYear ? { marketByYear: JSON.parse(JSON.stringify(room.marketByYear)) } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
@@ -895,6 +898,8 @@ export class LocalSessionTransport implements SessionTransport {
         ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
         ...(market !== 'off' ? { market } : {}),
         ...(marketVersion === 'new' ? { marketVersion } : {}),
+        // The New version's level table it was created on (pr/market-level-rescale); a room from before has none.
+        ...(marketVersion === 'new' && MARKET_NEW_SCALE_CURRENT === 2 ? { marketScale: 2 as const } : {}),
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
@@ -1598,6 +1603,7 @@ export class LocalSessionTransport implements SessionTransport {
       if (level !== 'off') {
         const stored = marketYearForAdvance({
           code: room.code, seed: room.seed, level, version: marketVersionOf(room.marketVersion),
+          scale: marketScaleOf(room.marketScale),
           lines: room.lines ?? LINE_ORDER, year: room.currentYear,
           roster: room.teams.filter(t => t.joined).map(t => ({
             name: t.name, teamNumber: t.teamNumber ?? 0, latest: latestMarketInput(t, room.currentYear),

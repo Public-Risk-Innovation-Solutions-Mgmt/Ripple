@@ -151,7 +151,7 @@ import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
 import {
-  marketLevelOf, marketVersionOf, marketYearForAdvance, requestedMarketLevel, requestedMarketVersion, validMarketLockInput,
+  MARKET_NEW_SCALE_CURRENT, marketLevelOf, marketScaleOf, marketVersionOf, marketYearForAdvance, requestedMarketLevel, requestedMarketVersion, validMarketLockInput,
 } from '../market';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
@@ -658,6 +658,8 @@ export class DynamoSessionTransport implements SessionTransport {
           ...(startByYear ? { developmentLevelsByYear: startByYear, editHistory: startingEdits(startByYear, 'Host', now) } : {}),
           ...(market !== 'off' ? { market } : {}),
           ...(marketVersion === 'new' ? { marketVersion } : {}),
+          // The New version's level table it was created on (pr/market-level-rescale); a room from before has none.
+          ...(marketVersion === 'new' && MARKET_NEW_SCALE_CURRENT === 2 ? { marketScale: 2 as const } : {}),
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
@@ -2031,6 +2033,7 @@ export class DynamoSessionTransport implements SessionTransport {
     const { byTeam } = rosterNumbers(header);
     const stored = marketYearForAdvance({
       code: header.code, seed: header.seed, level, version: marketVersionOf(header.marketVersion),
+      scale: marketScaleOf(header.marketScale),
       lines: header.lines ?? LINE_ORDER, year: y,
       roster: wanted.map(w => ({
         name: w.e.name, teamNumber: byTeam.get(w.teamId) ?? w.e.teamNumber ?? 0,

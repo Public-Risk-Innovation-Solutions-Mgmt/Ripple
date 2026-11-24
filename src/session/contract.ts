@@ -1065,6 +1065,14 @@ export interface RoomView {
    */
   marketVersion?: 'new';
   /**
+   * THE NEW VERSION'S LEVEL TABLE (pr/market-level-rescale): 2 on a New-version
+   * room created from the rescale on (Low / Medium / High with the rescaled
+   * meanings, MARKET_NEW). ABSENT on every room created before it, which keeps
+   * playing the table it started with (MARKET_NEW_SCALE_1), today's High
+   * included. Stamped by the server at creation; never sent by a client.
+   */
+  marketScale?: 2;
+  /**
    * EVERY YEAR'S STORED MARKET STEP — HOST ONLY (the Teams columns, the Charts
    * line, the stale-rate flags): year (a string) -> the inputs used and every
    * team's result. A player or viewer reads only its own team's, on
@@ -1218,6 +1226,8 @@ export interface StoredMarketYear {
   level: Exclude<MarketLevel, 'off'>;
   /** The version the step ran on: 'new' in a New-version room; absent (Current, or a room from before) reads 'current'. */
   version?: 'new';
+  /** The New version's level table the step ran on: 2 (rescaled); absent reads 1 (a room created before the rescale). */
+  scale?: 2;
   /** Per team name. A team that never locked any year is absent here and in `result`, and named in `missing`. */
   inputs: Record<string, StoredMarketTeamInput>;
   missing: string[];

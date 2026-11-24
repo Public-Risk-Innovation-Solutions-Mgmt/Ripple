@@ -1354,7 +1354,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // shown and its raw text; with the key normalised all 48 are identical to the
 // control. The statement workbooks are byte-identical. The fixed admin at 25%
 // is New-version market rooms only; no single-player figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v143.json');
+// v144: THE SAVE KEY v59 -> v61 (pr/market-level-rescale; v60 is left for the
+// adverse-development ranges branch), on aws a7f4131, which reproduces v143 here
+// 48 of 48. Text-diffed (GUARD_TEXT_DIR both sides): the 24 Results workbooks
+// move and nothing else — 48 rows, each file's Version row
+// ("riskpool_gamestate_v59" -> "riskpool_gamestate_v61") in its shown and its
+// raw text; with the key normalised all 48 are identical to the control. The
+// statement workbooks are byte-identical. The rescaled levels are New-version
+// market rooms only; no single-player figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v144.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

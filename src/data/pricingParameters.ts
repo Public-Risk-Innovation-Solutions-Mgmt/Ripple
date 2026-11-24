@@ -3032,10 +3032,64 @@ export interface MarketNewLevel {
  * 13.9% (High) of the room's members over five years against 4.4% today; the
  * team priced at 90% funding lost 66–73% of its book.
  */
-export const MARKET_NEW: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewLevel>> = {
+export const MARKET_NEW_SCALE_1: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewLevel>> = {
   low: { k: { WC: 1.200, GL: 1.236, Property: 1.234 }, bucketPower: 1.25, fullSkewMean: 0.75, leaverCap: 0.20, bookRiskFade: 0.35 },
   medium: { k: { WC: 2.100, GL: 2.163, Property: 2.160 }, bucketPower: 1.75, fullSkewMean: 0.65, leaverCap: 0.25, bookRiskFade: 0.25 },
   high: { k: { WC: 3.600, GL: 3.708, Property: 3.702 }, bucketPower: 2.25, fullSkewMean: 0.55, leaverCap: 0.30, bookRiskFade: 0.20 },
+};
+
+/**
+ * THE LEVELS RESCALED (pr/market-level-rescale) — the New version's table for
+ * rooms created from this change on (scale 2). The table above (scale 1) is
+ * kept exactly as it was: a New-version room created before the rescale stores
+ * no scale and keeps playing it, today's High included.
+ *
+ *   Low     unchanged (scale 1's Low).
+ *   Medium  NEW, halfway between Low and scale 1's Medium on every setting:
+ *           k × 2.75 of the original Medium base (WC 0.600 / GL 0.618 /
+ *           Property 0.617 → 1.650 / 1.700 / 1.697), the average leaver at a
+ *           10%+ gap 0.70 (bucket power 1.5), cap 22.5%, fade 30%.
+ *   High    scale 1's Medium (k × 3.5; 0.65; 25%; 25%).
+ *   Scale 1's High (k × 6; 0.55; 30%; 20%) is dropped for new rooms.
+ *
+ * ⚠ WHY: three levels whose best price steps up from High to Low. Measured by
+ * the spiral-test chat (November 2026; scratch switches on aws 7af0fc6, nothing
+ * committed; fixed admin 25% throughout). The rate curve — six-team rooms, two
+ * test seats at the offset against four at 0%, five years, three lines, events
+ * off; the seats' year-5 surplus ÷ opening — peaks at:
+ *   Low     +15% on Staff Retreat (82670), Test Seed (53781), scenario 20
+ *           (76975) and scenario 16; +10% on scenario 1. +15% minus 0%:
+ *           +0.74 / +0.98 / +0.89 / +0.68 / +0.74.
+ *   Medium  +10% on all five. +15% minus 0%: +0.37 / +0.55 / +0.44 / +0.37 /
+ *           +0.35; +10% beats +5% by 0.12–0.18.
+ *   High    +5% on four; scenario 16 ties +5% and +10%. +15% minus 0%:
+ *           −0.03 / +0.08 / −0.03 / +0.04 / −0.05.
+ * −15% is the same at every level (−0.22 to +0.37 by seed): the level changes
+ * only the dear side. In the realistic rooms (WC only, scenario 4, no events,
+ * adverse development None / None / Low / Low / Mid, eight room codes), first
+ * place moves up the price scale as the level softens:
+ *   five teams 45 / 55 / 65 / 75 / 85%, 2031 surplus $M (first):
+ *     High    14.4 / 22.7 / 27.9 / 27.8 / 22.0 (65% 3, 75% 5)
+ *     Medium  14.3 / 22.2 / 28.1 / 30.6 / 27.8 (75% 8)
+ *     Low     13.9 / 21.7 / 28.2 / 32.8 / 34.0 (85% 7, 75% 1)
+ *   the 85% team kept 39% / 48% / 62% of its book (combined 141.8% / 128.5% /
+ *   116.2%);
+ *   a realistic 15-team room (every team keeping both covers): first place
+ *     High 70–80% (80% 4, 75% 3, 70% 1); Medium 80% 5, 85% 3; Low 85% 8.
+ */
+export const MARKET_NEW: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewLevel>> = {
+  low: MARKET_NEW_SCALE_1.low,
+  medium: { k: { WC: 1.650, GL: 1.700, Property: 1.697 }, bucketPower: 1.5, fullSkewMean: 0.70, leaverCap: 0.225, bookRiskFade: 0.30 },
+  high: MARKET_NEW_SCALE_1.medium,
+};
+
+/** Which table a New-version room plays: 1 (absent — every room created before the rescale) or 2 (MARKET_NEW). */
+export type MarketNewScale = 1 | 2;
+/** The scale a New-version room is stamped with when it is created. */
+export const MARKET_NEW_SCALE_CURRENT: MarketNewScale = 2;
+export const MARKET_NEW_BY_SCALE: Readonly<Record<MarketNewScale, Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewLevel>>>> = {
+  1: MARKET_NEW_SCALE_1,
+  2: MARKET_NEW,
 };
 
 /**
@@ -3512,12 +3566,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['New version: willing leavers (k)', {
         value: `Low ${perLine(MARKET_NEW.low.k, 3)} · Medium ${perLine(MARKET_NEW.medium.k, 3)} · High ${perLine(MARKET_NEW.high.k, 3)}`,
         unit: 'k in k × (pair gap − 1%)², per pair',
-        what: 'As the current market\'s pull, stronger: today\'s Medium k × 2 (Low), × 3.5 (Medium), × 6 (High).',
+        what: 'As the current market\'s pull, stronger: the current market\'s Medium k × 2 (Low), × 2.75 (Medium), × 3.5 '
+          + '(High). Rooms created before the levels were rescaled keep × 2 / × 3.5 / × 6 (see "New version: levels").',
         basis: 'CHOSEN',
         note: 'Measured (lever-test chat): with half the admin fixed, Medium needed k × 3.5 before raising rates stopped '
           + 'paying (seed 82670, events off: the test seats\' year-5 surplus ÷ opening 0.70 at −15%, 1.73 at 0%, 2.15 at '
           + '+5%, 2.04 at +10%, 1.54 at +15%); × 6 met every target on every seed at High (1.72 / 2.04 / 1.22 / 0.84 at '
-          + '−15 / 0 / +15 / +25%); × 2 leaves Low gentle (peak at +10%).',
+          + '−15 / 0 / +15 / +25%); × 2 leaves Low gentle (peak at +10%). Since the rescale, × 3.5 is High and Medium is '
+          + 'halfway between Low and High (see "New version: levels").',
       }],
       ['New version: leaver quality', {
         value: `average leaver at a ${MARKET_FULL_SKEW_GAP * 100}%+ gap: Low ${MARKET_NEW.low.fullSkewMean.toFixed(2)} · `
@@ -3529,7 +3585,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'supply\'s draw.',
         basis: 'CHOSEN',
         note: 'Measured (lever-test chat): the 50%-fixed version first needed m = 2.25 at Medium; softened to 1.75 '
-          + '(average leaver 0.65) the targets still held within +15% on all seeds.',
+          + '(average leaver 0.65) the targets still held within +15% on all seeds. Since the rescale that is High; '
+          + 'Medium takes 0.70 (m = 1.5), halfway to Low\'s 0.75.',
       }],
       ['New version: leaver cap', {
         value: `Low ${MARKET_NEW.low.leaverCap * 100}% · Medium ${MARKET_NEW.medium.leaverCap * 100}% · High ${MARKET_NEW.high.leaverCap * 100}%`,
@@ -3539,14 +3596,32 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Today\'s 15% saturates. Medium was kept at 25% rather than 30%, accepting the far-end miss on scenarios 16 '
           + 'and 1 with events on (year-5 surplus ÷ opening at +25%: 1.01 against 0.88; 0.96 against 0.77). In a '
           + 'sixteen-team room the New version moved 10.6% (Medium) / 13.9% (High) of the members over five years, '
-          + 'against 4.4% today.',
+          + 'against 4.4% today. Since the rescale 25% is High\'s cap; Medium takes 22.5%, halfway to Low\'s 20%.',
       }],
       ['New version: book risk fade', {
         value: `Low ${MARKET_NEW.low.bookRiskFade * 100}% · Medium ${MARKET_NEW.medium.bookRiskFade * 100}% · High ${MARKET_NEW.high.bookRiskFade * 100}% towards 1.00 a year`,
         unit: 'before the year\'s moves',
         what: 'A book that lost its best risks keeps the cost longer than in the current market.',
         basis: 'CHOSEN',
-        note: 'Today\'s 50% clears a lost-quality book in 2–3 years and so erased the selection\'s cost (lever-test chat).',
+        note: 'Today\'s 50% clears a lost-quality book in 2–3 years and so erased the selection\'s cost (lever-test chat). '
+          + 'Since the rescale High takes 25% (the former Medium) and Medium 30%, halfway to Low\'s 35%.',
+      }],
+      ['New version: levels', {
+        value: `rooms created from the rescale on: Low as before · Medium new (k × 2.75, leaver `
+          + `${MARKET_NEW.medium.fullSkewMean.toFixed(2)}, cap ${MARKET_NEW.medium.leaverCap * 100}%, fade ${MARKET_NEW.medium.bookRiskFade * 100}%) · `
+          + `High = the former Medium. Rooms created before keep Low / Medium / High as they were (High k × 6, leaver `
+          + `${MARKET_NEW_SCALE_1.high.fullSkewMean.toFixed(2)}, cap ${MARKET_NEW_SCALE_1.high.leaverCap * 100}%, fade ${MARKET_NEW_SCALE_1.high.bookRiskFade * 100}%)`,
+        unit: 'New-version rooms; stamped on the room at creation (RoomView.marketScale)',
+        what: 'The host still picks Off / Low / Medium / High. Each level\'s best price steps up from High to Low; the '
+          + 'former High is dropped for new rooms. A room keeps the table it was created with, so a game in progress '
+          + 'plays on unchanged.',
+        basis: 'CHOSEN',
+        note: 'Measured (spiral-test chat; fixed admin 25%; six-team rate curve, events off, on Staff Retreat, Test Seed, '
+          + 'scenarios 20, 16 and 1): the best price is Low +15% (+10% on scenario 1), Medium +10% on all five, High +5% '
+          + '(scenario 16 ties +5% and +10%); −15% is the same at every level. Realistic five-team room (45–85%, WC only, '
+          + 'scenario 4, no events, eight room codes): first place High 65% 3 / 75% 5, Medium 75% 8, Low 85% 7 / 75% 1; '
+          + 'the 85% team kept 39% / 48% / 62% of its book. Realistic 15-team room: High 70–80%, Medium 80% 5 / 85% 3, '
+          + 'Low 85% 8.',
       }],
       ['New version: intake quality', {
         value: `${MARKET_NEW_INTAKE_QUALITY.toFixed(2)} (book-risk effect; 1.00 is average)`,
