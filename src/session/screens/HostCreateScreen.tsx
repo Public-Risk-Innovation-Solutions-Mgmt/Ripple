@@ -19,7 +19,7 @@
 // many to expect — and it BINDS NOTHING (see the transport).
 // ============================================================================
 
-import { SCENARIO_OPTIONS, randomScenarioId } from '../../utils/scenarios';
+import { SCENARIO_OPTIONS, randomScenarioId, scenarioName } from '../../utils/scenarios';
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
@@ -276,14 +276,15 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
 
           <div className="grid grid-cols-2 gap-4">
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Seed</span>
+              {/* The scenario, by number or name — never called the seed on screen (pr/named-scenarios). */}
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Scenario</span>
               <select
                 data-testid="seed"
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
                 value={seed}
                 onChange={e => setSeed(e.target.value)}
               >
-                {SEED_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                {SEED_OPTIONS.map(n => <option key={n} value={n}>{scenarioName(n)}</option>)}
               </select>
             </label>
             <label className="block">

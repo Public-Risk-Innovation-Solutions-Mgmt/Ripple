@@ -1,15 +1,19 @@
 // ============================================================================
-// THE TWENTY SCENARIOS — THE GATE (stable-scenarios commit 9).
+// THE TWENTY SCENARIOS AND THE NAMED ONES — THE GATE (stable-scenarios commit 9;
+// the named scenarios and slot 20's new seed, pr/named-scenarios).
 //
 //   npx tsx scripts/diagnostics/scenarios-check.ts
 //
-//   1. SETUP OFFERS EXACTLY 1 TO 20: solo setup and the host's room offer the
-//      scenarios "1" to "20" and nothing else — a menu, no free seed field —
-//      and their random option picks only among them (all twenty, over draws).
-//   2. THE HANDLER REFUSES ANY OTHER SEED: createRoom accepts "1" and "20" and
-//      refuses "0", "21", "07", "7 ", "" and an eight-character code — on the
-//      local transport here, and the server's createRoom runs the same test
-//      (the contract harness drives it on DynamoDB and the built zip).
+//   1. SETUP OFFERS 1 TO 20 AND THE NAMED SCENARIOS: solo setup and the host's
+//      room offer "1" to "20" and the named "21" Staff Retreat and "22" Test
+//      Seed and nothing else — a menu, no free seed field — each named one
+//      LABELLED BY ITS NAME in both menus, never as a number; and their random
+//      option picks only among the twenty (all twenty over draws, never a named one).
+//   2. THE HANDLER REFUSES ANY OTHER SEED: createRoom accepts "1", "20", "21"
+//      and "22" and refuses "0", "23", "07", "7 ", "", an eight-character code,
+//      a name ("Staff Retreat") and a raw seed ("82670") — on the local transport
+//      here, and the server's createRoom runs the same test (the contract
+//      harness drives it on DynamoDB and the built zip).
 //   3. THE SCENARIO IS THE ONLY SEED: a solo game and a hosted room on the same
 //      number build the same instance — scenario, its fixed seed and opening
 //      alike (restated for the fixed-seed scenarios: the room is built as
@@ -52,8 +56,16 @@
 //      set, in a solo game's and a hosted room's year-1 decisions, and in a
 //      session team's decisions for a year it never locked.
 //
-// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, a
-// handler accepting "21", a hosted room built from a hashed code, a room built
+//   9. THE NAMED SCENARIOS: Staff Retreat plays seed 82670 and Test Seed 53781,
+//      solo and hosted alike, each on its own fixed seed; Test Seed opens to
+//      within 5e-5 of scenario 20's opening before slot 20 was re-picked (and
+//      scenario-opening-drift-check holds it to the bit); slot 20 plays a new
+//      seed (76975); neither is a designed slot.
+// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, the
+// named scenarios offered as numbers, a random pick that can draw a named one,
+// a handler accepting "23", refusing "21" or accepting a raw seed, Staff
+// Retreat on another seed, slot 20 still on 53781, Test Seed's opening taken
+// from the new slot 20, a hosted room built from a hashed code, a room built
 // on the old mapping (the number's own hash), the ratio order reversed, one
 // table for every line, an opening forced onto the target, a pre-game at a 1%
 // margin (and at Expected, a pre-game at 70%, one without the per-claim
@@ -76,7 +88,7 @@ import {
   PRE_GAME_INVESTMENT_RETURN, PRE_GAME_MARKET_DRAWS, PRIOR_BOARD, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_SEEDS, SCENARIOS_THIN_TO_RICH, SOLO_SHOCKS, STARTING_CAPITAL,
   SCENARIO_OPENING_BARS,
 } from '../../src/data/pricingParameters';
-import { SCENARIO_OPTIONS, randomScenarioId } from '../../src/utils/scenarios';
+import { SCENARIO_OPTIONS, gameIdentity, randomScenarioId, scenarioName, scenarioOptionLabel } from '../../src/utils/scenarios';
 import { ROOM_SEEDS, newSessionToken } from '../../src/session/contract';
 import { LocalSessionTransport } from '../../src/session/localTransport';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -101,19 +113,30 @@ const check = (ok: boolean, label: string, detail = '') => {
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 const TWENTY = Array.from({ length: 20 }, (_, i) => String(i + 1));
+/** The named scenarios' ids, and their names and seeds as briefed — written out here, not read from NAMED_SCENARIOS. */
+const NAMED = ['21', '22'];
+const BRIEFED_NAMED: Record<string, { name: string; seed: number }> = { '21': { name: 'Staff Retreat', seed: 82670 }, '22': { name: 'Test Seed', seed: 53781 } };
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 // ---------------------------------------------------------------- 1
-function gradeSetup(options: readonly string[], draws: string[], setupSource: string, hostSource: string, tag: string) {
+function gradeSetup(options: readonly string[], draws: string[], setupSource: string, hostSource: string, tag: string,
+  labelOf: (id: string) => string = scenarioOptionLabel, hostLabelOf: (id: string) => string = scenarioName) {
   // The solo screen renders the shared menu, offers no free text seed field,
   // and its random picks from it; the host screen reads the same menu.
   const menu = /SCENARIO_OPTIONS\.map\(/.test(setupSource) && !/type="text"[^>]*\n?[^>]*instanceId|value=\{instanceId\}[\s\S]{0,80}type="text"/.test(setupSource)
     && !/<input[^>]*value=\{instanceId\}/.test(setupSource) && /randomScenarioId\(\)/.test(setupSource)
-    && /SEED_OPTIONS = SCENARIO_OPTIONS/.test(hostSource);
+    && /SEED_OPTIONS = SCENARIO_OPTIONS/.test(hostSource)
+    // Each option labelled through the one naming function: solo "Scenario 7" or the name; the host the number or the name.
+    && /<option key=\{n\} value=\{n\}>\{scenarioOptionLabel\(n\)\}<\/option>/.test(setupSource)
+    && /<option key=\{n\} value=\{n\}>\{scenarioName\(n\)\}<\/option>/.test(hostSource);
+  // THE NAMED SCENARIOS BY NAME, NEVER AS A NUMBER, in both menus; the twenty as before.
+  const labels = NAMED.every(id => labelOf(id) === BRIEFED_NAMED[id].name && hostLabelOf(id) === BRIEFED_NAMED[id].name)
+    && TWENTY.every(id => labelOf(id) === `Scenario ${id}` && hostLabelOf(id) === id);
   const drawn = new Set(draws);
-  check(same(options, TWENTY) && same(ROOM_SEEDS, TWENTY) && menu && drawn.size === 20 && [...drawn].every(d => TWENTY.includes(d)),
-    `${tag}1. setup offers exactly the scenarios 1 to 20, as a menu, and its random option picks among them`,
-    `${options.length} options, ${drawn.size} distinct of ${draws.length} random picks`);
+  const offered = [...TWENTY, ...NAMED];
+  check(same(options, offered) && same(ROOM_SEEDS, offered) && menu && labels && drawn.size === 20 && [...drawn].every(d => TWENTY.includes(d)),
+    `${tag}1. setup offers the scenarios 1 to 20 and the named Staff Retreat and Test Seed (by name, never a number), as a menu, and its random option picks among the twenty only`,
+    `${options.length} options (${options.filter(o => NAMED.includes(o)).map(o => labelOf(o)).join(', ')}), ${drawn.size} distinct of ${draws.length} random picks`);
 }
 
 // ---------------------------------------------------------------- 2
@@ -135,12 +158,41 @@ async function createWith(seed: string): Promise<string> {
     return 'accepted';
   } catch (e) { return (e as { code?: string }).code === 'INVALID_REQUEST' ? 'refused' : `failed (${(e as Error).message})`; }
 }
-const TRIED = ['1', '20', '0', '21', '07', '7 ', '', 'MAMC6EA4'];
+const ACCEPTED = ['1', '20', '21', '22'];
+const TRIED = [...ACCEPTED, '0', '23', '07', '7 ', '', 'MAMC6EA4', 'Staff Retreat', '82670'];
 function gradeHandler(outcome: Outcome, serverSource: string, tag: string) {
-  const ok = outcome['1'] === 'accepted' && outcome['20'] === 'accepted'
-    && TRIED.filter(s => s !== '1' && s !== '20').every(s => outcome[s] === 'refused')
+  const ok = ACCEPTED.every(s => outcome[s] === 'accepted')
+    && TRIED.filter(s => !ACCEPTED.includes(s)).every(s => outcome[s] === 'refused')
     && /if \(!isRoomSeed\(req\.seed\)\)/.test(serverSource);
-  check(ok, `${tag}2. the handler refuses any seed but 1 to 20`, TRIED.map(s => `"${s}" ${outcome[s]}`).join(', '));
+  check(ok, `${tag}2. the handler accepts 1 to 20 and the named 21 and 22, and refuses any other seed (a name, a raw seed, 23)`, TRIED.map(s => `"${s}" ${outcome[s]}`).join(', '));
+}
+
+// ---------------------------------------------------------------- 9
+/**
+ * THE NAMED SCENARIOS (pr/named-scenarios): each plays its briefed seed, solo
+ * and hosted alike; Test Seed opens exactly as scenario 20 did before (its
+ * seed, 53781, measured on this build and against the table's figures); slot
+ * 20 plays a different seed now; neither is a designed slot (no target, not in
+ * the thin-to-rich order).
+ */
+interface NamedOpened { id: string; solo: GameInstance; hosted: GameInstance; soloOpen: number; hostedOpen: number; ps: Record<CoverageLine, number> }
+function gradeNamed(rows: NamedOpened[], seedOf: (id: string) => number, slot20: number, oldSlot20Ps: Record<CoverageLine, number>, tag: string) {
+  const out: string[] = [];
+  for (const r of rows) {
+    const want = BRIEFED_NAMED[r.id];
+    if (seedOf(r.id) !== want.seed) out.push(`${want.name} on seed ${seedOf(r.id)}, not ${want.seed}`);
+    if (r.solo.instanceId !== String(want.seed) || r.hosted.instanceId !== r.solo.instanceId || r.solo.seed !== r.hosted.seed
+      || r.solo.scenario !== Number(r.id) || r.hosted.scenario !== Number(r.id) || r.soloOpen !== r.hostedOpen) out.push(`${want.name}: solo and hosted differ`);
+    if (SCENARIOS_THIN_TO_RICH.includes(Number(r.id)) || LINES.some(l => SCENARIO_PREMIUM_TO_SURPLUS[l][Number(r.id)] !== undefined)) out.push(`${want.name} is a designed slot`);
+  }
+  const test = rows.find(r => r.id === '22');
+  if (test) {
+    const off = Math.max(...LINES.map(l => Math.abs(test.ps[l] - oldSlot20Ps[l])));
+    if (off > 5e-5) out.push(`Test Seed opens ${LINES.map(l => test.ps[l].toFixed(4)).join('/')}, scenario 20's was ${LINES.map(l => oldSlot20Ps[l].toFixed(4)).join('/')}`);
+  }
+  if (slot20 === BRIEFED_NAMED['22'].seed) out.push('slot 20 still plays 53781');
+  check(out.length === 0, `${tag}9. the named scenarios: Staff Retreat plays 82670 and Test Seed 53781, solo and hosted alike; Test Seed opens as scenario 20 did; slot 20 plays a new seed; neither is a designed slot`,
+    out[0] ?? rows.map(r => `${BRIEFED_NAMED[r.id].name} ${r.solo.instanceId}: ${LINES.map(l => `${l} ${r.ps[l].toFixed(4)}`).join(' ')}`).join('; '));
 }
 
 // ---------------------------------------------------------------- 3
@@ -292,7 +344,7 @@ function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocati
 }
 
 (async () => {
-  console.log('THE TWENTY SCENARIOS');
+  console.log('THE TWENTY SCENARIOS, AND THE NAMED ONES');
   const setupSource = fs.readFileSync(path.join(SRC, 'pages/SetupPage.tsx'), 'utf8');
   const hostSource = fs.readFileSync(path.join(SRC, 'session/screens/HostCreateScreen.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(SRC, 'session/server/rooms.ts'), 'utf8');
@@ -340,6 +392,24 @@ function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocati
     'session year never locked': decisionsForYear(3, undefined).assetAllocation,
   };
   gradeDefaults(defaultSets, MIX, '');
+  // 9. The named scenarios, solo and hosted, opened as section 5 opens the twenty (shocks off, at Expected).
+  const named: NamedOpened[] = [];
+  SOLO_SHOCKS.enabled = false;
+  try {
+    for (const id of NAMED) {
+      const { setup, instance } = openSoloInstance(settings(id));
+      const opened = open(id, instance, setup).opened;
+      const hostedGs = buildTeamGame({ seed: id, yearCount: 10, startingYear: 2027, eventName: 'E', poolName: 'S', shocks: [], priorDevelopment: undefined } as never, LINES).gameState;
+      named.push({
+        id, solo: instance, hosted: hostedGs.instance, soloOpen: opened[0].surplus, hostedOpen: hostedGs.poolState.lines.WC.surplus,
+        ps: Object.fromEntries(opened.map(o => [o.line, o.premium / o.surplus])) as Record<CoverageLine, number>,
+      });
+    }
+  } finally { SOLO_SHOCKS.enabled = true; }
+  const seedOf = (id: string) => Number(gameIdentity(id).gameId);
+  // Scenario 20's opening on seed 53781 before pr/named-scenarios, measured on aws 7af0fc6 (WC, GL, Property).
+  const OLD_SLOT_20: Record<CoverageLine, number> = { WC: 2.2715124, GL: 1.91407235, Property: 1.56049157 };
+  gradeNamed(named, seedOf, SCENARIO_SEEDS[20], OLD_SLOT_20, '');
 
   console.log('\nCONTROLS — each must FAIL');
   const controlFails = (name: string, run: () => void, expect: string) => {
@@ -353,7 +423,16 @@ function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocati
   controlFails('a menu offering 0 to 20', () => gradeSetup(['0', ...SCENARIO_OPTIONS], draws, setupSource, hostSource, ''), '1.');
   controlFails('a free seed field', () => gradeSetup(SCENARIO_OPTIONS, draws,
     setupSource.replace('SCENARIO_OPTIONS.map(', 'OPTIONS.map(') + '<input type="text" value={instanceId} />', hostSource, ''), '1.');
-  controlFails('a handler accepting "21"', () => gradeHandler({ ...outcome, '21': 'accepted' }, serverSource, ''), '2.');
+  controlFails('a handler accepting "23"', () => gradeHandler({ ...outcome, '23': 'accepted' }, serverSource, ''), '2.');
+  controlFails('a handler refusing Staff Retreat ("21")', () => gradeHandler({ ...outcome, '21': 'refused' }, serverSource, ''), '2.');
+  controlFails('a handler accepting a raw seed ("82670")', () => gradeHandler({ ...outcome, '82670': 'accepted' }, serverSource, ''), '2.');
+  controlFails('the named scenarios offered as numbers ("Scenario 21")', () => gradeSetup(SCENARIO_OPTIONS, draws, setupSource, hostSource, '', id => `Scenario ${id}`, id => id), '1.');
+  controlFails('a random pick that can draw a named scenario', () => gradeSetup(SCENARIO_OPTIONS, [...draws, '21'], setupSource, hostSource, ''), '1.');
+  controlFails('Staff Retreat on another seed (82671)', () => gradeNamed(named, id => (id === '21' ? 82671 : seedOf(id)), SCENARIO_SEEDS[20], OLD_SLOT_20, ''), '9.');
+  controlFails('slot 20 still on 53781', () => gradeNamed(named, seedOf, 53781, OLD_SLOT_20, ''), '9.');
+  controlFails('Test Seed opening off scenario 20\'s (the new slot 20\'s seed in its place)', () => gradeNamed(
+    named.map(r => (r.id === '22' ? { ...r, ps: Object.fromEntries(atNoShocks.filter(o => o.n === 20).map(o => [o.line, o.premium / o.surplus])) as Record<CoverageLine, number> } : r)),
+    seedOf, SCENARIO_SEEDS[20], OLD_SLOT_20, ''), '9.');
   const hashed = generateGameInstance('MAMC6EA4', seedFromInstanceId('MAMC6EA4'), []);
   controlFails('a hosted room built from a hashed code', () => gradeOneSeed(soloInstances['7'], hashed, soloOpen, hostedOpen, ''), '3.');
   controlFails('a room built on the old mapping (the number\'s own hash)', () => gradeOneSeed(soloInstances['7'],

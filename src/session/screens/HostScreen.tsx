@@ -70,7 +70,8 @@ export default function HostScreen({ code }: Props) {
       // The host sees the room's fixed seed beside the version (a team never does).
       version={code && room ? (() => {
         const id = gameIdentity(room.seed);
-        return walkthroughHeader({ instanceId: id.gameId, scenario: id.scenario }, true);
+        // ⚠ NO SEED ON THE HOST'S BAR (pr/named-scenarios): the version and the scenario only.
+        return walkthroughHeader({ instanceId: id.gameId, scenario: id.scenario }, false);
       })() : undefined}
     >
       {activeTab === 'setup' && (code ? <HostRoomScreen code={code} /> : <HostCreateScreen />)}

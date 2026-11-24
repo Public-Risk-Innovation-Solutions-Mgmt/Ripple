@@ -12,6 +12,7 @@ import { drawShockSchedule, drawableShocks } from '../session/shockDraw';
 import { hostShockLabel } from '../utils/shockLosses';
 import type { ScheduledShockSpec } from '../session/contract';
 import type { CoverageLine } from '../types/simulation';
+import { scenarioName } from '../utils/scenarios';
 
 // ⚠ EVERY ONE OF THE R MODEL'S TWELVE EVENTS IS OFFERED, AND EVERY ONE RUNS —
 // the same list Randomise draws from (session/shockDraw.ts).
@@ -164,7 +165,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
       </div>
       {drawnFor && !drawStale && (
         <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-black">
-          Drawn from seed <span className="font-mono">{drawnFor.seed}</span> over {drawnFor.yearCount} years.
+          Drawn from scenario <span className="font-mono">{scenarioName(drawnFor.seed)}</span> over {drawnFor.yearCount} years.
         </p>
       )}
       {drawStale && (

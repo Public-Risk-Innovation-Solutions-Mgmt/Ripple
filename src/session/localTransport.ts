@@ -801,10 +801,10 @@ export class LocalSessionTransport implements SessionTransport {
       if (!SESSION_TOKEN_PATTERN.test(req.hostToken)) {
         throw new SessionError('INVALID_REQUEST', 'A room needs a valid host token.');
       }
-      // The seed is the scenario: "1" to "20" and nothing else (ROOM_SEEDS),
+      // The seed is the scenario: "1" to "20", or the named "21" and "22", and nothing else (ROOM_SEEDS),
       // refused here exactly as the handler refuses it.
       if (!isRoomSeed(req.seed)) {
-        throw new SessionError('INVALID_REQUEST', 'The seed must be a scenario from 1 to 20.');
+        throw new SessionError('INVALID_REQUEST', 'The seed must be a scenario from 1 to 22 (1 to 20, or 21 Staff Retreat, 22 Test Seed).');
       }
 
       // ⚠ THE LINE SET IS CHECKED HERE AND NOWHERE ELSE NOW. It used to be

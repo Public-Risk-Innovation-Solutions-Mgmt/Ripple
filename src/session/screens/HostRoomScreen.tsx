@@ -24,6 +24,7 @@ import { eventStatusOf, teamDisplayName, teamLabel } from '../contract';
 import { EditGamePanel } from '../../components/EditGamePanel';
 import type { YearSettings } from '../../utils/gameEdits';
 import { MARKET_NEW_FIXED_ADMIN } from '../../data/pricingParameters';
+import { scenarioName } from '../../utils/scenarios';
 
 interface Props {
   code: string;
@@ -169,7 +170,7 @@ export default function HostRoomScreen({ code }: Props) {
                 {code}
               </p>
               <p className="mt-1 text-sm text-slate-500">
-                {room?.eventName} · seed <span className="font-mono">{room?.seed}</span> · {room?.yearCount} years
+                {room?.eventName} · scenario <span data-testid="host-room-scenario" className="font-mono">{room ? scenarioName(room.seed) : ''}</span> · {room?.yearCount} years
               </p>
             </div>
             <div className="text-right">

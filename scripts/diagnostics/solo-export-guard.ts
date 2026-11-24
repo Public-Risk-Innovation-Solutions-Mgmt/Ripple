@@ -1340,7 +1340,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // shown and its raw text; with the key normalised all 48 are identical to the
 // control. The statement workbooks are byte-identical. Intake at 0.95 is
 // New-version market rooms only; no single-player figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v140.json');
+// v142: NAMED SCENARIOS AND SLOT 20'S NEW SEED (pr/named-scenarios, from aws
+// 7af0fc6; numbered past every export and render baseline on any branch —
+// v141 is the highest). The control: aws 7af0fc6 reproduced v140 on all 48
+// keys. 24 of 48 move, and only in one line: the Version row (save key v57 ->
+// v58). Text-diffed against 7af0fc6's own text (GUARD_TEXT_DIR): 48 lines
+// differ, every one the Version row. The guard's games play harness ids, no
+// scenario, so neither the named scenarios nor slot 20's seed reach them.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v142.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

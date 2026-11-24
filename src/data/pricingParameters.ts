@@ -938,7 +938,7 @@ export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 
  *    8  20285  2.61 2.63  +1.1%   2.04 1.97  -3.5%   1.57 1.52  -3.1%
  *   15     33  2.53 2.65  +5.1%   1.98 1.91  -3.8%   1.54 1.47  -4.5%  *
  *   11  25282  2.45 2.34  -4.3%   1.93 1.84  -4.6%   1.52 1.49  -1.8%
- *   20  53781  2.37 2.27  -4.1%   1.88 1.91  +1.9%   1.49 1.56  +4.8%
+ *   20  76975  2.37 2.28  -3.7%   1.88 1.79  -4.7%   1.49 1.50  +0.9%
  *    6  23490  2.29 2.46  +7.3%   1.83 1.92  +5.4%   1.46 1.47  +0.2%  *
  *    9  99087  2.21 2.06  -7.0%   1.77 1.79  +1.1%   1.44 1.47  +2.1%  *
  *    5  26126  2.13 2.17  +1.8%   1.72 1.82  +5.8%   1.41 1.47  +4.1%  *
@@ -962,6 +962,23 @@ export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 
  * (a 26% one-year surplus drop) and 13 at 7.8 — 13's seed before was far less
  * steady (30.1, a 66% drop, a hosted line-year below zero).
  *
+ * ⚠ SLOT 20 RE-PICKED (pr/named-scenarios): its seed 53781 became the named
+ * scenario Test Seed (NAMED_SCENARIOS), and slot 20 took 76975, searched on
+ * today's pre-game (the 20/75/5 mix, the prior board at 65%) by
+ * scripts/probes/scenario-seed-{search,play}.mts. Of seeds 21 to 120,000 (the
+ * slots' seeds and the named ones skipped), 351 open within 5% of slot 20's
+ * targets on every line; all 351 played ten years, single player (its own
+ * catalogue shocks) and a hosted room at development Low on slot 20's drawn
+ * schedule, at the play defaults. None drops its 2027 rate; 68 take a line
+ * below zero and are out; of the 283 left, 203 draw at least two events in
+ * single player, as the slots were chosen. 76975 is the steadiest of those 203
+ * on a composite of the same measures (100 x the combined ratio's yearly
+ * spread, 20 x the largest one-year surplus fall over the opening, 2 x loss
+ * runs over three years): 3.27 against 53781's 6.25 and a median of 8.49 —
+ * combined ratios 92-104% solo and 97-107% hosted, no loss run, the largest
+ * one-year surplus fall 0.7% of the opening, 2027 rates up 4.1% WC, 6.9% GL
+ * and 5.5% Property. Still 13 of 20 within 5% on every line (53781 was too).
+ *
  * Before pr/pregame-65 (chosen at capital .0M / 2.0M / 2.5M, the prior
  * board at Expected with no cover, flat 2% growth): 12 14953, 19 17909,
  * 10 567, 14 7499, 3 9739, 8 12860, 15 7693, 11 14977, 20 4129, 6 3545,
@@ -969,8 +986,26 @@ export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 
  * 13 14577, 16 2812 (16 of 20 within 5%; worst 13's WC, +10.4%).
  */
 export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
-  12: 49651, 19: 43424, 10: 90448, 14: 59909, 3: 22624, 8: 20285, 15: 33, 11: 25282, 20: 53781, 6: 23490,
+  12: 49651, 19: 43424, 10: 90448, 14: 59909, 3: 22624, 8: 20285, 15: 33, 11: 25282, 20: 76975, 6: 23490,
   9: 99087, 5: 26126, 4: 95926, 1: 12809, 18: 4800, 7: 37746, 17: 60849, 2: 56435, 13: 52699, 16: 9096,
+};
+
+/**
+ * THE NAMED SCENARIOS (pr/named-scenarios) — fixed seeds offered BY NAME
+ * wherever a scenario is chosen (the host's room setup, Test player's setup,
+ * single player's picker), outside the twenty designed slots: no design target,
+ * not in SCENARIOS_THIN_TO_RICH, never the setup screens' random pick. Their
+ * ids "21" and "22" are internal — a room's seed and an instance's `scenario`
+ * — and are never shown; every screen and export shows the name
+ * (utils/scenarios.scenarioName).
+ *
+ *   21  Staff Retreat  seed 82670 — added as given, not re-checked.
+ *   22  Test Seed      seed 53781 — slot 20's seed until pr/named-scenarios,
+ *                      kept under its own name when slot 20 took a new one.
+ */
+export const NAMED_SCENARIOS: Readonly<Record<number, { name: string; seed: number }>> = {
+  21: { name: 'Staff Retreat', seed: 82670 },
+  22: { name: 'Test Seed', seed: 53781 },
 };
 
 /**
@@ -3595,11 +3630,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       + 'guarded at run time. The design targets the seeds were chosen against, evenly spaced per line from thinnest '
       + 'to richest: '
       + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_RATIO_RANGE[l].thinnest} to ${SCENARIO_RATIO_RANGE[l].richest}`).join(', ')
-      + '. All twenty open within 5% of their targets on every line (worst 4.9%). Picked from seeds 1 to 120,000 '
-      + '(pr/pregame-65): of each slot\'s seeds within 5% on all three lines and drawing at least two shocks in ten '
-      + 'years, the steadiest over ten years, single player and a hosted room at development Low — the smallest '
-      + 'spread of yearly combined ratios, loss runs and surplus drops, no line below zero.',
-    entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
+      + '. Picked from seeds 1 to 120,000 (pr/pregame-65): of each slot\'s seeds within 5% on all three lines and '
+      + 'drawing at least two shocks in ten years, the steadiest over ten years, single player and a hosted room at '
+      + 'development Low — the smallest spread of yearly combined ratios, loss runs and surplus drops, no line below '
+      + 'zero. The prior board\'s 20/75/5 mix moved the openings afterwards; the seeds were kept, and 13 of 20 open '
+      + 'within 5% on every line (worst 7.3%, scenario 6\'s WC). Scenario 20 was re-picked on today\'s pre-game the '
+      + 'same way (pr/named-scenarios): seed 76975, the steadiest of 203 eligible, opening within 4.7% on every line; '
+      + 'its old seed is the named scenario Test Seed. Two NAMED scenarios are offered beside the twenty, by name: '
+      + 'they have no design target and are never the random pick.',
+    entries: [...Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
       value: `seed ${SCENARIO_SEEDS[n]}`,
       unit: 'fixed seed',
       what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Design target premium to surplus `
@@ -3607,6 +3646,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         + '; the opening is the seed\'s (see SCENARIO_SEEDS for the measured openings).',
       basis: 'CHOSEN',
     }] as const),
+    ...Object.values(NAMED_SCENARIOS).map(n => [n.name, {
+      value: `seed ${n.seed}`,
+      unit: 'fixed seed, a named scenario',
+      what: n.seed === 53781
+        ? 'Scenario 20\'s seed until pr/named-scenarios, kept under this name when slot 20 took a new seed. Offered by '
+          + 'name; no design target.'
+        : 'Added by name as given (not searched or re-checked). Offered by name; no design target.',
+      basis: 'CHOSEN',
+    }] as const)],
   },
   {
     title: 'The opening',
