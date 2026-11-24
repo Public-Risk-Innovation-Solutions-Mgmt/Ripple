@@ -6,6 +6,7 @@ import { buildAnnualStatement, newestCombinedRatio, topSurplus } from '../utils/
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import RippleBrandLogo, { LOGO_ASPECT } from './RippleBrandLogo';
 import { useTopBar, useWide } from './useTopBar';
+import { scenarioName } from '../utils/scenarios';
 
 interface HeaderProps {
   gameState: GameState | null;
@@ -136,7 +137,8 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
   // ⚠ THE SCENARIO NUMBER, NEVER THE INSTANCE ID: a scenario's instance carries
   // its fixed seed as its id (scenarios.ts), which no player or host is shown.
-  const instanceId = gameState?.instance?.scenario !== undefined ? String(gameState.instance.scenario) : (gameState?.setup?.instanceId ?? '—');
+  // A named scenario by its name ("Staff Retreat"), a slot by its number (utils/scenarios.scenarioName).
+  const instanceId = gameState?.instance?.scenario !== undefined ? scenarioName(gameState.instance.scenario) : (gameState?.setup?.instanceId ?? '—');
   const yearNumber = gameState?.currentYearNumber ?? 1;
   // ⚠ TWO YEARS, NAMED APART. The board sets next year's rates during the year
   // in progress: the PROGRAM YEAR is the one being priced (the setup's first

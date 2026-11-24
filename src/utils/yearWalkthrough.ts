@@ -96,6 +96,8 @@ import { LINE_FULL_NAME } from './lineDisplay';
 import { formatCurrency } from './formatters';
 import * as XLSX from 'xlsx';
 import type { TeamMarketShareOfYear } from '../session/contract';
+import { scenarioName } from './scenarios';
+import { NAMED_SCENARIOS } from '../data/pricingParameters';
 
 // ---------------------------------------------------------------------------
 // Shapes
@@ -1173,7 +1175,8 @@ export function walkthroughSheetRows(gs: GameState, header: WalkthroughHeader, m
   const years = walkthroughYears(gs);
   if (years.length === 0) return [];
   const out: (string | number)[][] = [['Year Walkthrough'], ['Version', header.version]];
-  if (header.scenario !== undefined) out.push(['Scenario', header.scenario]);
+  // A named scenario by its name; a slot by its number, as it always was.
+  if (header.scenario !== undefined) out.push(['Scenario', NAMED_SCENARIOS[header.scenario] ? scenarioName(header.scenario) : header.scenario]);
   if (header.seed !== undefined) out.push(['Seed', header.seed]);
   out.push([], ['Year', 'View', 'Stage', 'Same or depends', 'Figure', 'Value', 'Code']);
   for (const y of years) {

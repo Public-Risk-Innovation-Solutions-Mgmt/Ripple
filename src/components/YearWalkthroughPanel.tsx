@@ -18,6 +18,7 @@ import {
 } from '../utils/yearWalkthrough';
 import { formatCurrency, formatMillions, formatNumber, formatPct } from '../utils/formatters';
 import { lineDisplayName } from '../utils/lineDisplay';
+import { scenarioName } from '../utils/scenarios';
 
 function shown(r: WalkRow): string {
   if (r.value === null) return '—';
@@ -123,7 +124,7 @@ export default function YearWalkthroughPanel({ gameState, lineView, showSeed, ro
         <div data-testid="walk-header" className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-black">
           <span>Version <span data-testid="walk-version" className="font-mono text-gray-900">{header.version}</span></span>
           {header.scenario !== undefined && (
-            <span>Scenario <span data-testid="walk-scenario" className="font-mono text-gray-900">{header.scenario}</span></span>
+            <span>Scenario <span data-testid="walk-scenario" className="font-mono text-gray-900">{scenarioName(header.scenario)}</span></span>
           )}
           {header.seed !== undefined && (
             <span>Seed <span data-testid="walk-seed" className="font-mono text-gray-900">{header.seed}</span></span>
