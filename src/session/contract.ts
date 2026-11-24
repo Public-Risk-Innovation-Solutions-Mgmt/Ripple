@@ -226,7 +226,8 @@ export function normalizeRecoveryCode(input: string): string {
 
 /**
  * THE SEEDS A ROOM MAY BE CREATED WITH — the scenario numbers "1" to "20", as
- * text (stable-scenarios commit 9). The scenario is the game's only seed, and
+ * text (stable-scenarios commit 9), and the two named scenarios' ids "21" and
+ * "22" (pr/named-scenarios). The scenario is the game's only seed, and
  * solo setup offers the same twenty (utils/scenarios.ts reads them from here).
  * Both transports refuse any other seed at createRoom.
  *
@@ -235,7 +236,13 @@ export function normalizeRecoveryCode(input: string): string {
  * end that sends only these is accepted by the old handler, but a handler that
  * refuses others must be live before anything relies on the refusal.
  */
-export const ROOM_SEEDS: readonly string[] = Array.from({ length: 20 }, (_, i) => String(i + 1));
+export const ROOM_SEEDS: readonly string[] = [
+  ...Array.from({ length: 20 }, (_, i) => String(i + 1)),
+  // THE NAMED SCENARIOS (pr/named-scenarios): "21" Staff Retreat and "22" Test
+  // Seed — outside the twenty designed slots, shown by name and never as a
+  // number (utils/scenarios.scenarioName; pricingParameters NAMED_SCENARIOS).
+  '21', '22',
+];
 export const isRoomSeed = (seed: unknown): boolean => typeof seed === 'string' && ROOM_SEEDS.includes(seed);
 
 export function isSessionError(e: unknown): e is SessionError {

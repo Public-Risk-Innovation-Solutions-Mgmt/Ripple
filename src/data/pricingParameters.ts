@@ -974,6 +974,24 @@ export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
 };
 
 /**
+ * THE NAMED SCENARIOS (pr/named-scenarios) — fixed seeds offered BY NAME
+ * wherever a scenario is chosen (the host's room setup, Test player's setup,
+ * single player's picker), outside the twenty designed slots: no design target,
+ * not in SCENARIOS_THIN_TO_RICH, never the setup screens' random pick. Their
+ * ids "21" and "22" are internal — a room's seed and an instance's `scenario`
+ * — and are never shown; every screen and export shows the name
+ * (utils/scenarios.scenarioName).
+ *
+ *   21  Staff Retreat  seed 82670 — added as given, not re-checked.
+ *   22  Test Seed      seed 53781 — slot 20's seed until pr/named-scenarios,
+ *                      kept under its own name when slot 20 took a new one.
+ */
+export const NAMED_SCENARIOS: Readonly<Record<number, { name: string; seed: number }>> = {
+  21: { name: 'Staff Retreat', seed: 82670 },
+  22: { name: 'Test Seed', seed: 53781 },
+};
+
+/**
  * THE OPENINGS' BARS — read by scenarios-check section 5 and by nothing in the
  * game: every line within this of its design target, and this many scenarios
  * within 5% on all three lines. What the seeds above achieve on this build:

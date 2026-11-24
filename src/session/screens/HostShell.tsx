@@ -23,6 +23,7 @@ import { navigate } from '../client/navigation';
 import RippleBrandLogo from '../../components/RippleBrandLogo';
 import { useTopBar, useWide } from '../../components/useTopBar';
 import type { WalkthroughHeader } from '../../utils/yearWalkthrough';
+import { scenarioName } from '../../utils/scenarios';
 
 interface Props {
   activeTab: HostTabId;
@@ -82,11 +83,10 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
                     <span data-testid="host-version-header" className="text-slate-400">
                       version <span data-testid="host-version" className="font-mono text-black">{version.version}</span>
                       {version.scenario !== undefined && (
-                        <> · scenario <span data-testid="host-scenario" className="font-mono text-black">{version.scenario}</span></>
+                        <> · scenario <span data-testid="host-scenario" className="font-mono text-black">{scenarioName(version.scenario)}</span></>
                       )}
-                      {version.seed !== undefined && (
-                        <> · seed <span data-testid="host-seed" className="font-mono text-black">{version.seed}</span></>
-                      )}
+                      {/* ⚠ NO SEED (pr/named-scenarios): the room's code, the version and the
+                          scenario's name only. The seed is Test player's alone, on its walkthrough. */}
                     </span>
                   )}
                 </p>

@@ -4,7 +4,7 @@ import type { GameSetupSettings, CoverageLine } from '../types/simulation';
 import RippleLogo from '../assets/RippleLogo';
 import { GAME_LENGTH_YEARS } from '../data/defaultAssumptions';
 import WelcomeModal from '../components/WelcomeModal';
-import { SCENARIO_OPTIONS, randomScenarioId } from '../utils/scenarios';
+import { SCENARIO_OPTIONS, randomScenarioId, scenarioOptionLabel } from '../utils/scenarios';
 import HostCreateScreen from '../session/screens/HostCreateScreen';
 import type { ScheduledShock } from '../types/shocks';
 
@@ -170,7 +170,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   onChange={e => setInstanceId(e.target.value)}
                   className="flex-1 border border-gray-300 rounded-lg px-5 py-3 text-base font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                 >
-                  {SCENARIO_OPTIONS.map(n => <option key={n} value={n}>Scenario {n}</option>)}
+                  {SCENARIO_OPTIONS.map(n => <option key={n} value={n}>{scenarioOptionLabel(n)}</option>)}
                 </select>
                 <button
                   type="button"

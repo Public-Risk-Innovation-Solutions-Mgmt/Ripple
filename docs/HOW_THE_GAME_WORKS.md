@@ -7,7 +7,7 @@ pull request.
 ## 1. Modes
 
 **Single player** (`/solo`). One person runs a risk pool alone. Setup: pool name, length (3–10 years, default 5),
-first program year (default 2027), scenario (1–20 or random), and the lines (Workers' Compensation, General
+first program year (default 2027), scenario (1–20, random, or a named scenario — Staff Retreat or Test Seed), and the lines (Workers' Compensation, General
 Liability, Property). Events ("shocks") are drawn automatically; there is no adverse reserve development.
 Locking a year plays it at once. Decisions carry into the next year; the game saves in the browser. There is no
 market competition (section 5): New Members and Non-Renewal work as the formula in section 5 says.
@@ -58,7 +58,7 @@ add, reset, disable or delete other admins.
 |---|---|---|
 | Event name | — | required |
 | Pool name | — | not asked: each team names its own pool when it joins (below). A room created before this keeps its host-set pool name for every team |
-| Scenario (seed) | random 1–20 | the server accepts only 1–20 |
+| Scenario | random 1–20 | 1–20, or a named scenario shown by name (Staff Retreat, Test Seed); the server accepts nothing else |
 | Years | 5 | 1–20 on the form |
 | First program year | 2027 | |
 | Number of teams | 3 | a label; it limits nothing |
@@ -190,7 +190,8 @@ in the Market Survey's shares.
 and the sliders read the same as in every other room: "Non-Renewal" and "New Members".
 
 **Private:** decisions are not shown to other teams, and full statements stay the team's own. The seed is shown
-only to the host and in Test player. But a viewer sees the watched team's decisions (section 7).
+only in Test player (its Year Walkthrough): the host's bar shows the room code, the version and the scenario (its
+number, or a named scenario's name), and no seed. But a viewer sees the watched team's decisions (section 7).
 
 ## 5. Underwriting today
 

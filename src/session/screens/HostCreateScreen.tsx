@@ -19,7 +19,7 @@
 // many to expect — and it BINDS NOTHING (see the transport).
 // ============================================================================
 
-import { SCENARIO_OPTIONS, randomScenarioId } from '../../utils/scenarios';
+import { SCENARIO_OPTIONS, randomScenarioId, scenarioName } from '../../utils/scenarios';
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
@@ -283,7 +283,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 value={seed}
                 onChange={e => setSeed(e.target.value)}
               >
-                {SEED_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                {SEED_OPTIONS.map(n => <option key={n} value={n}>{scenarioName(n)}</option>)}
               </select>
             </label>
             <label className="block">

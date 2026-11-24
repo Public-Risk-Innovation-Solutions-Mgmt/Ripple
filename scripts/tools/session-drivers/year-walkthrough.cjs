@@ -261,7 +261,10 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
     const hv = (await host.textContent('[data-testid="host-version"]')).trim();
     const hs = await host.locator('[data-testid="host-seed"]').count() ? (await host.textContent('[data-testid="host-seed"]')).trim() : null;
     const hsc = await host.locator('[data-testid="host-scenario"]').count() ? (await host.textContent('[data-testid="host-scenario"]')).trim() : null;
-    ok(hv === truth.version && hs === truth.seed && hsc === SCENARIO, 'Host: the header shows the version, the scenario and the same fixed seed as Test player', `${hv} · ${hsc} · ${hs} (Test player ${t1.seed})`);
+    // ⚠ NO SEED ON THE HOST'S BAR (pr/named-scenarios): the room code, the version and the scenario only.
+    // The seed is Test player's alone (its walkthrough, t1.seed).
+    ok(hv === truth.version && hs === null && hsc === SCENARIO && !(await host.locator('header').innerText()).includes(String(t1.seed)),
+      'Host: the header shows the version and the scenario, and no seed', `${hv} · ${hsc} · seed ${hs ?? 'none'} (Test player's ${t1.seed})`);
 
     // Two teams, each in its own context, without the admin token.
     delete process.env.ADMIN_TOKEN;
