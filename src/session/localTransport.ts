@@ -881,7 +881,7 @@ export class LocalSessionTransport implements SessionTransport {
       if (market === null) throw new SessionError('INVALID_REQUEST', 'market must be off, low, medium or high.');
       // Market version: absent reads 'current'; only 'new' is stored (an older room, without it, reads 'current').
       const marketVersion = requestedMarketVersion(req.marketVersion);
-      if (marketVersion === null) throw new SessionError('INVALID_REQUEST', 'marketVersion must be current or new.');
+      if (marketVersion === null) throw new SessionError('INVALID_REQUEST', 'marketVersion: every new room plays the New market; omit it or send "new".');
 
       const store = storage();
 

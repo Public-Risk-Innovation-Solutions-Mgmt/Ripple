@@ -96,6 +96,14 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: `Split ${level} ${version}`,
       expectedTeams: plan.length, lines: LINES, shocks: [], market: level, ...(version === 'new' ? { marketVersion: 'new' as const } : {}) });
+    if (version === 'current') {
+      // AN OLDER CURRENT ROOM (pr/market-new-only): every room created now plays New, so a Current room is one created
+      // before — its stored record carries no version and no scale, as the contract harness makes older rooms.
+      const key = ROOM_KEY_PREFIX + made.code;
+      const rec = JSON.parse(globalThis.localStorage.getItem(key)!) as { marketVersion?: string; marketScale?: number };
+      delete rec.marketVersion; delete rec.marketScale;
+      globalThis.localStorage.setItem(key, JSON.stringify(rec));
+    }
     if (createdBeforeRescale) {
       // A New room created before pr/market-level-rescale (#110): its record has no scale stamp, as
       // market-new-version-check and the contract harness make older rooms. It plays the original level table.

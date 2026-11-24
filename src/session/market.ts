@@ -12,7 +12,7 @@
 // ============================================================================
 
 import {
-  MARKET_DEFAULT_LEVEL, MARKET_NEW_SCALE_CURRENT, MARKET_VERSION_DEFAULT, MARKET_VERSIONS, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, type MarketLevel,
+  MARKET_DEFAULT_LEVEL, MARKET_NEW_SCALE_CURRENT, MARKET_VERSION_DEFAULT, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, type MarketLevel,
   type MarketNewScale, type MarketVersion,
 } from '../data/pricingParameters';
 import type { CoverageLine, MarketLineInput } from '../types/simulation';
@@ -39,9 +39,13 @@ export const marketVersionOf = (v: unknown): MarketVersion => (v === 'new' ? 'ne
  */
 export const marketScaleOf = (v: unknown): MarketNewScale => (v === 2 ? 2 : 1);
 
-/** A create request's market version: absent reads MARKET_VERSION_DEFAULT ('current'); anything unknown is refused (null). */
+/**
+ * A create request's market version (pr/market-new-only): absent reads MARKET_VERSION_DEFAULT ('new'), and 'new' is
+ * 'new'; 'current' — no longer offered for new rooms — and anything unknown are refused (null). Rooms created before
+ * keep their stored version (marketVersionOf).
+ */
 export const requestedMarketVersion = (v: unknown): MarketVersion | null =>
-  v === undefined ? MARKET_VERSION_DEFAULT : (MARKET_VERSIONS as readonly string[]).includes(v as string) ? (v as MarketVersion) : null;
+  v === undefined ? MARKET_VERSION_DEFAULT : v === 'new' ? 'new' : null;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const finitePositive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;

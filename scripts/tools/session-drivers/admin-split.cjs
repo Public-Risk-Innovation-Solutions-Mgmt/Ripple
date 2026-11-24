@@ -13,7 +13,8 @@
 // history years and above 0 in each played year; the note "Fixed admin doesn't
 // shrink when your book does." under the table. The Excel download carries the
 // same rows and note on every sheet, Fixed + Variable = Total in every cell; the
-// PDF carries them. A Current room's team keeps the single General Admin
+// PDF carries them. An older Current room's team (made in the browser's own
+// room store, its version taken off — no new room is Current) keeps the single General Admin
 // Expense line and no note. (The numbers themselves — Fixed recomputed, nothing
 // else moved — are scripts/diagnostics/admin-split-check.ts.)
 // ============================================================================
@@ -76,14 +77,16 @@ async function createRoom(host, API, name, version) {
   await host.fill('[data-testid="year-count"]', '3');
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
   await host.uncheck('[data-testid="line-Property"]');
-  if (version) await host.selectOption('[data-testid="market-version"]', version);
+  // Every room created plays the New market (pr/market-new-only): there is no version to choose.
+  void version;
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]', { timeout: 30000 });
   return (await host.textContent('[data-testid="room-code"]')).trim();
 }
 async function join(ctx, API, code, name) {
   const p = await ctx.newPage();
-  await p.goto(`/join/${code}?api=${encodeURIComponent(API)}`);
+  // API null: the browser's own localStorage room store (an older room is made there; see the Current room below).
+  await p.goto(API ? `/join/${code}?api=${encodeURIComponent(API)}` : `/join/${code}`);
   await p.waitForSelector('[data-testid="team-picker"]', { timeout: 30000 });
   await p.fill('[data-testid="team-name"]', name);
   await p.click('[data-testid="join-team"]');
@@ -202,10 +205,24 @@ async function operatingRows(page) {
     'the PDF: Fixed, Variable, Total General Admin Expense and the note, once per statement (Pool, WC, GL)',
     `${count(SPLIT[0])}/${count(SPLIT[1])}/${count(SPLIT[2])}/${count(NOTE)}`);
 
-  // ---- a Current room keeps the single line --------------------------------------------
+  // ---- an OLDER Current room keeps the single line ----------------------------------------
+  // Every room created plays New (pr/market-new-only), so a Current room is made as an older one is: created in the
+  // browser's own localStorage room store (no ?api=), its stored version and level table taken off before a team joins.
   const host2 = await ctx.newPage();
-  const code2 = await createRoom(host2, API, 'Admin Split Current', null);
-  const cur = await join(ctx, API, code2, 'Alder');
+  await host2.goto('/host');
+  await host2.waitForSelector('[data-testid="create-room"]', { timeout: 30000 });
+  await host2.fill('[data-testid="event-name"]', 'Admin Split Older Current');
+  await host2.fill('[data-testid="expected-teams"]', '2');
+  await host2.click('[data-testid="create-room"]');
+  await host2.waitForSelector('[data-testid="room-code"]', { timeout: 30000 });
+  const code2 = (await host2.textContent('[data-testid="room-code"]')).trim();
+  await host2.evaluate(c => {
+    const k = 'ripple.session.v1.room.' + c;
+    const r = JSON.parse(localStorage.getItem(k));
+    delete r.marketVersion; delete r.marketScale;
+    localStorage.setItem(k, JSON.stringify(r));
+  }, code2);
+  const cur = await join(ctx, null, code2, 'Alder');
   for (const view of VIEWS) {
     await toStatement(cur, view);
     const labels = (await operatingRows(cur)).map(r => r.label);

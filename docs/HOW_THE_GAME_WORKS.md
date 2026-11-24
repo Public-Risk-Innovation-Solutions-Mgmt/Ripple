@@ -82,7 +82,6 @@ add, reset, disable or delete other admins.
 | Adverse development by year | Simple | Simple: the level above, every year. Advanced: a table, a row per year and a column per line, set as in Edit game (a level applies from that year onward); it starts from the simple choices, and going back to Simple warns that the per-year choices are lost |
 | Shock schedule | empty | add events by year, or Randomise (2–4 events, never year 1) |
 | Market competition | Medium | Off, Low, Medium, High (section 5). A room created before the setting reads Off |
-| Market version | Current | Current, New (section 5, "Market version"). A room created before the option reads Current |
 
 The host gets a resume code for reopening the room elsewhere, and can hide the event from the lobby.
 
@@ -293,16 +292,22 @@ Members move between the room's teams on price, by formula — there are no indi
 Every draw is seeded by the room, team, line and year, so the step is the same wherever it runs. A team's rate is
 struck on its book before the moves, so the rate it locked with is the rate it is charged.
 
-### Market version (Current / New)
+### The market: New for every room created (and Current for older rooms)
 
-The host picks **Current** (default) or **New** at room setup. Current plays the market above exactly; a room created
-before the option reads Current. Single player and Test player have no market and are unchanged in every version.
-The room's version shows on the setup form, on Game Setup next to the market level, and at the top of the change
-history. It is stored with the room (`marketVersion`, only when New) and with each year's stored market step
-(`version`), so a rejoin or replay plays the same version.
+**Every room created plays the New version** (pr/market-new-only). The host no longer chooses a version: room setup
+offers only the market's Off / Low / Medium / High (default Medium), and a create request asking for Current is
+refused. The room stores its version (`marketVersion: 'new'`) and its level table (`marketScale`), and each year's
+stored market step carries them (`version`, `scale`), so a rejoin or replay plays the same market. Game Setup and the
+change history name only the level.
 
-**New** is the reworked market, played on review before it becomes the default. It uses the same Off / Low / Medium /
-High setting, compares the same whole rates (cover included), and changes four values per level plus the admin:
+**Older rooms keep the version they were created with.** A room created while the host could choose Current — or
+before versions existed — has no version stored and still plays the Current market described above, unchanged; its
+Game Setup says "This room plays the older Current market, as it was created", and its change history adds "the older
+Current market". The Current code path stays for those rooms. Single player and Test player have no market.
+
+**New** is the reworked market (first offered for review as a host choice, then made the only version). It uses the
+Off / Low / Medium / High setting, compares the same whole rates (cover included), and changes four values per level
+plus the admin:
 
 | | Low | Medium | High |
 |---|---|---|---|

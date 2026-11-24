@@ -2007,7 +2007,14 @@ const BASELINE = process.env.RENDER_BASELINE
 //     reinsurance", and Decisions carries the reset line.
 // Value identity holds, and the export guard moves by the save key alone
 // (export v149): both play their own decisions every year.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v150.json');
+// v151: THE SAVE KEY v64 -> v65 (pr/market-new-only), on aws cb0ac7e, which
+// reproduces v150 here 174 of 174. Word-diffed (RENDER_TEXT_DIR both sides), 26
+// move — every Year Walkthrough, by one line each and one word: the save key it
+// shows, "riskpool_gamestate_v64" -> "riskpool_gamestate_v65". With the key
+// normalised all 26 are identical to the control. The host's setup and Game
+// Setup screens that changed are not in this baseline (it plays single-player
+// configurations); market-new-version.cjs checks them. 148 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v151.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

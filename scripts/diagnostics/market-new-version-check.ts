@@ -335,7 +335,7 @@ async function main() {
   control('the original table in place of the rescaled one is refused', tableIs(MARKET_NEW_SCALE_1, BRIEF) ? 0 : 1);
   ok(MARKET_NEW_FIXED_ADMIN.share === BRIEF_FIXED.share && MARKET_NEW_FIXED_ADMIN.trend === BRIEF_FIXED.trend,
     'the fixed admin is 25% of the year-1 admin dollars, growing 3% a year');
-  ok(MARKET_VERSION_DEFAULT === 'current', 'the default version is Current');
+  ok(MARKET_VERSION_DEFAULT === 'new', 'every room created plays New (pr/market-new-only): the default version is New');
   ok(MARKET_NEW_INTAKE_QUALITY === BRIEF_INTAKE && LEVELS.every(l => marketParams(l, 'new', 2).intakeQuality === BRIEF_INTAKE && marketParams(l, 'new', 1).intakeQuality === BRIEF_INTAKE && marketParams(l, 'current').intakeQuality === null),
     'New takes members in at 0.95 (slightly better than average) at every level; Current keeps inherited quality');
   ok(LEVELS.every(l => Math.abs(BRIEF[l].mean - (1 - BRIEF[l].power * 0.20)) < 1e-12 && Math.abs(BRIEF_SCALE1[l].mean - (1 - BRIEF_SCALE1[l].power * 0.20)) < 1e-12),
@@ -382,6 +382,14 @@ async function main() {
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: `New ${level} ${version}`,
       expectedTeams: plan.length, lines: LINES, shocks: [], market: level, ...(version === 'new' ? { marketVersion: 'new' as const } : {}) });
+    if (version === 'current') {
+      // AN OLDER CURRENT ROOM (pr/market-new-only): every room created now plays New, so a Current room is one created
+      // before — its stored record carries no version and no scale, as the contract harness makes older rooms.
+      const key = ROOM_KEY_PREFIX + made.code;
+      const rec = JSON.parse(globalThis.localStorage.getItem(key)!) as { marketVersion?: string; marketScale?: number };
+      delete rec.marketVersion; delete rec.marketScale;
+      globalThis.localStorage.setItem(key, JSON.stringify(rec));
+    }
     if (createdBeforeRescale) {
       // A room created before pr/market-level-rescale: its stored record has no scale (the stamp taken off, as the
       // contract harness makes older rooms).
@@ -523,10 +531,22 @@ async function main() {
       + `leaver 0.55, cap 30% (Elm at it in ${capHit} year(s)), fade 20%`, diffs.slice(0, 3).join('; '));
     control('that older room recomputed on the rescaled High disagrees', onNew);
   }
+  {
+    // NEW IS THE ONLY VERSION FOR NEW ROOMS (pr/market-new-only).
+    const plain = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'No version',
+      expectedTeams: 2, lines: LINES, shocks: [], market: 'medium' });
+    let refused = '';
+    try {
+      await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Current asked',
+        expectedTeams: 2, lines: LINES, shocks: [], market: 'medium', marketVersion: 'current' });
+    } catch (e) { refused = (e as { code?: string }).code ?? 'threw'; }
+    ok(plain.room.marketVersion === 'new' && plain.room.marketScale === 2 && refused === 'INVALID_REQUEST',
+      'a room created without a version plays New on the current levels (scale 2); a request for Current is refused (INVALID_REQUEST)');
+  }
   const cur = await playRoom('medium', 'current');
-  ok(cur.room.marketVersion === undefined && [1, 2, 3, 4].every(y => cur.years[String(y)] && cur.years[String(y)].version === undefined)
+  ok(cur.room.marketVersion === undefined && cur.room.marketScale === undefined && [1, 2, 3, 4].every(y => cur.years[String(y)] && cur.years[String(y)].version === undefined)
     && differences(cur.years['1'].result, recomputeYear(currentP('medium'), cur.code, cur.seed, cur.years['1'], undefined).result).length === 0,
-    'a Current room on the same plan stores no version, and its year 1 is the recompute on Current\'s values');
+    'an older Current room (created before New was the only version) on the same plan stores no version, and its year 1 is the recompute on Current\'s values');
   ok(differences(cur.years['1'].result, rooms.medium.years['1'].result).length > 0, 'the New room moves members differently from the Current room on the same plan');
 
   // ==========================================================================
