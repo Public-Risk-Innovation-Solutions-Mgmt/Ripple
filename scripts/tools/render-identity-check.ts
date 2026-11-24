@@ -1962,7 +1962,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // "riskpool_gamestate_v59" -> "riskpool_gamestate_v61". With the key normalised
 // all 26 are identical to the control. The rescaled levels are New-version
 // market rooms only; no single-player figure moves. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v145.json');
+// v146: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges, merged
+// with aws bdf0ac1). The control: aws bdf0ac1's own build reproduced v145, 174
+// of 174. 26 of 174 move, every Year Walkthrough screen, and word-diffed
+// against bdf0ac1's own text (RENDER_TEXT_DIR) each in exactly one word:
+// riskpool_gamestate_v61 -> v62. The harness plays single player, which has
+// adverse development Off, so no figure moves; the host's setup screen, which
+// prints the ranges, is not among its screens. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v146.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
