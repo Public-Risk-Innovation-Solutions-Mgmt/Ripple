@@ -289,6 +289,13 @@ High setting, compares the same whole rates (cover included), and changes four v
 - **Buckets widened.** The five risk buckets are widened in log space — each (raw ÷ 1.02) to the power 1.25 / 1.75 /
   2.25 (Low / Medium / High), renormalised so the even mix still averages 1.00 — and the average leaver at a 10%+ gap
   is 1 − that power × 0.20. The widened buckets also carry the outside supply's draw.
+- **Intake at average quality.** The members a team takes in — price leavers from dearer teams and outside
+  members — arrive at average quality (book-risk effect 1.00), not at the leavers' better-than-average quality. The
+  team that loses them still loses its better members, so its book risk rises as before. Why: with inherited quality
+  the cheapest team rode free, taking the dearer teams' best risks while spreading its fixed admin over a growing book.
+  In a five-team room at 45 / 55 / 65 / 75 / 85% funding (WC only, scenario 4, no events, eight room codes) inherited
+  quality put the 45% team first in 8 of 8; at average quality the 65% team is first in 7 of 8 and the 45% team last
+  in 8 of 8. It does not soften the dearest team, which still shrinks and falls behind.
 - **Fixed admin** (New-version rooms with the market on only): each team's admin booked on a line is 50% of its
   year-1 admin dollars on that line, growing 3% a year, plus 50% of this year's admin as a share of premium; the
   year's admin overrun then applies as before. The member charge is unchanged — the rate still prices admin at 20% of

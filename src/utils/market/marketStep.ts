@@ -44,13 +44,16 @@
 // every input without a version) runs exactly the values named above. New reads
 // MARKET_NEW[level] instead — its own k, leaver cap and fade, and the buckets
 // widened in log space (widenedBuckets), which carry the leavers' tilt and the
-// outside supply's draw. marketParams() is the one place the choice is made.
+// outside supply's draw — and the members a team TAKES IN (price leavers and
+// outside members) arrive at average quality, 1.00 (MARKET_NEW_INTAKE_QUALITY,
+// pr/market-new-intake); the leavers still leave their team at their drawn
+// quality. marketParams() is the one place the choice is made.
 // ============================================================================
 
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_OUTSIDE_SUPPLY,
-  MARKET_NEW, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel, type MarketVersion,
+  MARKET_NEW, MARKET_NEW_INTAKE_QUALITY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel, type MarketVersion,
   type PerLine,
 } from '../../data/pricingParameters';
 import type { CoverageLine } from '../../types/simulation';
@@ -81,6 +84,11 @@ export interface MarketParams {
   readonly fullSkewMean: number;
   readonly leaverCap: number;
   readonly bookRiskFade: number;
+  /**
+   * Whether the members a team takes in (price leavers and outside members) arrive at average quality, 1.00
+   * (New: MARKET_NEW_INTAKE_QUALITY), or carry the quality they were drawn at (Current).
+   */
+  readonly intakeAtAverage: boolean;
 }
 const NEW_BUCKETS = {
   low: widenedBuckets(MARKET_NEW.low.bucketPower),
@@ -91,11 +99,14 @@ const NEW_BUCKETS = {
 export function marketParams(level: Exclude<MarketLevel, 'off'>, version: MarketVersion = 'current'): MarketParams {
   if (version === 'new') {
     const n = MARKET_NEW[level];
-    return { k: n.k, buckets: NEW_BUCKETS[level], fullSkewMean: n.fullSkewMean, leaverCap: n.leaverCap, bookRiskFade: n.bookRiskFade };
+    return {
+      k: n.k, buckets: NEW_BUCKETS[level], fullSkewMean: n.fullSkewMean, leaverCap: n.leaverCap, bookRiskFade: n.bookRiskFade,
+      intakeAtAverage: MARKET_NEW_INTAKE_QUALITY === 'average',
+    };
   }
   return {
     k: MARKET_K[level], buckets: MARKET_BUCKETS, fullSkewMean: MARKET_FULL_SKEW_MEAN[level],
-    leaverCap: MARKET_LEAVER_CAP, bookRiskFade: MARKET_BOOK_RISK_FADE,
+    leaverCap: MARKET_LEAVER_CAP, bookRiskFade: MARKET_BOOK_RISK_FADE, intakeAtAverage: false,
   };
 }
 
@@ -353,7 +364,8 @@ function runLine(input: MarketStepInput, line: CoverageLine,
   for (const m of pool) {
     if (m.to < 0) continue;
     outE[m.src] += m.e; outM[m.src] += m.e * m.risk; outN[m.src]++;
-    inGood[m.to] += m.e; inGoodM[m.to] += m.e * m.risk;
+    // The leaver leaves at its drawn quality (outM above); the team taking it in gets it at 1.00 in New.
+    inGood[m.to] += m.e; inGoodM[m.to] += m.e * (P.intakeAtAverage ? 1 : m.risk);
   }
 
   // 3b. OUTSIDE SUPPLY — 2% of the room plus last year's untaken non-renewals, shared by the wide taper
@@ -386,7 +398,7 @@ function runLine(input: MarketStepInput, line: CoverageLine,
     }
     for (let j = 0; j < N; j++) {
       if (got[j] <= 0) continue;
-      rem[j] -= got[j]; inOut[j] += got[j]; inOutM[j] += got[j] * sameMix;
+      rem[j] -= got[j]; inOut[j] += got[j]; inOutM[j] += got[j] * (P.intakeAtAverage ? 1 : sameMix);
     }
   }
 
