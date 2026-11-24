@@ -238,7 +238,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     if (!showsAdminSplit(g.gs)) layout.push(`${g.name}: the game does not read New`);
     for (const ts of statementsOf(g.gs)) {
       statements++;
-      if (ts.rows !== T.ADMIN_SPLIT_ROWS) layout.push(`${g.name} ${ts.scope}@${ts.asOf}: not the split rows`);
+      if (T.baseLayoutOf(ts.rows) !== T.ADMIN_SPLIT_ROWS) layout.push(`${g.name} ${ts.scope}@${ts.asOf}: not the split rows`);
       sums = sums.concat(sumProblems(ts).map(x => `${g.name} ${x}`));
       fixed = fixed.concat(fixedProblems(g.gs, ts).map(x => `${g.name} ${x}`));
       ts.figures.adminFixed!.forEach((x, k) => {
@@ -249,7 +249,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
       });
       // 4. Every other figure equals the statement without the split.
       const plain = T.buildTemplateStatement(strip(g.gs), ts.scope, ts.asOf);
-      if (plain.rows !== T.TEMPLATE_ROWS) layout.push('the stripped game still splits');
+      if (T.baseLayoutOf(plain.rows) !== T.TEMPLATE_ROWS) layout.push('the stripped game still splits');
       for (const [key, xs] of Object.entries(plain.figures)) {
         if (JSON.stringify(xs) !== JSON.stringify(ts.figures[key])) same.push(`${g.name} ${ts.scope}@${ts.asOf} ${key}`);
       }
@@ -283,7 +283,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
   // Before year 1 is played there is no year-1 fixed admin to step back from: the history years' Fixed and Variable show no figure.
   const pre = buildTeamGame(nw.room, LINES).gameState;
   const preTs = SCOPES.map(s => T.buildTemplateStatement(pre, s));
-  ok(pre.lockedResults.length === 0 && preTs.every(ts => ts.rows === T.ADMIN_SPLIT_ROWS
+  ok(pre.lockedResults.length === 0 && preTs.every(ts => T.baseLayoutOf(ts.rows) === T.ADMIN_SPLIT_ROWS
     && ts.figures.admin.slice(1).every(x => x !== null) && ts.figures.adminFixed.every(x => x === null) && ts.figures.adminVariable.every(x => x === null)),
     '   before year 1 is played: the split rows, the Total as today, and Fixed and Variable "—" (nothing yet to step back from)');
   ok(same.length === 0, '4. every other figure — the Total, every ratio, every other line — equals the statement without the split', same.slice(0, 3).join('; '));
@@ -309,8 +309,8 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
   // ==========================================================================
   console.log('\n1b. The single line where no admin is fixed');
   let curSplit = 0, offSplit = 0, curN = 0;
-  for (const g of cur.games) for (const ts of statementsOf(g.gs)) { curN++; if (ts.rows !== T.TEMPLATE_ROWS || 'adminFixed' in ts.figures) curSplit++; }
-  for (const g of off.games) for (const ts of statementsOf(g.gs)) { if (ts.rows !== T.TEMPLATE_ROWS || 'adminFixed' in ts.figures) offSplit++; }
+  for (const g of cur.games) for (const ts of statementsOf(g.gs)) { curN++; if (T.baseLayoutOf(ts.rows) !== T.TEMPLATE_ROWS || 'adminFixed' in ts.figures) curSplit++; }
+  for (const g of off.games) for (const ts of statementsOf(g.gs)) { if (T.baseLayoutOf(ts.rows) !== T.TEMPLATE_ROWS || 'adminFixed' in ts.figures) offSplit++; }
   ok(curSplit === 0 && curN > 100, `a Current room: every statement (${curN}) keeps the single General Admin Expense line and no note`);
   ok(off.room.marketVersion === 'new' && off.games.every(g => g.gs.setup.marketVersion === undefined) && offSplit === 0,
     'a New-version room with the market Off (no admin fixed): its games carry no version, and keep the single line');
@@ -399,7 +399,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     control('a one-team game without its market results (the fixed admin dropped) fails the one-team check', soloProblems({ ...sg.gs, setup: noMarket }).length);
     const wrongly = cur.games.map(x => ({ ...x.gs, setup: { ...x.gs.setup, marketVersion: 'new' as const } }));
     control('the split shown in a Current room is caught (its Fixed is 0 where the brief has none, or its rows split)',
-      wrongly.filter(x => T.buildTemplateStatement(x, 'pool').rows === T.ADMIN_SPLIT_ROWS).length);
+      wrongly.filter(x => T.baseLayoutOf(T.buildTemplateStatement(x, 'pool').rows) === T.ADMIN_SPLIT_ROWS).length);
     control('the note left out (a blank in its place): the note check fails', noteProblems(T.ADMIN_SPLIT_ROWS.map(r => (r.kind === 'note' ? { kind: 'blank' as const } : r))));
     const plain = T.buildTemplateStatement(strip(g.gs), 'pool');
     const asVariable: Record<string, unknown> = { ...ts.figures, admin: ts.figures.adminVariable };

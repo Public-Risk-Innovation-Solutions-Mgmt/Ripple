@@ -106,7 +106,7 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from 
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import {
   allYearsCell, buildTemplateStatement, hasAllYears, INSERTED_AFTER_TEMPLATE_ROW, INSERTED_LABEL, isInsertedRow, LABEL_CHANGES, SETTLEMENT_SPREAD,
-  showsPrior, shownFigure, TEMPLATE_ROW_OF, TEMPLATE_ROWS, type Figure, type TemplateStatement,
+  showsPrior, shownFigure, TEMPLATE_ROW_OF, TEMPLATE_ROWS, type Figure, type TemplateStatement, isPerLineLayout, standardRowOf, type TemplateRow,
 } from '../../src/utils/annualStatementTemplate';
 import { deriveSubRng } from '../../src/utils/random';
 import { marketSeedOf } from '../../src/utils/bookUnits';
@@ -336,8 +336,8 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
     rowTies('Previously Reported Reserve Changes', f['cy.prev.case'], want.map(w => w.prevCase), out);
     // ALL YEARS: the Contributions' Total Net Incurred over every program year is
     // the calendar year's Total Incurred Loss & LAE on the Net Income Statement.
-    const cyRow = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'cy.incurred');
-    const allYearsIncurred = allYearsCell(TEMPLATE_ROWS[cyRow], cyRow, ts);
+    const cyRow = ts.rows.findIndex(r => r.kind === 'figure' && r.key === 'cy.incurred');
+    const allYearsIncurred = allYearsCell(ts.rows[cyRow], cyRow, ts);
     if (allYearsIncurred == null || f.lossLae[last] === null || !near(allYearsIncurred, f.lossLae[last]!))
       out.push(`All Years Total Net Incurred ${allYearsIncurred} ≠ the Net Income Statement's Total Incurred Loss & LAE ${f.lossLae[last]}`);
     // AND IT FOOTS: Newly Arising + Previously Reported + Change in IBNR = Total Net Incurred, every column.
@@ -397,31 +397,41 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
   if (!near(reserves, f.lossRes[last]! + f.laeRes[last]!)) out.push(`Σ net case + IBNR ${reserves} ≠ loss + loss expense reserves ${f.lossRes[last]! + f.laeRes[last]!}`);
 
   // A5. Underwriting: each line's own exposures and rate; the pool's their sum
-  // where every line is on payroll (WC, GL), and "—" in every row with Property.
-  const uwLines = scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine];
+  // where every line is on payroll (WC, GL), and — a pool with Property beside
+  // them, in two units — each line's own rows under its name (perLineUnderwritingRows).
   const tlAll = timelineOf(gs).filter(r => r.yearNumber <= ts.asOf);
-  if (scope === 'pool' && new Set(uwLines.map(l => (l === 'Property' ? 'TIV' : 'payroll'))).size > 1) {
-    for (const k of ['exposure', 'exposureChange', 'newBusiness', 'renewal', 'retained', 'rate', 'rateChange']) if (f[k].some(x => x !== null)) out.push(`pool ${k} shows a figure with Property in it`);
-  } else {
+  const poolLines = gs.setup.activeLines;
+  const perLine = scope === 'pool' && new Set(poolLines.map(l => (l === 'Property' ? 'TIV' : 'payroll'))).size > 1;
+  const groups: { uwLines: CoverageLine[]; key: (k: string) => string; tag: string }[] = perLine
+    ? poolLines.map(l => ({ uwLines: [l], key: (k: string) => `${k}@${l}`, tag: `pool ${l}: ` }))
+    : [{ uwLines: scope === 'pool' ? poolLines : [scope as CoverageLine], key: (k: string) => k, tag: '' }];
+  if (perLine && ['exposure', 'exposureChange', 'newBusiness', 'renewal', 'retained', 'rate', 'rateChange'].some(k => f[k]?.some(x => x !== null))) {
+    out.push('pool: a summed Underwriting figure across two units');
+  }
+  for (const { uwLines, key, tag } of groups) {
+    const g = (k: string) => f[key(k)];
+    if (!g('exposure')) { out.push(`${tag}no Underwriting rows`); continue; }
+    const sub: string[] = [];
     const ln = (r: ResultSet | undefined, fn: (x: LineResultSet) => number | undefined) =>
       (r ? uwLines.reduce((t, l) => t + (fn(r.byLine[l]!) ?? NaN), 0) : NaN);
     const prevOf = (r: ResultSet) => tlAll[tlAll.indexOf(r) - 1];
     const rolledR = tlAll.filter(r => r.yearNumber < windowResults[0].yearNumber);
     const cols = [rolledR.at(-1), ...windowResults];
     const val = (x: number) => (Number.isFinite(x) ? x : null);
-    rowTies('written exposure', f.exposure, cols.map(r => val(ln(r, x => x.writtenExposure))), out);
-    rowTies('new business', f.newBusiness, [rolledR.length ? val(rolledR.reduce((t, r) => t + ln(r, x => x.newBusinessExposure), 0)) : null,
-      ...windowResults.map(r => val(ln(r, x => x.newBusinessExposure)))], out);
-    rowTies('renewal business', f.renewal, [rolledR.length ? val(rolledR.reduce((t, r) => t + ln(r, x => x.renewalExposure), 0)) : null,
-      ...windowResults.map(r => val(ln(r, x => x.renewalExposure)))], out);
-    rowTies('retained % = renewal ÷ last year\'s written', f.retained, windowResults.map(r => (prevOf(r) ? val(ln(r, x => x.renewalExposure) / ln(prevOf(r), x => x.writtenExposure)) : null)).reduce<(number | null)[]>((a, x) => [...a, x], [null]), out);
+    rowTies('written exposure', g('exposure'), cols.map(r => val(ln(r, x => x.writtenExposure))), sub);
+    rowTies('new business', g('newBusiness'), [rolledR.length ? val(rolledR.reduce((t, r) => t + ln(r, x => x.newBusinessExposure), 0)) : null,
+      ...windowResults.map(r => val(ln(r, x => x.newBusinessExposure)))], sub);
+    rowTies('renewal business', g('renewal'), [rolledR.length ? val(rolledR.reduce((t, r) => t + ln(r, x => x.renewalExposure), 0)) : null,
+      ...windowResults.map(r => val(ln(r, x => x.renewalExposure)))], sub);
+    rowTies('retained % = renewal ÷ last year\'s written', g('retained'), windowResults.map(r => (prevOf(r) ? val(ln(r, x => x.renewalExposure) / ln(prevOf(r), x => x.writtenExposure)) : null)).reduce<(number | null)[]>((acc, x) => [...acc, x], [null]), sub);
     // The template's own identity: Written Exposures = New Business + Renewal Business, every year shown.
     // To the engine's own rounding: it records written exposure to two decimals
     // ($M, so to $5,000) and the renewal and new business it is made of unrounded.
-    windowResults.forEach((_, j) => { const i = j + 1; if (Math.abs(f.exposure[i]! - f.newBusiness[i]! - f.renewal[i]!) > 0.005 * uwLines.length + 1e-9) out.push(`written ≠ new + renewal [${i}]: ${f.exposure[i]} vs ${f.newBusiness[i]! + f.renewal[i]!}`); });
+    windowResults.forEach((_, j) => { const i = j + 1; if (Math.abs(g('exposure')[i]! - g('newBusiness')[i]! - g('renewal')[i]!) > 0.005 * uwLines.length + 1e-9) sub.push(`written ≠ new + renewal [${i}]: ${g('exposure')[i]} vs ${g('newBusiness')[i]! + g('renewal')[i]!}`); });
     const rate = (x: LineResultSet) => x.finalRatePer100 ?? x.ratePer100;
-    rowTies('rate', f.rate, cols.map(r => (r ? val(ln(r, x => rate(x) * x.writtenExposure) / ln(r, x => x.writtenExposure)) : null)), out);
-    A3_EXERCISE.underwritingFigures += f.exposure.filter(x => x !== null).length;
+    rowTies('rate', g('rate'), cols.map(r => (r ? val(ln(r, x => rate(x) * x.writtenExposure) / ln(r, x => x.writtenExposure)) : null)), sub);
+    out.push(...sub.map(x => tag + x));
+    A3_EXERCISE.underwritingFigures += g('exposure').filter(x => x !== null).length;
   }
   return out;
 }
@@ -432,7 +442,7 @@ const games: { id: string; snaps: GameState[] }[] = [
   // Adverse development on every line (as a hosted or Test player game plays it), so older
   // accident years move and the newly arising / previously reported split has development to divide.
   { id: '1 (adverse Mid)', snaps: playSnapshots('1', defaultDecisionSet, { development: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } }) },
-  // Payroll lines only, so the pool's underwriting rows are sums rather than "—".
+  // Payroll lines only, so the pool's underwriting rows are one set of sums (with Property they go line by line).
   { id: '1 (WC+GL)', snaps: playSnapshots('1', defaultDecisionSet, { lines: ['WC', 'GL'] }) },
 ];
 const scopesOf = (gs: GameState): LineView[] => ['pool', ...gs.setup.activeLines];
@@ -546,7 +556,7 @@ check(A3_EXERCISE.capped > 0, 'A. the cap is exercised: some draws are held to t
   const moved = ts.figures['cy.prev.reported'].slice(0, -1).filter(x => x !== null && Math.abs(x) >= 0.5);
   check(moved.length > 0, 'A. single player, no adverse development: Previously Reported Net Reported is not zero on the older years', ts.figures['cy.prev.reported'].map(x => x?.toFixed(0)).join(' / '));
 }
-check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are checked as sums on a payroll-only pool, and on every line', `${A3_EXERCISE.underwritingFigures} exposure figures`);
+check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are checked as sums on a payroll-only pool, line by line on a pool with Property, and on every line', `${A3_EXERCISE.underwritingFigures} exposure figures`);
 
 // THE CONTRIBUTIONS' CONTROLS, on the adverse-development game's last point, on WC.
 {
@@ -708,11 +718,18 @@ const templateFormulas = templateRows.filter(r => allYearsAt(tws, r).startsWith(
 check(templateFormulas > 0 && templateRows.every(r => { const a = allYearsAt(tws, r); return !a.startsWith('=') || a === `=${allYearsFormula(r + 1)}`; }),
   'B. every All Years cell in the template is SUM(C:H) over its own row', `${templateFormulas} formulas`);
 /** Column I as the statement must hold it: the template's, its SUM over the statement's own row. */
-const expectedAllYears = (r: number) => {
-  if (isInsertedRow(r)) return '';
-  const a = allYearsAt(tws, tRowOf(r));
+// ⚠ A STATEMENT ROW IS HELD TO ITS TEMPLATE ROW: `std` (standardRowOf) — the row
+// itself in TEMPLATE_ROWS, and in a pool whose Underwriting goes line by line
+// (perLineUnderwritingRows) each repeated row the template row it repeats. `r`
+// is the row's own place on the sheet, where its formulas point.
+const expectedAllYears = (std: number, r = std) => {
+  if (isInsertedRow(std)) return '';
+  const a = allYearsAt(tws, tRowOf(std));
   return a.startsWith('=') ? `=${allYearsFormula(r + 1)}` : a;
 };
+/** A per-line pool's line heading (its Underwriting, line by line): the line's name, where the template row it stands on is blank. */
+const lineHeadingAt = (rows: readonly TemplateRow[], r: number): string | null =>
+  (isPerLineLayout(rows) && rows[r].kind === 'heading' ? (rows[r] as { label: string }).label : null);
 
 /**
  * THE DECISIONS SECTION, below the template's last row (utils/statementDecisions):
@@ -733,9 +750,9 @@ const decisionsRowCount = (t: DecisionsTable) => 4 + t.rows.length;
  */
 // A hosted game's Pool view adds the share note on the row after the tab's note (MarketSurveyTable.shareNote).
 const surveyRowCount = (t: MarketSurveyTable) => 5 + t.rows.length + (t.shareNote ? 1 : 0);
-function surveyDiffs(ws: XLSX.WorkSheet, t: MarketSurveyTable): string[] {
+function surveyDiffs(ws: XLSX.WorkSheet, t: MarketSurveyTable, statementRows = expectedRows.length): string[] {
   const out: string[] = [];
-  const T = expectedRows.length;
+  const T = statementRows;
   const title = `${MARKET_SURVEY_TITLE} — ${t.scopeName}`;
   if (labelAt(ws, T + 1) !== title) out.push(`B${T + 2}: "${labelAt(ws, T + 1)}", not the Market Survey title "${title}"`);
   if (cellOf(ws, T + 1, 3)?.v !== t.yearText) out.push(`D${T + 2}: "${cellOf(ws, T + 1, 3)?.v}" ≠ "${t.yearText}"`);
@@ -758,9 +775,9 @@ function surveyDiffs(ws: XLSX.WorkSheet, t: MarketSurveyTable): string[] {
   if (t.shareNote && labelAt(ws, h + 2 + t.rows.length) !== t.shareNote) out.push(`row ${h + 3 + t.rows.length}: the pool share's note missing`);
   return out;
 }
-function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable, survey?: MarketSurveyTable): string[] {
+function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable, survey?: MarketSurveyTable, statementRows = expectedRows.length): string[] {
   const out: string[] = [];
-  const T = expectedRows.length + (survey ? surveyRowCount(survey) : 0);
+  const T = statementRows + (survey ? surveyRowCount(survey) : 0);
   if (labelAt(ws, T + 1) !== DECISIONS_TITLE) out.push(`B${T + 2}: "${labelAt(ws, T + 1)}", not the Decisions title`);
   if (labelAt(ws, T) !== null || labelAt(ws, T + 2) !== null) out.push(`the Decisions title not set off by blank rows`);
   const h = T + 3;
@@ -783,18 +800,23 @@ function decisionsDiffs(ws: XLSX.WorkSheet, t: DecisionsTable, survey?: MarketSu
 function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement, decisions?: DecisionsTable, survey?: MarketSurveyTable): string[] {
   const out: string[] = [];
   const range = XLSX.utils.decode_range(ws['!ref']!);
-  const rowsWanted = expectedRows.length + (survey ? surveyRowCount(survey) : 0) + (decisions ? decisionsRowCount(decisions) : 0);
-  if (range.e.r + 1 !== rowsWanted) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}${survey ? ` + Market Survey ${surveyRowCount(survey)}` : ''}${decisions ? ` + Decisions ${decisionsRowCount(decisions)}` : ''}`);
-  if (survey) out.push(...surveyDiffs(ws, survey));
-  if (decisions) out.push(...decisionsDiffs(ws, decisions, survey));
-  expectedRows.forEach(r => {
-    if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${isInsertedRow(r) ? '' : labelAt(tws, tRowOf(r))}")`);
-    const wantBlank = !isInsertedRow(r) && blankAt(tws, tRowOf(r));
+  const rows = ts.rows;
+  const N = rows.length;
+  const rowsWanted = N + (survey ? surveyRowCount(survey) : 0) + (decisions ? decisionsRowCount(decisions) : 0);
+  if (range.e.r + 1 !== rowsWanted) out.push(`${range.e.r + 1} rows, statement ${N}${survey ? ` + Market Survey ${surveyRowCount(survey)}` : ''}${decisions ? ` + Decisions ${decisionsRowCount(decisions)}` : ''}`);
+  if (survey) out.push(...surveyDiffs(ws, survey, N));
+  if (decisions) out.push(...decisionsDiffs(ws, decisions, survey, N));
+  for (let r = 0; r < N; r++) {
+    const std = standardRowOf(r, rows);
+    const heading = lineHeadingAt(rows, r);
+    const want = heading ?? expectedLabel(std);
+    if (labelAt(ws, r) !== want) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${want}" (template "${isInsertedRow(std) ? '' : labelAt(tws, tRowOf(std))}")`);
+    const wantBlank = heading === null && !isInsertedRow(std) && blankAt(tws, tRowOf(std));
     if (blankAt(ws, r) !== wantBlank) out.push(`row ${r + 1}: ${blankAt(ws, r) ? 'blank' : 'not blank'}, template ${wantBlank ? 'blank' : 'not blank'}`);
     // ALL YEARS: the same header, the same formula, or nothing — cell for cell.
-    if (allYearsAt(ws, r) !== expectedAllYears(r)) out.push(`I${r + 1}: "${allYearsAt(ws, r)}" ≠ template "${expectedAllYears(r)}"`);
-  });
-  TEMPLATE_ROWS.forEach((row, r) => {
+    if (allYearsAt(ws, r) !== expectedAllYears(std, r)) out.push(`I${r + 1}: "${allYearsAt(ws, r)}" ≠ template "${expectedAllYears(std, r)}"`);
+  }
+  rows.forEach((row, r) => {
     // Nothing in C, D–H or I of a blank, title or heading row.
     if (row.kind === 'blank' || row.kind === 'title' || row.kind === 'heading') for (let c = 2; c < STATEMENT_COLUMNS; c++) {
       const x = cellOf(ws, r, c);
@@ -803,7 +825,7 @@ function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement, decisions?: Deci
     if (row.kind === 'header') {
       // Prior only where the section shows it: the first three leave C blank.
       const prior = cellOf(ws, r, 2)?.v;
-      if (showsPrior(r) ? prior !== 'Prior' : prior !== undefined && prior !== '') out.push(`C${r + 1}: "${prior ?? ''}", ${showsPrior(r) ? 'not Prior' : 'Prior where the section shows none'}`);
+      if (showsPrior(r, rows) ? prior !== 'Prior' : prior !== undefined && prior !== '') out.push(`C${r + 1}: "${prior ?? ''}", ${showsPrior(r, rows) ? 'not Prior' : 'Prior where the section shows none'}`);
       ts.years.forEach((_, i) => { if (cellOf(ws, r, 3 + i)?.t !== 'n') out.push(`row ${r + 1}: year ${i} not a number or date`); });
     }
     if (row.kind === 'figure') ts.figures[row.key].forEach((_, i) => {
@@ -847,7 +869,7 @@ check(templateLines > 0 && allYearsLines > 0, 'B. the template draws borders to 
  * differences: the template row it stands on (the inserted row the row above's),
  * and column I as column H where the section has no All Years.
  */
-const expectedSides = (r: number, c: number) => sidesOf(tBorders, tRowOf(r) + 1, c === ALL_YEARS_COLUMN && !hasAllYears(r) ? ALL_YEARS_COLUMN - 1 : c);
+const expectedSides = (std: number, c: number) => sidesOf(tBorders, tRowOf(std) + 1, c === ALL_YEARS_COLUMN && !hasAllYears(std) ? ALL_YEARS_COLUMN - 1 : c);
 let addedLines = 0;
 for (const r of expectedRows) {
   if (!hasAllYears(r)) addedLines += expectedSides(r, ALL_YEARS_COLUMN).split(':').length - 1 - (sidesOf(tBorders, tRowOf(r) + 1, ALL_YEARS_COLUMN).split(':').length - 1);
@@ -855,11 +877,11 @@ for (const r of expectedRows) {
 check(addedLines > 0, 'B. the first three sections\' column I is drawn — the lines the statement adds to the template', `${addedLines} cell sides added`);
 
 /** Every cell, A to I on every statement row, whose border is not the template's through the deliberate differences. */
-function borderDiffs(ws: BorderSheet): string[] {
+function borderDiffs(ws: BorderSheet, rows: readonly TemplateRow[] = TEMPLATE_ROWS): string[] {
   const out: string[] = [];
-  expectedRows.forEach(r => {
+  rows.forEach((_, r) => {
     for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
-      const want = expectedSides(r, c), got = sidesOf(ws, r + 1, c);
+      const want = expectedSides(standardRowOf(r, rows), c), got = sidesOf(ws, r + 1, c);
       if (want !== got) out.push(`${String.fromCharCode(64 + c)}${r + 1}: "${got}" ≠ template "${want}"`);
     }
   });
@@ -876,7 +898,7 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   check(wb.SheetNames.join(',') === 'Pool,WC,GL,Property', `B. ${tag}: a sheet for the pool and one per line`, wb.SheetNames.join(','));
   const diffs = wb.SheetNames.flatMap((s, i) => { const ts = buildTemplateStatement(gs, SCOPES[i]); return layoutDiffs(wb.Sheets[s], ts, buildDecisionsTable(gs, ts), buildMarketSurveyTable(gs, ts)).map(d => `${s} ${d}`); });
   check(diffs.length === 0, `B. ${tag}: every sheet matches the template label for label, blank for blank and All Years formula for formula (${expectedRows.length} rows, ${templateFormulas} formulas), figures numbers in their formats`, diffs.slice(0, 3).join(' · '));
-  const bdiffs = ex.worksheets.flatMap(ws => borderDiffs(ws).map(d => `${ws.name} ${d}`));
+  const bdiffs = ex.worksheets.flatMap((ws, i) => borderDiffs(ws, buildTemplateStatement(gs, SCOPES[i]).rows).map(d => `${ws.name} ${d}`));
   check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–I × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
 }
 

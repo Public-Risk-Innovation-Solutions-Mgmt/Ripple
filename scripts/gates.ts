@@ -357,6 +357,7 @@ const FAST: string[] = [
                                      //         line shares, worked out and read back, every reader
                                      //         agreeing — premium share put back is a failing control
   'statement-decisions-check',       //   4s   the Annual Statement's Decisions section is the recorded
+  'statement-underwriting-history-check', //   6s   pr/statement-history-underwriting: every history column of the Annual Statement's Underwriting shows the prior board's figures (growth by New Members, renewals at 100%, its rates) in every mode, at the opening and after — a pool with Property line by line — with controls
                                      //         decisions, every scope and year, history years included —
                                      //         three failing controls
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments

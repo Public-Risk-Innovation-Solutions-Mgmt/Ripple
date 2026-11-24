@@ -46,7 +46,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import {
-  ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, figureText, showsPrior, shownFigure, templateStatements, TEMPLATE_ROWS, type TemplateStatement,
+  ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, figureText, showsPrior, shownFigure, templateStatements, type TemplateStatement,
 } from '../../src/utils/annualStatementTemplate';
 import { buildAnnualStatementPdf, buildStatementsPdf } from '../../src/utils/annualStatementPdf';
 import { buildDecisionsTable, DECISIONS_TITLE, type DecisionsTable } from '../../src/utils/statementDecisions';
@@ -139,11 +139,12 @@ const dash = (s: string) => s.replace(/−/g, '-');
 const yearEnd = (y: number) => `12/31/${String(y % 100).padStart(2, '0')}`;
 function expectedRows(ts: TemplateStatement): string[][] {
   const out: string[][] = [];
-  TEMPLATE_ROWS.forEach((row, i) => {
+  // The statement's own rows (TEMPLATE_ROWS, the admin split's, or a per-line pool's).
+  ts.rows.forEach((row, i) => {
     if (row.kind === 'blank') return;
     const cells = [row.label.trim(), '', '', '', '', '', '', ''];
     if (row.kind === 'header') {
-      cells[1] = showsPrior(i) ? 'Prior' : '';
+      cells[1] = showsPrior(i, ts.rows) ? 'Prior' : '';
       ts.years.forEach((y, k) => { cells[2 + k] = row.dates ? yearEnd(y) : String(y); });
       cells[7] = row.allYears ? ALL_YEARS_LABEL : '';
     }

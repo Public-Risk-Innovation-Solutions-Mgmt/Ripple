@@ -36,7 +36,8 @@
 //     Net Worth.
 //   · Underwriting — each line's own written, new and renewal exposure, Retained
 //     % as Renewal Business over last year's Written Exposures, and its rate; at
-//     pool scope the lines' sum where their exposures share a unit (see below).
+//     pool scope the lines' sum where their exposures share a unit, and line by
+//     line where they do not (perLineUnderwritingRows).
 //   · Contributions To The Current Calendar Year — each program year's net loss
 //     and LAE valued at the year the statement stands at, less the same valued a
 //     year earlier (programYearsOf at both), split for each older accident year
@@ -278,9 +279,66 @@ export const ADMIN_SPLIT_ROWS: readonly TemplateRow[] = [
 ];
 /** Each ADMIN_SPLIT_ROWS row's TEMPLATE_ROWS row: the three admin rows General Admin Expense's, the note the blank's. */
 const SPLIT_STANDARD_ROW: readonly number[] = ADMIN_SPLIT_ROWS.map((_, i) => (i < ADMIN_ROW ? i : i <= ADMIN_ROW + 2 ? ADMIN_ROW : i - 2));
-/** Row i of a layout (TEMPLATE_ROWS or ADMIN_SPLIT_ROWS) as its TEMPLATE_ROWS row, for its section and its lines. */
+// ============================================================================
+// THE POOL'S UNDERWRITING, LINE BY LINE — a pool writing Property beside WC or
+// GL. Its exposures are in two units (payroll and building value), so they
+// cannot be added, and the pool's one set of Underwriting rows used to read "—"
+// in every column, the history years included. Its Pool view repeats the
+// Underwriting rows once per line instead, each under the line's name with the
+// line's own figures — the same figures its line view shows. Every other row is
+// the layout's own. A pool whose lines share a unit keeps the one set, summed.
+// ============================================================================
+/** The Underwriting rows' keys, Written Exposures through % Change Over Prior. */
+export const UNDERWRITING_KEYS = ['exposure', 'exposureChange', 'newBusiness', 'renewal', 'retained', 'rate', 'rateChange'] as const;
+/** A per-line Underwriting row's key: the template's key and the line, "exposure@WC". */
+export const lineKey = (key: string, line: CoverageLine) => `${key}@${line}`;
+/** A row key without its line: "exposure@WC" -> "exposure". */
+export const baseKey = (key: string) => key.split('@')[0];
+
+// Each layout's row i as its TEMPLATE_ROWS row; a layout not listed is TEMPLATE_ROWS' own.
+const LAYOUT_STANDARD = new Map<readonly TemplateRow[], readonly number[]>([[ADMIN_SPLIT_ROWS, SPLIT_STANDARD_ROW]]);
+/** Row i of a layout (TEMPLATE_ROWS, ADMIN_SPLIT_ROWS or a per-line pool's) as its TEMPLATE_ROWS row, for its section and its lines. */
 export const standardRowOf = (i: number, rows: readonly TemplateRow[] = TEMPLATE_ROWS): number =>
-  (rows === ADMIN_SPLIT_ROWS ? SPLIT_STANDARD_ROW[i] : i);
+  LAYOUT_STANDARD.get(rows)?.[i] ?? i;
+
+const perLineLayouts = new Map<string, readonly TemplateRow[]>();
+const perLineBase = new Map<readonly TemplateRow[], readonly TemplateRow[]>();
+/** The layout a statement's rows were built on: TEMPLATE_ROWS or ADMIN_SPLIT_ROWS, a per-line pool's included. */
+export const baseLayoutOf = (rows: readonly TemplateRow[]): readonly TemplateRow[] => perLineBase.get(rows) ?? rows;
+/** Whether a statement's rows are a per-line pool's (perLineUnderwritingRows). */
+export const isPerLineLayout = (rows: readonly TemplateRow[]): boolean => perLineBase.has(rows);
+/**
+ * The layout `base` (TEMPLATE_ROWS or ADMIN_SPLIT_ROWS) with its Underwriting
+ * rows repeated per line: each line's name as a heading, then the rows Written
+ * Exposures through % Change Over Prior, keyed per line (lineKey), a blank
+ * between lines. Each row takes its template row's lines; a line's heading and
+ * the blank after it take the blank above Written Exposures'. One array per
+ * (base, lines), so a layout is known by identity, as ADMIN_SPLIT_ROWS is.
+ */
+export function perLineUnderwritingRows(base: readonly TemplateRow[], lines: readonly CoverageLine[]): readonly TemplateRow[] {
+  const id = `${base === ADMIN_SPLIT_ROWS ? 'split' : 'template'}|${lines.join(',')}`;
+  const known = perLineLayouts.get(id);
+  if (known) return known;
+  const first = base.findIndex(r => r.kind === 'figure' && r.key === 'exposure');
+  const last = base.findIndex(r => r.kind === 'figure' && r.key === 'rateChange');
+  const std = (i: number) => standardRowOf(i, base);
+  const rows: TemplateRow[] = [], map: number[] = [];
+  const push = (r: TemplateRow, s: number) => { rows.push(r); map.push(s); };
+  for (let i = 0; i < first; i++) push(base[i], std(i));
+  lines.forEach((line, n) => {
+    if (n > 0) push(B, std(first - 1));
+    push({ kind: 'heading', label: lineDisplayName(line) }, std(first - 1));
+    for (let i = first; i <= last; i++) {
+      const r = base[i];
+      push(r.kind === 'figure' ? { ...r, key: lineKey(r.key, line) } : r, std(i));
+    }
+  });
+  for (let i = last + 1; i < base.length; i++) push(base[i], std(i));
+  perLineLayouts.set(id, rows);
+  perLineBase.set(rows, base);
+  LAYOUT_STANDARD.set(rows, map);
+  return rows;
+}
 
 export interface LabelChange { templateRow: number; from: string; to: string; why: string }
 /** Every column-B text the statement changes, by the template row it stands on (1-based). */
@@ -325,7 +383,7 @@ const BLANK_FIRST_YEAR = new Set(['exposureChange', 'rateChange']);
 export function shownFigure(row: TemplateRow, i: number, k: number, ts: TemplateStatement): Figure | undefined {
   if (row.kind !== 'figure') return undefined;
   if (k === 0 && !showsPrior(i, ts.rows)) return undefined;
-  if (k === 1 && BLANK_FIRST_YEAR.has(row.key)) return undefined;
+  if (k === 1 && BLANK_FIRST_YEAR.has(baseKey(row.key))) return undefined;
   return ts.figures[row.key][k];
 }
 
@@ -522,58 +580,74 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   // Read off each line's own result. At pool scope a figure is the lines' sum —
   // only where their exposures are in one unit: WC and GL share the payroll base
   // ($M of payroll); Property's is building value ($M of TIV), so a pool writing
-  // Property beside WC or GL shows "—" in every row here (exposures, their
-  // change, new and renewal business, retained %, and the rate per $100 of
-  // exposure and its change). A pool of Property alone is in one unit, and sums.
-  const uwLines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
+  // Property beside WC or GL cannot sum them and shows its Underwriting line by
+  // line instead (below). A pool of Property alone is in one unit, and sums.
   const unitOf = (l: CoverageLine) => (l === 'Property' ? 'TIV' : 'payroll');
-  const addable = new Set(uwLines.map(unitOf)).size <= 1;
   const prevOf = (r: ResultSet): ResultSet | undefined => full[full.indexOf(r) - 1];
-  const lineSum = (r: ResultSet | undefined, f: (x: LineResultSet) => number | undefined): Figure => {
-    if (!r || !addable) return null;
-    let sum = 0;
-    for (const l of uwLines) {
-      const x = r.byLine[l];
-      const v = x ? f(x) : undefined;
-      if (v === undefined || !Number.isFinite(v)) return null;
-      sum += v;
+  /** The seven Underwriting rows for these lines, summed — lines that share a unit. */
+  const underwriting = (uwLines: CoverageLine[]): Record<typeof UNDERWRITING_KEYS[number], Figure[]> => {
+    const addable = new Set(uwLines.map(unitOf)).size <= 1;
+    const lineSum = (r: ResultSet | undefined, f: (x: LineResultSet) => number | undefined): Figure => {
+      if (!r || !addable) return null;
+      let sum = 0;
+      for (const l of uwLines) {
+        const x = r.byLine[l];
+        const v = x ? f(x) : undefined;
+        if (v === undefined || !Number.isFinite(v)) return null;
+        sum += v;
+      }
+      return sum;
+    };
+    const exposureAt = (r?: ResultSet) => lineSum(r, x => x.writtenExposure);
+    const rateOf = (x: LineResultSet) => x.finalRatePer100 ?? x.ratePer100;
+    // One line's rate is its own; a pool's (lines in one unit) is weighted by each line's exposure.
+    const rateAt = (r?: ResultSet): Figure => {
+      const w = lineSum(r, x => rateOf(x) * x.writtenExposure), e = exposureAt(r);
+      return w === null || e === null ? null : ratio(w, e);
+    };
+    const lastRolled = rolled.at(-1);
+    const pointRow = (f: (r?: ResultSet) => Figure): Figure[] => [f(lastRolled), ...window.map(r => f(r))];
+    const changeRow = (f: (r?: ResultSet) => Figure): Figure[] => pointRow(r => {
+      const a = f(r), b = r ? f(prevOf(r)) : null;
+      return a === null || b === null ? null : ratio(a, b) === null ? null : a / b - 1;
+    });
+    const flowRow = (f: (r?: ResultSet) => Figure): Figure[] => {
+      const xs = rolled.map(r => f(r));
+      return [xs.length === 0 || xs.some(x => x === null) ? null : xs.reduce<number>((t, x) => t + x!, 0), ...window.map(r => f(r))];
+    };
+    // Retained %: the business renewed over LAST year's written exposures. Prior's is
+    // over every year in it that has a year before it — the first year the pool has
+    // (2021) has none.
+    const renewedOver = (rs: ResultSet[]): Figure => {
+      const ok = rs.filter(r => prevOf(r) !== undefined);
+      if (ok.length === 0) return null;
+      const ren = ok.map(r => lineSum(r, x => x.renewalExposure)), base = ok.map(r => exposureAt(prevOf(r)));
+      if ([...ren, ...base].some(x => x === null)) return null;
+      return ratio(ren.reduce<number>((t, x) => t + x!, 0), base.reduce<number>((t, x) => t + x!, 0));
+    };
+    return {
+      exposure: pointRow(exposureAt),
+      exposureChange: changeRow(exposureAt),
+      newBusiness: flowRow(r => lineSum(r, x => x.newBusinessExposure)),
+      renewal: flowRow(r => lineSum(r, x => x.renewalExposure)),
+      retained: [renewedOver(rolled), ...window.map(r => renewedOver([r]))],
+      rate: pointRow(rateAt),
+      rateChange: changeRow(rateAt),
+    };
+  };
+  // ⚠ A POOL WHOSE LINES ARE IN TWO UNITS (Property beside WC or GL) shows its
+  // Underwriting line by line (perLineUnderwritingRows), each line's rows its
+  // own figures; it used to show one set of rows, "—" in every column.
+  const poolLines = gs.setup.activeLines;
+  const perLine = scope === 'pool' && new Set(poolLines.map(unitOf)).size > 1;
+  if (perLine) {
+    for (const l of poolLines) {
+      const uw = underwriting([l]);
+      for (const k of UNDERWRITING_KEYS) figures[lineKey(k, l)] = uw[k];
     }
-    return sum;
-  };
-  const exposureAt = (r?: ResultSet) => lineSum(r, x => x.writtenExposure);
-  const rateOf = (x: LineResultSet) => x.finalRatePer100 ?? x.ratePer100;
-  // One line's rate is its own; the pool's (payroll lines only) is weighted by each line's exposure.
-  const rateAt = (r?: ResultSet): Figure => {
-    const w = lineSum(r, x => rateOf(x) * x.writtenExposure), e = exposureAt(r);
-    return w === null || e === null ? null : ratio(w, e);
-  };
-  const lastRolled = rolled.at(-1);
-  const pointRow = (f: (r?: ResultSet) => Figure): Figure[] => [f(lastRolled), ...window.map(r => f(r))];
-  const changeRow = (f: (r?: ResultSet) => Figure): Figure[] => pointRow(r => {
-    const a = f(r), b = r ? f(prevOf(r)) : null;
-    return a === null || b === null ? null : ratio(a, b) === null ? null : a / b - 1;
-  });
-  const flowRow = (f: (r?: ResultSet) => Figure): Figure[] => {
-    const xs = rolled.map(r => f(r));
-    return [xs.length === 0 || xs.some(x => x === null) ? null : xs.reduce<number>((t, x) => t + x!, 0), ...window.map(r => f(r))];
-  };
-  figures.exposure = pointRow(exposureAt);
-  figures.exposureChange = changeRow(exposureAt);
-  figures.newBusiness = flowRow(r => lineSum(r, x => x.newBusinessExposure));
-  figures.renewal = flowRow(r => lineSum(r, x => x.renewalExposure));
-  // Retained %: the business renewed over LAST year's written exposures. Prior's is
-  // over every year in it that has a year before it — the first year the pool has
-  // (2021) has none.
-  const renewedOver = (rs: ResultSet[]): Figure => {
-    const ok = rs.filter(r => prevOf(r) !== undefined);
-    if (ok.length === 0) return null;
-    const ren = ok.map(r => lineSum(r, x => x.renewalExposure)), base = ok.map(r => exposureAt(prevOf(r)));
-    if ([...ren, ...base].some(x => x === null)) return null;
-    return ratio(ren.reduce<number>((t, x) => t + x!, 0), base.reduce<number>((t, x) => t + x!, 0));
-  };
-  figures.retained = [renewedOver(rolled), ...window.map(r => renewedOver([r]))];
-  figures.rate = pointRow(rateAt);
-  figures.rateChange = changeRow(rateAt);
+  } else {
+    Object.assign(figures, underwriting(scope === 'pool' ? poolLines : [scope]));
+  }
 
   // --- Program-year blocks: Program Year Totals - Net, and Gross / Ceded / Net --
   const block = (prefix: string, s: StatementSection) => {
@@ -646,7 +720,7 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   // every year's settlement differences so far (settledCase, below).
   const seed = marketSeedOf(gs.instance);
   const settled = columnsZero(1 + windowYears.length).map(() => 0);
-  for (const l of uwLines) {
+  for (const l of (scope === 'pool' ? poolLines : [scope])) {
     const valued = full.map(r => programYearsOf(gs, l, r));
     const settledBefore = new Map<number, number>();
     for (let k = 1; k < full.length; k++) {
@@ -693,7 +767,7 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
     columns: ['Prior', ...window.map(r => `${r.calendarYear}`)],
     years: window.map(r => r.calendarYear),
     figures,
-    rows: split ? ADMIN_SPLIT_ROWS : TEMPLATE_ROWS,
+    rows: perLine ? perLineUnderwritingRows(split ? ADMIN_SPLIT_ROWS : TEMPLATE_ROWS, poolLines) : split ? ADMIN_SPLIT_ROWS : TEMPLATE_ROWS,
   };
 }
 
