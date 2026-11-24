@@ -1333,7 +1333,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // its raw text; with the key normalised all 48 are identical to the control.
 // The statement workbooks are byte-identical. Intake at average quality is
 // New-version market rooms only; no single-player figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v139.json');
+// v140: THE SAVE KEY v56 -> v57 (pr/market-new-intake-095), on aws daf8bdc,
+// which reproduces v139 here 48 of 48. Text-diffed (GUARD_TEXT_DIR both sides):
+// the 24 Results workbooks move and nothing else — 48 rows, each file's
+// Version row ("riskpool_gamestate_v56" -> "riskpool_gamestate_v57") in its
+// shown and its raw text; with the key normalised all 48 are identical to the
+// control. The statement workbooks are byte-identical. Intake at 0.95 is
+// New-version market rooms only; no single-player figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v140.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -3021,7 +3021,34 @@ export const MARKET_NEW: Readonly<Record<Exclude<MarketLevel, 'off'>, MarketNewL
 export const MARKET_NEW_FIXED_ADMIN = { share: 0.50, trend: 0.03 } as const;
 
 /**
- * INTAKE AT AVERAGE QUALITY — New-version market rooms only (pr/market-new-intake).
+ * INTAKE QUALITY 0.95 — New-version market rooms only (pr/market-new-intake,
+ * then pr/market-new-intake-095). The members a team TAKES IN arrive at a fixed
+ * quality, 0.95: SLIGHTLY better than average, not the leavers' much better
+ * quality. Introduced at 1.00 (the text below); set to 0.95 so a growing team
+ * keeps a modest benefit from the members it wins.
+ *
+ * ⚠ WHY 0.95, measured by the lever-test chat (November 2026; scratch switches,
+ * nothing committed; eight room codes averaged, WC only, scenario 4, New
+ * Members 10%, Non-Renewal 0%, default covers, New at Medium, no events,
+ * adverse development None / None / Low / Low / Mid). 2031 surplus, $M:
+ *   five teams 45 / 55 / 65 / 75 / 85%:
+ *     inherited 31.2 / 27.8 / 28.0 / 25.4 / 19.2 (45% first 8 of 8)
+ *     1.00      15.4 / 23.6 / 28.3 / 27.1 / 19.5 (65% first 7 of 8, 75% 1)
+ *     0.97      16.3 / 24.4 / 28.7 / 27.3 / 19.5 (65% first 8 of 8)
+ *     0.95      17.0 / 24.9 / 29.0 / 27.5 / 19.5 (65% first 8 of 8)
+ *     0.90      18.6 / 26.3 / 29.8 / 27.8 / 19.6 (65% first 8 of 8)
+ *   three teams 35% / Expected / 85%:
+ *     inherited 19.8 / 18.1 / 14.9 (35% first 7 of 8)
+ *     1.00       5.7 / 18.2 / 14.8 (Expected first 8 of 8)
+ *     0.95       7.3 / 19.6 / 15.2 (Expected first 8 of 8)
+ *     0.90       8.9 / 21.0 / 15.6 (Expected first 8 of 8)
+ * At 0.95 the middle team is first in 16 of 16 room codes; the cheapest team
+ * trails it by at least $11.2M in every code; the 65% team leads the next by
+ * at least $3.2M (0.90: $2.6M). Losses per $100 in 2031 fall slightly for the
+ * growing teams (45%: 2.91 at 1.00, 2.87 at 0.95); the 85% team, which takes
+ * almost no one in, is unchanged (combined ratio 147%).
+ *
+ * THE INTRODUCTION AT 1.00 (pr/market-new-intake):
  * The members a team TAKES IN — price leavers from dearer teams and outside
  * members — arrive at average quality: book-risk effect 1.00, whatever the
  * leavers' quality was at the team they left. The losing team still loses its
@@ -3052,7 +3079,7 @@ export const MARKET_NEW_FIXED_ADMIN = { share: 0.50, trend: 0.03 } as const;
  * fade, a lower cap, stepped fixed admin) softened that without letting
  * overpricing pay again.
  */
-export const MARKET_NEW_INTAKE_QUALITY = 'average' as const;
+export const MARKET_NEW_INTAKE_QUALITY = 0.95;
 
 // ============================================================================
 // THE REGISTRY — what the page is generated from.
@@ -3456,16 +3483,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Today\'s 50% clears a lost-quality book in 2–3 years and so erased the selection\'s cost (lever-test chat).',
       }],
       ['New version: intake quality', {
-        value: MARKET_NEW_INTAKE_QUALITY === 'average' ? 'average (book-risk effect 1.00)' : MARKET_NEW_INTAKE_QUALITY,
+        value: `${MARKET_NEW_INTAKE_QUALITY.toFixed(2)} (book-risk effect; 1.00 is average)`,
         unit: 'risk of the members a team takes in, New-version rooms only',
-        what: 'Price leavers and outside members arrive at average quality, not the leavers\' better-than-average '
-          + 'quality; the team that loses them still loses its better members. Current rooms keep inherited quality.',
+        what: 'Price leavers and outside members arrive slightly better than average, not at the leavers\' much '
+          + 'better quality; the team that loses them still loses its better members. Current rooms keep inherited quality.',
         basis: 'CHOSEN',
         note: 'Measured (lever-test chat): in a five-team room at 45 / 55 / 65 / 75 / 85% funding (WC only, scenario 4, '
           + 'no events, eight room codes) inherited quality put the 45% team first in 8 of 8 with the best book in the '
           + 'room; at average quality the 65% team is first in 7 of 8 and the 45% team last in 8 of 8. The rate curve\'s '
           + 'peak on the five seeds is unchanged (+5%, events off); only the cheap side falls. The dearest team still '
-          + 'shrinks and its combined ratio pulls away — this does not address it.',
+          + 'shrinks and its combined ratio pulls away — this does not address it. Set to 0.95 (from 1.00) so growing '
+          + 'teams keep a modest benefit: 2031 surplus in the five-team room 17.0 / 24.9 / 29.0 / 27.5 / 19.5 against '
+          + '15.4 / 23.6 / 28.3 / 27.1 / 19.5 at 1.00; the middle team first in 16 of 16 room codes across both rooms '
+          + 'tested; the cheapest at least $11.2M behind it in every code (0.90 tested too: 65%\'s lead over the next '
+          + 'team down to $2.6M).',
       }],
       ['New version: fixed admin', {
         value: `${MARKET_NEW_FIXED_ADMIN.share * 100}% of each team's year-1 admin dollars per line, growing `
