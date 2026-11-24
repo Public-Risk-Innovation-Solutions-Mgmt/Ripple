@@ -1,15 +1,19 @@
 // ============================================================================
-// THE TWENTY SCENARIOS — THE GATE (stable-scenarios commit 9).
+// THE TWENTY SCENARIOS AND THE NAMED ONES — THE GATE (stable-scenarios commit 9;
+// the named scenarios and slot 20's new seed, pr/named-scenarios).
 //
 //   npx tsx scripts/diagnostics/scenarios-check.ts
 //
-//   1. SETUP OFFERS EXACTLY 1 TO 20: solo setup and the host's room offer the
-//      scenarios "1" to "20" and nothing else — a menu, no free seed field —
-//      and their random option picks only among them (all twenty, over draws).
-//   2. THE HANDLER REFUSES ANY OTHER SEED: createRoom accepts "1" and "20" and
-//      refuses "0", "21", "07", "7 ", "" and an eight-character code — on the
-//      local transport here, and the server's createRoom runs the same test
-//      (the contract harness drives it on DynamoDB and the built zip).
+//   1. SETUP OFFERS 1 TO 20 AND THE NAMED SCENARIOS: solo setup and the host's
+//      room offer "1" to "20" and the named "21" Staff Retreat and "22" Test
+//      Seed and nothing else — a menu, no free seed field — each named one
+//      LABELLED BY ITS NAME in both menus, never as a number; and their random
+//      option picks only among the twenty (all twenty over draws, never a named one).
+//   2. THE HANDLER REFUSES ANY OTHER SEED: createRoom accepts "1", "20", "21"
+//      and "22" and refuses "0", "23", "07", "7 ", "", an eight-character code,
+//      a name ("Staff Retreat") and a raw seed ("82670") — on the local transport
+//      here, and the server's createRoom runs the same test (the contract
+//      harness drives it on DynamoDB and the built zip).
 //   3. THE SCENARIO IS THE ONLY SEED: a solo game and a hosted room on the same
 //      number build the same instance — scenario, its fixed seed and opening
 //      alike (restated for the fixed-seed scenarios: the room is built as
@@ -52,8 +56,16 @@
 //      set, in a solo game's and a hosted room's year-1 decisions, and in a
 //      session team's decisions for a year it never locked.
 //
-// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, a
-// handler accepting "21", a hosted room built from a hashed code, a room built
+//   9. THE NAMED SCENARIOS: Staff Retreat plays seed 82670 and Test Seed 53781,
+//      solo and hosted alike, each on its own fixed seed; Test Seed opens to
+//      within 5e-5 of scenario 20's opening before slot 20 was re-picked (and
+//      scenario-opening-drift-check holds it to the bit); slot 20 plays a new
+//      seed (76975); neither is a designed slot.
+// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, the
+// named scenarios offered as numbers, a random pick that can draw a named one,
+// a handler accepting "23", refusing "21" or accepting a raw seed, Staff
+// Retreat on another seed, slot 20 still on 53781, Test Seed's opening taken
+// from the new slot 20, a hosted room built from a hashed code, a room built
 // on the old mapping (the number's own hash), the ratio order reversed, one
 // table for every line, an opening forced onto the target, a pre-game at a 1%
 // margin (and at Expected, a pre-game at 70%, one without the per-claim

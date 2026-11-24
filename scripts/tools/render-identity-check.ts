@@ -1941,7 +1941,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // save key it shows, "riskpool_gamestate_v56" -> "riskpool_gamestate_v57".
 // With the key normalised all 26 are identical to the control. Intake at 0.95
 // is New-version market rooms only; no single-player figure moves. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v141.json');
+// v143: NAMED SCENARIOS AND SLOT 20'S NEW SEED (pr/named-scenarios, from aws
+// 7af0fc6; numbered past every export and render baseline on any branch —
+// v141 is the highest, v142 this branch's export). The control: aws 7af0fc6's
+// own build reproduced v141, 174 of 174. 26 of 174 move, every Year
+// Walkthrough screen, and word-diffed against 7af0fc6's own text
+// (RENDER_TEXT_DIR) each in exactly one word: riskpool_gamestate_v57 -> v58.
+// Every configuration plays scenario 7, whose seed is kept. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v143.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

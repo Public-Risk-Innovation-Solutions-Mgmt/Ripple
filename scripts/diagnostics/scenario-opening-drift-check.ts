@@ -67,18 +67,32 @@
 //      no investment income). 13 of 20 within 5% of target on every line,
 //      worst 7.3% (scenario 6's WC) — the bars are restated to that
 //      (SCENARIO_OPENING_BARS), not the seeds re-picked.
+//   v6 (pr/named-scenarios): scenario 20 re-picked — seed 76975 for 53781
+//      (SCENARIO_SEEDS says how and why) — and the two NAMED scenarios recorded
+//      beside the twenty: 21 Staff Retreat (82670) and 22 Test Seed (53781).
+//      The control, aws 7af0fc6, opened exactly on v5. Of the twenty's 180
+//      figures only scenario 20's 9 move, as they must with a new seed:
+//      surplus WC -1.9%, GL +12.7%, Property +2.4%; year-1 premium WC -1.4%,
+//      GL +5.4%, Property -1.4%; premium to surplus 2.2715 -> 2.2820,
+//      1.9141 -> 1.7904, 1.5605 -> 1.5024 (within 4.7% of its targets on
+//      every line). Test Seed opens to the bit where scenario 20 opened in v5
+//      (asserted below) — the same seed under its own name.
 // ============================================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SCENARIO_COUNT, SCENARIO_SEEDS } from '../../src/data/pricingParameters';
+import { NAMED_SCENARIOS, SCENARIO_COUNT, SCENARIO_SEEDS } from '../../src/data/pricingParameters';
 import { buildTeamGame } from '../../src/session/client/buildGame';
 import { openingYear1Premium } from '../../src/utils/priorHistoryEngine';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v5.json');
+const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v6.json');
+/** The record before slot 20 was re-picked: Test Seed (53781) must open exactly where scenario 20 did in it. */
+const RECORD_V5 = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v5.json');
+/** Every scenario the game offers: the twenty, then the named ones (21, 22). */
+const IDS: number[] = [...Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1), ...Object.keys(NAMED_SCENARIOS).map(Number)];
 type Opening = { surplus: number; premium: number; ps: number };
 type Openings = Record<string, Record<CoverageLine, Opening>>;
 const failures: string[] = [];
@@ -92,7 +106,7 @@ const seedsObject = SCENARIO_SEEDS;
 // Every scenario's opening, as a room with no shocks builds it.
 function openingsOf(id: (n: number) => string): Openings {
   const out: Openings = {};
-  for (let n = 1; n <= SCENARIO_COUNT; n++) {
+  for (const n of IDS) {
     const gs = buildTeamGame({ seed: id(n), yearCount: 5, startingYear: 2027, eventName: 'E', poolName: 'S', shocks: [], priorDevelopment: undefined } as never, LINES).gameState;
     const last = gs.priorHistory[gs.priorHistory.length - 1];
     out[String(n)] = Object.fromEntries(LINES.map(l => {
@@ -107,14 +121,14 @@ const now = openingsOf(n => String(n));
 
 if (process.argv.includes('--write')) {
   fs.writeFileSync(RECORD, JSON.stringify(now, null, 1) + '\n');
-  console.log(`Recorded ${SCENARIO_COUNT} scenarios x ${LINES.length} lines -> ${path.relative(process.cwd(), RECORD)}. No seed was changed.`);
+  console.log(`Recorded ${IDS.length} scenarios x ${LINES.length} lines -> ${path.relative(process.cwd(), RECORD)}. No seed was changed.`);
   process.exit(0);
 }
 
 const recorded: Openings = JSON.parse(fs.readFileSync(RECORD, 'utf8'));
 function gradeDrift(seen: Openings, rec: Openings, tag: string) {
   const moved: string[] = [];
-  for (let n = 1; n <= SCENARIO_COUNT; n++) for (const l of LINES) {
+  for (const n of IDS) for (const l of LINES) {
     const a = rec[String(n)]?.[l], b = seen[String(n)]?.[l];
     if (!a || !b) { moved.push(`scenario ${n} ${l} missing`); continue; }
     for (const k of ['surplus', 'premium', 'ps'] as const) {
@@ -123,7 +137,7 @@ function gradeDrift(seen: Openings, rec: Openings, tag: string) {
   }
   check(moved.length === 0,
     `${tag}every scenario's opening on every line is where it was recorded — surplus, year-1 premium and their ratio, to the bit`,
-    moved.length ? `MOVED: ${moved.slice(0, 12).join('; ')}${moved.length > 12 ? `; and ${moved.length - 12} more` : ''}` : `${SCENARIO_COUNT} scenarios x ${LINES.length} lines unmoved`);
+    moved.length ? `MOVED: ${moved.slice(0, 12).join('; ')}${moved.length > 12 ? `; and ${moved.length - 12} more` : ''}` : `${IDS.length} scenarios (the twenty and the named) x ${LINES.length} lines unmoved`);
   if (!tag) for (const m of moved) console.log(`      ${m}`);
 }
 
@@ -131,6 +145,13 @@ console.log('SCENARIO OPENINGS, AGAINST THE RECORD');
 gradeDrift(now, recorded, '');
 check(SCENARIO_SEEDS === seedsObject && JSON.stringify(SCENARIO_SEEDS) === seedsBefore,
   'nothing re-picked: SCENARIO_SEEDS is unchanged by the run', '');
+// TEST SEED IS SCENARIO 20 AS IT WAS: its opening, to the bit, is v5's scenario 20's.
+const v5: Openings = JSON.parse(fs.readFileSync(RECORD_V5, 'utf8'));
+function gradeTestSeed(seen: Openings, tag: string) {
+  const off = LINES.flatMap(l => (['surplus', 'premium', 'ps'] as const).filter(k => seen['22']?.[l]?.[k] !== v5['20'][l][k]).map(k => `${l} ${k}`));
+  check(off.length === 0, `${tag}Test Seed opens to the bit where scenario 20 opened before it was re-picked (record v5)`, off.join(', ') || '9 figures equal');
+}
+gradeTestSeed(now, '');
 
 console.log('\nCONTROLS — each must FAIL');
 const controlFails = (name: string, run: () => void) => {
@@ -144,6 +165,10 @@ controlFails('a recorded opening nudged by one part in a billion', () => {
   const nudged: Openings = JSON.parse(JSON.stringify(recorded));
   nudged['7'].GL.surplus *= 1 + 1e-9;
   gradeDrift(now, nudged, 'c ');
+});
+controlFails('Test Seed played as the new scenario 20', () => {
+  const swapped: Openings = { ...now, '22': now['20'] };
+  gradeTestSeed(swapped, 'c ');
 });
 controlFails('scenarios 13 and 16 played on each other\'s seeds', () => {
   const swapped = openingsOf(n => String(n === 13 ? 16 : n === 16 ? 13 : n));
