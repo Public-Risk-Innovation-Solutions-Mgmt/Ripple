@@ -84,7 +84,7 @@ import { marketLockInputFor } from '../../src/session/client/marketLock';
 import { roundStartDecisions } from '../../src/utils/decisionDefaults';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { marketByYearForEngine } from '../../src/session/market';
-import { MARKET_BOOK_RISK_FADE } from '../../src/data/pricingParameters';
+import { marketParams } from '../../src/utils/market/marketStep';
 import type { MarketLockInput } from '../../src/session/contract';
 import { SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { developmentLevelOf } from '../../src/utils/adverseDevelopment';
@@ -2061,8 +2061,9 @@ async function main(): Promise<void> {
     eq(y2?.inputs.Alpha?.reset, undefined, 'a team that locked counts at what it locked, its round-start input unused');
     eq(y2?.inputs.Alpha?.byLine.WC?.rate, inputs[0].byLine.WC!.rate, 'its locked rate');
     eq(json(y2?.missing), json(['Delta']), 'a team with no lock and no round-start input is left out — nothing carries');
-    eq(y2?.result.Alpha?.WC?.bookRiskBefore, 1 + (1 - MARKET_BOOK_RISK_FADE) * (y1!.result.Alpha!.WC!.bookRisk - 1),
-      "each year's book risk starts from last year's, faded halfway to 1.00");
+    // The room is New (every room created is, pr/market-new-only) at High on the current levels: its own fade.
+    eq(y2?.result.Alpha?.WC?.bookRiskBefore, 1 + (1 - marketParams('high', 'new', 2).bookRiskFade) * (y1!.result.Alpha!.WC!.bookRisk - 1),
+      "each year's book risk starts from last year's, faded towards 1.00 by the room's level (New High, 25%)");
     // THE GAME PLAYS WHAT THE MARKET COUNTED: Charlie's year 2 replays on the reset, on two devices alike.
     const cRead2 = await t.read({ code, token: C.teamToken });
     eq(jsonOf(decisionsForYear(2, cRead2.you?.decisionsByYear, false, cRead2.room.decisionReset === true)), jsonOf(resetDecisionSet(2, false)),
@@ -2116,11 +2117,13 @@ async function main(): Promise<void> {
 
   // ---- MARKET VERSION (pr/market-new-version) ------------------------------
   //
-  // The host's Current / New: stored with the room only when New, read by every
-  // caller, carried on every stored market year, replayed identically on a
-  // second device; an unknown version refused; a room created without it, and an
-  // older room with none stored, read Current and store no version. The New
-  // step's arithmetic and the fixed admin are market-new-version-check's job.
+  // NEW IS THE ONLY VERSION FOR NEW ROOMS (pr/market-new-only): a room created
+  // without a version, or with "new", is New — stored, read by every caller,
+  // carried on every stored market year, replayed identically on a second
+  // device; a request for Current, or an unknown version, is refused. An older
+  // room with no version stored still reads Current, plays the Current step and
+  // stores no version. The New step's arithmetic and the fixed admin are
+  // market-new-version-check's job.
   {
     const t = transport();
     const json = (x: unknown) => JSON.stringify(x);
@@ -2130,11 +2133,11 @@ async function main(): Promise<void> {
     }), 'INVALID_REQUEST', 'an unknown market version is refused');
     const plain = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Plain',
       expectedTeams: 2, lines: WC, shocks: [], market: 'medium' });
-    eq(plain.room.marketVersion, undefined, 'a room created without a version reads Current (nothing stored, nothing sent)');
-    const cur = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Current',
-      expectedTeams: 2, lines: WC, shocks: [], market: 'medium', marketVersion: 'current' });
-    eq(cur.room.marketVersion, undefined, 'a room created on Current stores and sends no version');
-    eq(cur.room.marketScale, undefined, 'nor any level-table stamp (the rescale is the New version\'s)');
+    eq(plain.room.marketVersion === 'new' && plain.room.marketScale === 2, true,
+      'a room created without a version is New, on the current levels (scale 2) — the host no longer chooses');
+    await rejects(t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Current',
+      expectedTeams: 2, lines: WC, shocks: [], market: 'medium', marketVersion: 'current' }), 'INVALID_REQUEST',
+      'a request for the Current version is refused: no new room plays it');
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 3, startingYear: 2027, eventName: 'New',
       expectedTeams: 3, lines: WC, shocks: [], market: 'medium', marketVersion: 'new' });
@@ -2206,6 +2209,17 @@ async function main(): Promise<void> {
     await step(t, old.code, oldHost);
     const oy1 = (await t.read({ code: old.code, token: oldHost })).room.marketByYear?.['1'];
     eq(oy1 !== undefined && oy1.version === undefined, true, 'and its market step runs on Current, storing no version');
+    // AND IT REPLAYS UNCHANGED: its team's year, rebuilt on a second device, is byte-identical, on a game with no version.
+    const oldPlay = async (token: string, given?: RoomView) => {
+      const me = await t.read({ code: old.code, token });
+      const g = buildTeamGame(given ?? me.room, WC).gameState;
+      return { v: g.setup.marketVersion, r: replayTeamYears(g, 2, me.you?.decisionsByYear, marketByYearForEngine(me.you?.marketByYear)).produced.map(p => json(p.result)) };
+    };
+    const o1 = await oldPlay(oj[1].teamToken);
+    const oRejoin = await t.join({ code: old.code, teamName: 'Oak', role: 'player', token: oj[1].teamToken });
+    const o2 = await oldPlay(oj[1].teamToken, oRejoin.room);
+    eq(o1.v === undefined && o1.r.length === 1 && json(o1.r) === json(o2.r), true,
+      'an older Current room replays its year byte-identical on a second device, its games built with no version');
 
     // A NEW ROOM FROM BEFORE THE RESCALE: the stamp taken off reads absent (scale 1, the levels it started with), and its
     // market step stores no scale; which values scale 1 plays is market-new-version-check's job.

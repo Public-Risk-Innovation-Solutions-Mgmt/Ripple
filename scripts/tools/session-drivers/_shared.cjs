@@ -50,13 +50,15 @@
 //                         Social Inflation's later-year notes, Nuclear Verdict's
 //                         none (pr/shock-events-display). --shots DIR saves each
 //                         banner.
-//   market-new-version 22  a hosted room on the New market (pr/market-new-version):
-//                         the setup's Market version (Current default, Current /
-//                         New) and its note; Game Setup and the change history
-//                         naming the version; two years, members moving on the
-//                         Teams tab; a second device replaying the New-version
-//                         years exactly; a Current room saying Current; Test
-//                         player offering neither. --- SCREENSHOTS=1 saves them.
+//   market-new-version 20  a hosted room on the New market, the only version for
+//                         new rooms (pr/market-new-only): setup offers the level
+//                         and no version, with the fixed-admin note; Game Setup
+//                         and the change history name the level only; two years,
+//                         members moving on the Teams tab; a second device
+//                         replaying the years exactly; an older Current room
+//                         (made in the browser's own room store) keeping its
+//                         note; Test player offering no market. --- SCREENSHOTS=1
+//                         saves them.
 //   replay-fidelity    8  vary decisions across three years, reload, and require
 //                         the rebuilt results to match what was posted AT THE TIME.
 //   downloads          7  clicks all three export buttons and requires a file to

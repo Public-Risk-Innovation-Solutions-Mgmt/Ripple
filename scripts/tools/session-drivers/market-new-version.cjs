@@ -1,19 +1,21 @@
 // ============================================================================
-// MARKET VERSION NEW — a hosted room on the New market, end to end in a browser
-// (pr/market-new-version). Over the stub server, so a second device can rejoin.
+// THE NEW MARKET — a hosted room on it, end to end in a browser
+// (pr/market-new-version; since pr/market-new-only the only version for new
+// rooms). Over the stub server, so a second device can rejoin.
 //
 //   node scripts/tools/session-drivers/market-new-version.cjs
 //   SCREENSHOTS=1 ... also writes docs/screenshots/market-new-version/*.png
 //
-// Room setup offers "Market version", Current by default, Current / New; its note
-// says what New changes. The host picks New (Medium); Game Setup names the level
-// and the version, and the change history opens with them. Four teams priced from
-// 30% funding to the dearest, two years: members move (the dearest team's book
+// Room setup offers the market's level (Medium by default) and NO version
+// choice; its note says a quarter of each team's admin is fixed. Game Setup and
+// the change history name the level and no version. Four teams priced from 30%
+// funding to the dearest, two years: members move (the dearest team's book
 // shrinks, the cheapest's grows) on the host's Teams tab; the teams' screens show
-// no market results, as in every market room; a rejoin on a second device replays
-// the New-version years exactly (its Annual Statement is the first device's). A
-// second room left on Current says Current, and a Test player setup offers no
-// market version at all.
+// no market results; a rejoin on a second device replays the years exactly (its
+// Annual Statement is the first device's). An OLDER Current room — made in the
+// browser's own localStorage room store, its stored version taken off — keeps the
+// short Current note on Game Setup and in the change history. A Test player setup
+// offers no market at all.
 // ============================================================================
 const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const { spawn } = require('node:child_process');
@@ -104,7 +106,6 @@ async function setupRoom(host, API, name, version) {
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
   await host.uncheck('[data-testid="line-GL"]');
   await host.uncheck('[data-testid="line-Property"]');
-  if (version) await host.selectOption('[data-testid="market-version"]', version);
 }
 
 (async () => {
@@ -125,33 +126,34 @@ async function setupRoom(host, API, name, version) {
     }).observe(document, { childList: true, subtree: true });
   });
 
-  // ---- the host's setup: the option ------------------------------------------
+  // ---- the host's setup: the level, and no version ---------------------------
   const host = await ctx.newPage();
   await setupRoom(host, API, 'Market New Version Driver', null);
-  ok(await host.inputValue('[data-testid="market-version"]') === 'current', 'room setup offers Market version, Current by default');
-  const versions = await host.$$eval('[data-testid="market-version"] option', os => os.map(o => o.textContent.trim()));
-  ok(versions.join('/') === 'Current/New', 'Current / New', versions.join('/'));
-  ok(/Current: the market as it plays today/.test(await host.textContent('[data-testid="market-version-note"]')), 'Current\'s note: the market as it plays today');
-  await host.selectOption('[data-testid="market-version"]', 'new');
-  const note = await host.textContent('[data-testid="market-version-note"]');
-  ok(/New \(for review\)/.test(note) && /25% of each team.s admin is\s+fixed at its year-1 dollars/.test(note) && /3% a year/.test(note),
-    'New\'s note says what changes: stronger, more selective leaving, and a quarter of the admin fixed, growing 3% a year', note);
-  ok(await host.inputValue('[data-testid="market-level"]') === 'medium', 'with the market at Medium');
-  await shot(host, '01-setup-market-version.png',
-    host.locator('div', { has: host.locator('[data-testid="market-version"]') }).filter({ has: host.locator('[data-testid="market-level"]') }).last());
+  ok(await host.locator('[data-testid="market-version"]').count() === 0 && !/Market version/i.test(await host.textContent('body')),
+    'room setup offers no Market version choice: every room created plays the New market');
+  const levels = await host.$$eval('[data-testid="market-level"] option', os => os.map(o => o.textContent.trim()));
+  ok(await host.inputValue('[data-testid="market-level"]') === 'medium' && levels.join('/') === 'Off/Low/Medium/High',
+    'the market\'s level stays: Off / Low / Medium / High, Medium by default', levels.join('/'));
+  const note = await host.textContent('[data-testid="market-admin-note"]');
+  ok(/25% of each team.s admin is fixed at its year-1 dollars, growing\s+3% a year/.test(note), 'the setup says a quarter of each team\'s admin is fixed, growing 3% a year', note);
+  await host.selectOption('[data-testid="market-level"]', 'off');
+  ok(await host.locator('[data-testid="market-admin-note"]').count() === 0, 'with the market Off, no admin note');
+  await host.selectOption('[data-testid="market-level"]', 'medium');
+  await shot(host, '01-room-setup-market.png',
+    host.locator('div', { has: host.locator('[data-testid="market-level"]') }).filter({ has: host.locator('[data-testid="market-admin-note"]') }).last());
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]', { timeout: 30000 });
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
   console.log(`\n  room ${code}\n`);
 
-  // ---- Game Setup and the change history name the version ---------------------
+  // ---- Game Setup and the change history name the level, and no version --------
   const levelNote = await host.textContent('[data-testid="market-level-note"]');
-  ok(/Market competition: Medium/.test(levelNote) && (await host.textContent('[data-testid="market-version-shown"]')).trim() === 'New version',
-    'Game Setup names the level and the version: "Market competition: Medium · New version"', levelNote);
-  ok(/25% of each team.s admin is fixed/.test(levelNote), 'and says what the version does to admin');
+  ok(/Market competition: Medium\./.test(levelNote) && !/version|Current/i.test(levelNote) && await host.locator('[data-testid="market-current-note"]').count() === 0,
+    'Game Setup names the level ("Market competition: Medium.") with no version wording', levelNote);
+  ok(/25% of each team.s admin is fixed/.test(levelNote), 'and says what is fixed of each team\'s admin');
   const hist = (await host.textContent('[data-testid="edit-history-note"]')).trim();
-  ok(/Market competition: Medium · New version/.test(hist), 'the change history opens with the market and its version', hist);
-  await shot(host, '02-game-setup-version.png');
+  ok(hist === 'Market competition: Medium (set when the room was created).', 'the change history opens with the level alone', hist);
+  await shot(host, '02-game-setup.png');
 
   // ---- four teams join and set their year -------------------------------------
   const pages = {};
@@ -243,15 +245,33 @@ async function setupRoom(host, API, name, version) {
   const after = await statementText(dev2);
   ok(before.length > 200 && after === before, 'Elm rejoins on a second device and its Annual Statement — two New-version years — is exactly the first\'s');
 
-  // ---- a room left on Current says Current ---------------------------------------
+  // ---- an OLDER Current room keeps its note -----------------------------------------
+  // No new room can be Current, so this one is made as an older room is: created in the browser's own localStorage
+  // room store (no ?api=), its stored version and level table taken off, and the page reloaded.
   const host2 = await ctx.newPage();
-  await setupRoom(host2, API, 'Market Current Driver', null);
+  await host2.goto('/host');
+  await host2.waitForSelector('[data-testid="create-room"]', { timeout: 30000 });
+  await host2.fill('[data-testid="event-name"]', 'Older Current Room');
+  await host2.fill('[data-testid="expected-teams"]', '2');
   await host2.click('[data-testid="create-room"]');
   await host2.waitForSelector('[data-testid="room-code"]', { timeout: 30000 });
-  ok((await host2.textContent('[data-testid="market-version-shown"]')).trim() === 'Current version'
-    && /Current version/.test(await host2.textContent('[data-testid="edit-history-note"]'))
-    && !/admin is fixed/.test(await host2.textContent('[data-testid="market-level-note"]')),
-    'a room left on Current names the Current version on Game Setup and in the change history');
+  const oldCode = (await host2.textContent('[data-testid="room-code"]')).trim();
+  const stored = await host2.evaluate(c => {
+    const k = 'ripple.session.v1.room.' + c;
+    const r = JSON.parse(localStorage.getItem(k));
+    const was = { v: r.marketVersion, s: r.marketScale };
+    delete r.marketVersion; delete r.marketScale;
+    localStorage.setItem(k, JSON.stringify(r));
+    return was;
+  }, oldCode);
+  ok(stored.v === 'new' && stored.s === 2, 'a room created in the browser\'s own room store is New too (stored New, scale 2)', JSON.stringify(stored));
+  await host2.reload();
+  await host2.waitForSelector('[data-testid="market-current-note"]', { timeout: 30000 });
+  ok(/older Current market/.test(await host2.textContent('[data-testid="market-current-note"]'))
+    && !/admin is fixed/.test(await host2.textContent('[data-testid="market-level-note"]'))
+    && /the older Current market/.test(await host2.textContent('[data-testid="edit-history-note"]')),
+    'an older Current room keeps a short note on Game Setup and in the change history, and no fixed-admin line');
+  await shot(host2, '04-older-current-room.png', host2.locator('[data-testid="market-level-note"]'));
 
   // ---- Test player: no market, no version ------------------------------------------
   const solo = await ctx.newPage();

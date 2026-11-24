@@ -447,20 +447,17 @@ export default function HostRoomScreen({ code }: Props) {
                 </p>
                 {(room?.market ?? 'off') !== 'off' && (
                   <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">
-                    Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>
-                    {' '}· <span data-testid="market-version-shown" className="font-medium text-slate-700">{room!.marketVersion === 'new' ? 'New' : 'Current'} version</span>.
+                    Market competition: <span className="font-medium text-slate-700">{room!.market![0].toUpperCase() + room!.market!.slice(1)}</span>.
                     Advancing moves members between teams on the rates they locked.
                     {room!.marketVersion === 'new' ? ` ${MARKET_NEW_FIXED_ADMIN.share * 100}% of each team's admin is fixed at its year-1 dollars, growing ${MARKET_NEW_FIXED_ADMIN.trend * 100}% a year.` : ''}
                     {/* pr/market-level-rescale: a New room created before the levels were rescaled keeps its own. */}
                     {room!.marketVersion === 'new' && room!.marketScale !== 2 && (
                       <span data-testid="market-scale-note"> This room plays the market levels it was created with, from before the levels were rescaled.</span>
                     )}
-                  </p>
-                )}
-                {(room?.market ?? 'off') === 'off' && room?.marketVersion === 'new' && (
-                  <p data-testid="market-level-note" className="mb-3 text-xs text-slate-500">
-                    Market competition: <span className="font-medium text-slate-700">Off</span>
-                    {' '}· <span data-testid="market-version-shown" className="font-medium text-slate-700">New version</span> (no effect with the market Off).
+                    {/* pr/market-new-only: New is the only market for new rooms; an older Current room says so. */}
+                    {room!.marketVersion !== 'new' && (
+                      <span data-testid="market-current-note"> This room plays the older Current market, as it was created.</span>
+                    )}
                   </p>
                 )}
                 <button
@@ -488,7 +485,7 @@ export default function HostRoomScreen({ code }: Props) {
               settings={{ developmentLevels: room.developmentLevels ?? {}, developmentLevelsByYear: room.developmentLevelsByYear, shocks: room.shocks }}
               lockedTeams={teams.filter(t => t.locked).map(teamLabel)}
               history={room.editHistory ?? []}
-              historyNote={`Market competition: ${(room.market ?? 'off')[0].toUpperCase() + (room.market ?? 'off').slice(1)} · ${room.marketVersion === 'new' ? 'New' : 'Current'} version (set when the room was created).`}
+              historyNote={`Market competition: ${(room.market ?? 'off')[0].toUpperCase() + (room.market ?? 'off').slice(1)}${room.marketVersion === 'new' || (room.market ?? 'off') === 'off' ? '' : ' · the older Current market'} (set when the room was created).`}
               onApply={async (years: Record<string, YearSettings>) => {
                 try {
                   await sessionTransport().editGame({ code, token: hostToken, years });

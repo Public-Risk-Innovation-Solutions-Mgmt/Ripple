@@ -4,6 +4,12 @@
 //
 //   npx tsx scripts/diagnostics/market-step-check.ts
 //
+// ⚠ THE CURRENT MARKET, ON OLDER ROOMS (pr/market-new-only). Every room created
+// now plays the New version; the Current market this gate checks is played by
+// rooms created before, so each room here is made one: created, then its stored
+// version and scale taken off (asOlderCurrentRoom). The New step is
+// market-new-version-check's.
+//
 // 1. A REAL ROOM. Seven teams play a localStorage room at each level, four years,
 //    with every case the server handles: different rates, appetites, non-renewal
 //    (no team takes another's non-renewed members); a team that skips a year (counted at its last lock, on
@@ -324,7 +330,16 @@ function ruleProblems(s: StoredMarketYear): string[] {
 // ============================================================================
 
 async function main() {
-  const { LocalSessionTransport } = await import('../../src/session/localTransport');
+  const { LocalSessionTransport, ROOM_KEY_PREFIX } = await import('../../src/session/localTransport');
+  // AN OLDER CURRENT ROOM (pr/market-new-only): every room created now plays New; the Current market this gate checks is
+  // played by rooms created before — stored with no version and no scale, as the contract harness makes older rooms.
+  const asOlderCurrentRoom = (code: string) => {
+    const key = ROOM_KEY_PREFIX + code;
+    const rec = JSON.parse(globalThis.localStorage.getItem(key)!) as { marketVersion?: string; marketScale?: number };
+    delete rec.marketVersion; delete rec.marketScale;
+    globalThis.localStorage.setItem(key, JSON.stringify(rec));
+  };
+
   const { newSessionToken } = await import('../../src/session/contract');
   const { marketByYearForEngine } = await import('../../src/session/market');
   const { buildTeamGame, replayTeamYears } = await import('../../src/session/client/buildGame');
@@ -353,6 +368,7 @@ async function main() {
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: `Market ${level}`,
       expectedTeams: plan.length, lines: LINES, shocks: [], market: level });
+    asOlderCurrentRoom(made.code);
     const joined = [];
     for (const p of plan) joined.push(await t.join({ code: made.code, teamName: p.name, role: 'player' }));
     const base = buildTeamGame((await t.read({ code: made.code, token: host })).room, LINES).gameState;
@@ -596,6 +612,7 @@ async function main() {
   {
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Engine', expectedTeams: 2, lines: ['WC'], shocks: [], market: 'high' });
+    asOlderCurrentRoom(made.code);
     const a = await t.join({ code: made.code, teamName: 'Cheap', role: 'player' });
     const b = await t.join({ code: made.code, teamName: 'Dear', role: 'player' });
     const r0 = (await t.read({ code: made.code, token: host })).room;

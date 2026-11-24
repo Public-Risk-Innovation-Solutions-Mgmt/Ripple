@@ -1421,7 +1421,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // EXPOSURE, MEMBER OR DECISION ROW MOVES (Losses, Reserves by accident year,
 // Development on older years, Draws, Book movement and Decisions on the
 // walkthrough: 0 of each). No file or row added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v150.json');
+// v151: THE SAVE KEY v65 -> v66 (pr/market-new-only), on aws f817793, which
+// reproduces v150 here 48 of 48. Text-diffed (GUARD_TEXT_DIR both sides): the 24
+// Results workbooks move and nothing else — 48 rows, each file's Version row
+// ("riskpool_gamestate_v65" -> "riskpool_gamestate_v66") in its shown and its raw
+// text; with the key normalised all 48 are identical to the control. The
+// statement workbooks are byte-identical. New-only is hosted room creation; no
+// single-player or Test player figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v151.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

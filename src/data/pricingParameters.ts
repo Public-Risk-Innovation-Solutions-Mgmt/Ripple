@@ -3064,8 +3064,14 @@ export const MARKET_OUTSIDE_QUALITY = 'same mix' as const;
 
 export type MarketVersion = 'current' | 'new';
 export const MARKET_VERSIONS: readonly MarketVersion[] = ['current', 'new'];
-/** New rooms default to Current; a room stored before the option existed reads Current. */
-export const MARKET_VERSION_DEFAULT: MarketVersion = 'current';
+/**
+ * NEW IS THE ONLY VERSION FOR NEW ROOMS (pr/market-new-only): every room created
+ * plays New, and the host is no longer offered a choice. A room created before
+ * this — stored with no version — still reads Current and plays on unchanged;
+ * the Current code path stays for those rooms. (It was the host's choice,
+ * default Current.)
+ */
+export const MARKET_VERSION_DEFAULT: MarketVersion = 'new';
 
 export interface MarketNewLevel {
   /** The pair's pull, k × (pair gap − 1%)², per line. */
@@ -3635,15 +3641,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'took them filled its appetite at 1.4–1.6× risk.',
       }],
       ['Market version', {
-        value: `Current / New, default ${MARKET_VERSION_DEFAULT === 'current' ? 'Current' : 'New'}`,
-        unit: 'the host\'s setting at room setup',
-        what: 'Current plays the market above exactly. New plays the reworked market (the New version rows below) with '
-          + 'the same Off / Low / Medium / High setting. A room created before the option reads Current. Single player '
-          + 'and Test player have no market and are unchanged in every version.',
+        value: `${MARKET_VERSION_DEFAULT === 'new' ? 'New' : 'Current'} for every room created; no host choice`,
+        unit: 'every room created (pr/market-new-only)',
+        what: 'Every room created plays the New version (the New version rows below) with the Off / Low / Medium / High '
+          + 'setting, default Medium. A room created earlier on Current — or before versions existed — keeps playing the '
+          + 'Current market above, unchanged, and its Game Setup says so. Single player and Test player have no market.',
         basis: 'CHOSEN',
         note: 'Measured by the lever-test chat (hosted rooms of six teams, two test seats at a rate offset −20% to +30% '
           + 'against four at 0%, five years, seeds 82670 / 88719, scenarios 20, 16 and 1, events off and on): in today\'s '
-          + 'market overpricing pays at every setting — the 15% leaver cap saturates and the 50% fade erases the selection.',
+          + 'market overpricing pays at every setting — the 15% leaver cap saturates and the 50% fade erases the selection. '
+          + 'Offered as Current / New (default Current) for review from pr/market-new-version; New became the only '
+          + 'version for new rooms in pr/market-new-only.',
       }],
       ['New version: willing leavers (k)', {
         value: `Low ${perLine(MARKET_NEW.low.k, 3)} · Medium ${perLine(MARKET_NEW.medium.k, 3)} · High ${perLine(MARKET_NEW.high.k, 3)}`,
