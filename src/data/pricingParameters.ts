@@ -1049,17 +1049,20 @@ export const NAMED_SCENARIOS: Readonly<Record<number, { name: string; seed: numb
  * THE OPENINGS' BARS — read by scenarios-check section 5 and by nothing in the
  * game: every line within this of its design target, and this many scenarios
  * within 5% on all three lines. What the seeds above achieve on this build:
- * worst miss 19.8% (scenario 10's WC) and 0 (pr/round-paid-in-capital: the
- * round paid-in capital, WC $2M from $0, lifts every WC opening about $2.4M,
- * and the seeds were kept, by decision — NOT temporary). The bar sits at 20%,
- * a fifth of a point over the worst, so a further move of any size shows; the
- * 5% leg at 0 checks nothing until the openings come back toward target.
- * Were 7.3% and 13 (pr/asset-mix-20-75-5, the bar 7.5%); 4.9% and all 20 (pr/pregame-65);
+ * worst miss 19.64% (scenario 10's WC) and 1 (scenario 16, at 4.99%)
+ * (wip/cover-price-double: the prior board's history pays the doubled cover
+ * price, COVER_PRICE_FACTOR, so every opening surplus falls $0.02M to $0.05M a
+ * line and every premium to surplus rises 0.10% to 0.24%; the seeds kept, by
+ * decision — NOT temporary). The bar sits at 19.8%, about a fifth of a point
+ * over the worst, so a further move of any size shows; the 5% leg at 1 holds
+ * scenario 16, which a further rise of 0.01% in its WC ratio would lose.
+ * Were 19.8% and 0, the bar 20% (pr/round-paid-in-capital: the round paid-in
+ * capital, WC $2M from $0, lifted every WC opening about $2.4M); 7.3% and 13 (pr/asset-mix-20-75-5, the bar 7.5%); 4.9% and all 20 (pr/pregame-65);
  * 10.5% and 16 with the seeds before (pr/seed-switch); 18.5% and 4,
  * temporarily, while the openings stood as the fixed ALAE load left them
  * (pr/alae-load); 12% and 18 before that.
  */
-export const SCENARIO_OPENING_BARS = { worstMiss: 0.20, within5: 0, temporary: false } as const;
+export const SCENARIO_OPENING_BARS = { worstMiss: 0.198, within5: 1, temporary: false } as const;
 
 /**
  * EACH LINE'S THINNEST AND RICHEST DESIGN TARGET, PREMIUM TO SURPLUS — the
@@ -1174,8 +1177,10 @@ export const STARTING_CAPITAL: PerLine<number> = { WC: 2_000_000, GL: 8_000_000,
 // of target on every line (13 before), worst 19.8% (scenario 10's WC, 2.70 ->
 // 2.28 against 2.84); Test Seed opens 17.2% under slot 20's WC target and
 // Staff Retreat 13.5% under slot 7's (its nearest). scenarios-check's bars
-// (SCENARIO_OPENING_BARS) and the openings record (SCENARIO_OPENINGS_v7) are
+// (SCENARIO_OPENING_BARS) and the openings record (SCENARIO_OPENINGS_v7) were
 // restated to that; scripts/probes/paid-in-capital-openings.mts lists each.
+// (Since restated again, wip/cover-price-double: the pre-game pays the doubled
+// cover price — record SCENARIO_OPENINGS_v8, worst 19.64%, 1 within 5%.)
 // ⚠ WC $0, GL $8.06M, PROPERTY $8.53M (pr/pregame-65), DOWN FROM $3.0M /
 // $12.0M / $12.5M. The prior board's 65% funding (PRIOR_BOARD) earns a margin
 // every pre-game year, which left the openings too rich for today's design
@@ -2258,6 +2263,30 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
  * these odds — fewer where little is scheduled, none where nothing is.
  */
 export const T_COVER_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+
+/**
+ * THE PRICE OF COVER, x 2 (wip/cover-price-double) — ONE FACTOR ON EVERY COVER'S
+ * PRICE: the per-occurrence layers (tCoverPrice, the table above and its 30M /
+ * 40M multipliers) and the aggregate covers (aggregateCover.aggregateCoverQuote's
+ * expected recovery x load), in every scenario and mode. The factor applies in
+ * EVERY YEAR — the prior board's pre-game history (every history year) as well as
+ * the played years — so the openings carry the doubled price the board paid for
+ * its cover, and the scenarios' opening bars and openings baseline are restated
+ * to what the seeds now achieve (scenario seeds unchanged). Recoveries,
+ * attachments, limits and everything else are untouched — only what a team pays.
+ * What the Decisions page, the Rate Indication and the statements show is the
+ * doubled price, the same figure the engine charges.
+ *
+ * WHY: once GL and Property carry large claims, cover at the table's price was
+ * too clear a choice — in a hosted test of fifteen teams over five years, a team
+ * with cover finished far ahead of one without in every game with an event, and
+ * gave up little in a quiet one. Doubling the price makes cover cost more in
+ * quiet years, so going without it is a real decision. Change the factor here;
+ * nothing else needs to move.
+ */
+export const COVER_PRICE_FACTOR = { factor: 2.0 };
+/** The factor on a cover's price in `yearNumber`: COVER_PRICE_FACTOR in every year — the prior board's history and the played years alike. */
+export const coverPriceFactorFor: (yearNumber: number) => number = () => COVER_PRICE_FACTOR.factor;
 export const T_COVER_30M_MULTIPLIER = 1.25;
 export const T_COVER_40M_MULTIPLIER = 1.2;
 
@@ -4304,6 +4333,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'pool\'s layer, so a player moves up a layer or keeps that risk. The tower is cut at $1M, $2M, $10M, $20M, '
           + '$30M and $40M on every line, so each option is whole layers. Replaces the aggregate stop, which stays '
           + 'dormant behind its switch.',
+      }],
+      ['Cover price factor', {
+        value: `x ${COVER_PRICE_FACTOR.factor} in every year (the prior board's history and the played years)`, unit: 'on every cover price',
+        what: 'Every cover\'s price — the per-occurrence layers and the aggregate covers — is the table\'s price x this '
+          + 'factor in every year, the prior board\'s pre-game history included, in every scenario and mode. Recoveries, '
+          + 'attachments and limits are unchanged; the openings carry the doubled price the board paid for its cover.',
+        basis: 'CHOSEN',
+        note: 'With GL and Property large claims, cover was too clear a choice at the table\'s price; doubling it makes '
+          + 'cover cost more in quiet years, so going without is a real decision.',
       }],
       ['Reinsurance prices', {
         value: `frequencies Low ${T_COVER_FREQUENCY.Low * 100}% · Mid ${T_COVER_FREQUENCY.Mid * 100}% · High `

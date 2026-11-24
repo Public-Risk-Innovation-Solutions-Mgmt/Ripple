@@ -1636,7 +1636,7 @@ export function processLineYear(
     ? (newStack !== null ? newStack.reinsuranceCost
       // The option's price at the growth factor its T claims are drawn at below (wip/reinsurance-layers).
       : placementPrice(line as TowerLine, placedForCost,
-        shockCostFactor(line, yearNumber, estimatedExposure, lineState.shockCostBaseExposure)))
+        shockCostFactor(line, yearNumber, estimatedExposure, lineState.shockCostBaseExposure), yearNumber))
     : struck
     ? struck.quote.reinsRatePer100 * activeExposure * 10_000
     : towerQuote.premium + (aggregateQuote?.premium ?? 0);

@@ -87,12 +87,30 @@
 // (c) 4.'s solo games move from scenarios 19 and 11 to 13 and 11 — 19's new
 // seed draws no event in five years (see SOLO_IDS).
 //
+// ⚠ RESTATED FOR wip/cover-price-double: what a team is SHOWN and CHARGED for
+// a cover in a played year is the method x COVER_PRICE_FACTOR (2.0, written
+// out here as CP_FACTOR); in the prior board's years (yearNumber <= 0), the
+// method alone. tCoverPrice — the method, the brief's 2027 table — is
+// unchanged. So 2 keeps the table on tCoverPrice and wants optionPrice at
+// factor 1 to be that table in pre-game year 0 and twice it in played year 1;
+// 5 wants each played year's charge, and each struck charge for the coming
+// year, to be optionPrice(l, id, g, y) = 2 x the method at the year's factor.
+// The Event Likelihoods are unchanged. New controls: COVER_PRICE_FACTOR.factor
+// = 1 at runtime (restored after) must fail 2 and 5 (5 replays its games); the
+// gate's own expectation doubling the pre-game too must fail 2.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 2 wants optionPrice
+// at factor 1 twice the table in pre-game year 0 as in played year 1. The
+// control on the pre-game is turned round: the factor in played years only —
+// the pre-game at the table's price, as before — must fail 2. The factor at 1
+// still must fail 2 and 5.)
+//
 // ⚠ EACH SECTION HAS CONTROLS that break the thing it guards at runtime,
 // require the section to FAIL, and restore it.
 // ============================================================================
 
 import {
-  COVERS_IN_EVERY_GAME, REINSURANCE_DEFAULT_OPTION, R_MODEL, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, WORLD_COUNT,
+  COVERS_IN_EVERY_GAME, COVER_PRICE_FACTOR, REINSURANCE_DEFAULT_OPTION, R_MODEL, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, WORLD_COUNT,
 } from '../../src/data/pricingParameters';
 import { SHOCK_EVENTS, eventLines, firingsStartingIn, gameShocksOn, tClaimSize } from '../../src/utils/shockLosses';
 import { defaultReinsuranceOption, optionPrice, reinsuranceOptionIds, tCoverPrice } from '../../src/utils/reinsuranceOptions';
@@ -125,6 +143,13 @@ const control = (label: string, breakIt: () => () => void, section: () => string
     `${problems.length} problem(s) when broken`);
 };
 const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
+// wip/cover-price-double: a cover costs the method x 2.0 in every year, the prior
+// board's history included. Written out, not read from COVER_PRICE_FACTOR.
+const CP_FACTOR = 2.0;
+const PAID = { factorFor: ((() => CP_FACTOR) as (y: number) => number) };
+/** The control's broken expectation: the old rule — the factor in played years only, the pre-game at the table's price. */
+const playedOnly = () => { const o = PAID.factorFor; PAID.factorFor = (y: number) => (y >= 1 ? CP_FACTOR : 1); return () => { PAID.factorFor = o; }; };
+const factorOne = () => { const o = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1; return () => { COVER_PRICE_FACTOR.factor = o; }; };
 
 // ---- THE BRIEF ------------------------------------------------------------------
 type Lv = 'Low' | 'Mid' | 'High';
@@ -211,9 +236,13 @@ function sectionOdds(price: PriceFn = (l, id, g) => tCoverPrice(l, id, g)): stri
     // The method recomputed here, against the brief's table to $0.1K.
     if (Math.abs(mine / 1000 - BRIEF_2027_K[l][k]) > 0.05 + 1e-9) out.push(`${l} ${id} 2027: the method gives $${(mine / 1000).toFixed(2)}K, the brief's table $${BRIEF_2027_K[l][k]}K`);
     // src's price at factor 1, to the cent, and to the table.
-    const src = price(l, id, 1), shown = optionPrice(l, id, 1);
+    const src = price(l, id, 1);
     if (Math.abs(src - mine) > 0.005) out.push(`${l} ${id} 2027: tCoverPrice $${src.toFixed(2)}, the method's $${mine.toFixed(2)}`);
-    if (Math.abs(shown - src) > 0.005) out.push(`${l} ${id} 2027: optionPrice $${shown.toFixed(2)}, tCoverPrice $${src.toFixed(2)}`);
+    // What a team is shown (wip/cover-price-double): 2 x the table in pre-game year 0 and in played year 1.
+    for (const y of [0, 1]) {
+      const shown = optionPrice(l, id, 1, y), want = PAID.factorFor(y) * src;
+      if (Math.abs(shown - want) > 0.005) out.push(`${l} ${id} year ${y} at growth 1: optionPrice $${shown.toFixed(2)}, ${PAID.factorFor(y)} x tCoverPrice = $${want.toFixed(2)}`);
+    }
     if (Math.abs(src / 1000 - BRIEF_2027_K[l][k]) > 0.05 + 1e-9) out.push(`${l} ${id} 2027: $${(src / 1000).toFixed(2)}K, the brief's table $${BRIEF_2027_K[l][k]}K`);
   });
   for (const l of LINES) if (price(l, 'none', 1) !== 0) out.push(`${l} None costs ${price(l, 'none', 1)}`);
@@ -423,8 +452,9 @@ function sectionEveryGame(): string[] {
     for (let y = 1; y <= YEARS; y++) for (const l of LINES) {
       const g = briefFactor(run.began[y - 1], l, y);
       const id = coverOf(l, y), c = BRIEF_COVERS.find(x => x[0] === id)!;
-      const price = optionPrice(l, id, g), method = briefPrice(l, c[1], c[2], g);
-      if (!near(price, method)) out.push(`${tag} year ${y} ${l} ${id}: optionPrice $${price.toFixed(2)}, the method's $${method.toFixed(2)}`);
+      // Charged in a played year: 2 x the method (wip/cover-price-double).
+      const price = optionPrice(l, id, g, y), method = PAID.factorFor(y) * briefPrice(l, c[1], c[2], g);
+      if (!near(price, method)) out.push(`${tag} year ${y} ${l} ${id}: optionPrice $${price.toFixed(2)}, ${PAID.factorFor(y)} x the method = $${method.toFixed(2)}`);
       const r = run.perWorld[y - 1][0].find(x => x.line === l)!;
       if (r.decisions?.reinsuranceOption !== id) out.push(`${tag} year ${y} ${l}: held ${r.decisions?.reinsuranceOption}, bought ${id}`);
       else if (!near(r.reinsuranceCost, price)) out.push(`${tag} year ${y} ${l} ${id}: charged $${r.reinsuranceCost.toFixed(2)}, optionPrice at growth ${g.toFixed(4)} $${price.toFixed(2)}`);
@@ -440,7 +470,9 @@ function sectionEveryGame(): string[] {
         const d = perClaimOnly(y);
         d.byLine[l].reinsuranceOption = id;
         const struck = strikeRates(gs, d)[l];
-        const want = optionPrice(l, id, g);
+        const cv = BRIEF_COVERS.find(x => x[0] === id);
+        const want = cv ? PAID.factorFor(y) * briefPrice(l, cv[1], cv[2], g) : 0;
+        if (!near(optionPrice(l, id, g, y), want)) out.push(`${tag} year ${y} ${l} ${id}: optionPrice $${optionPrice(l, id, g, y).toFixed(2)}, ${PAID.factorFor(y)} x the method = $${want.toFixed(2)}`);
         if (!struck) { out.push(`${tag} ${l} ${id}: no rate struck`); continue; }
         if (!near(struck.quote.reinsuranceCost, want)) out.push(`${tag} year ${y} ${l} ${id}: struck $${struck.quote.reinsuranceCost.toFixed(2)}, optionPrice at growth ${g.toFixed(4)} $${want.toFixed(2)}`);
       }
@@ -478,8 +510,10 @@ control('R_MODEL.tShock\'s values swapped in (Highs to $15M / $12M / $25M)', () 
   return () => { LINES.forEach((l, i) => Object.assign(SHOCK_T_CLAIM_RANGE[l] as object, saved[i])); };
 }, sectionRanges);
 
-check(sectionOdds(), '2. the pricing odds: T_COVER_FREQUENCY 7.5 / 5.25 / 2.25%; every 2027 price, by the method recomputed here, the brief\'s table to $0.1K, and tCoverPrice / optionPrice agree',
+check(sectionOdds(), '2. the pricing odds: T_COVER_FREQUENCY 7.5 / 5.25 / 2.25%; every 2027 price, by the method recomputed here, the brief\'s table to $0.1K, tCoverPrice that table, optionPrice 2 x it in pre-game year 0 and in played year 1',
   LINES.map(l => `${l} 9xs1 $${(tCoverPrice(l, '$9M xs $1M', 1) / 1000).toFixed(1)}K`).join(', '));
+control('COVER_PRICE_FACTOR at 1 (the table shown in every year)', factorOne, () => sectionOdds());
+control('the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change)', playedOnly, () => sectionOdds());
 control('the 30M multiplier at 1.3 (the price\'s 30M layers rescaled)', () => () => {},
   () => sectionOdds((l, id, g) => tCoverPrice(l, id, g) * (/\$(29M xs \$1M|28M xs \$2M)/.test(id) ? 1.3 / 1.25 : 1)));
 control('the gate\'s own 30M multiplier at 1.3 (the method moved, src not)', () => { MULT.m30 = 1.3; return () => { MULT.m30 = 1.25; }; }, () => sectionOdds());
@@ -525,10 +559,16 @@ control('a large claim drawn on its own (a shockId \'T\' claim added in every wo
   return sectionEvents(briefFactor, pw);
 });
 
-check(sectionEveryGame(), '5. covers and likelihoods in every game: the shocks-off hosted game offers the nine, charges and strikes optionPrice at its factor as the shocks-on game does at its own, and its Rate Indication\'s Event Likelihoods are eventLikelihoods(line, factor)');
+check(sectionEveryGame(), '5. covers and likelihoods in every game: the shocks-off hosted game offers the nine, charges and strikes optionPrice (2 x the method) at its factor as the shocks-on game does at its own, and its Rate Indication\'s Event Likelihoods are eventLikelihoods(line, factor)');
 control('COVERS_IN_EVERY_GAME switched off', () => {
   COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; };
 }, sectionEveryGame);
+// The two hosted games replayed with the factor at 1: charged and struck at the method, not 2 x it.
+control('COVER_PRICE_FACTOR at 1, the hosted games replayed', factorOne, () => {
+  const off0 = offRun, on0 = onRun;
+  offRun = null; onRun = null;
+  try { return sectionEveryGame(); } finally { offRun = off0; onRun = on0; }
+});
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);

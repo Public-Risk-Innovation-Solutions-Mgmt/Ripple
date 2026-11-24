@@ -25,7 +25,7 @@
 import {
   AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_DEFAULT_SHOCKS_OFF, AGGREGATE_STOP_OFFERED_SHOCKS_OFF,
   AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OFFERED_SHOCKS_OFF, REINSURANCE_OPTIONS,
-  SHOCK_T_CLAIM_RANGE, T_COVER_30M_MULTIPLIER, T_COVER_40M_MULTIPLIER, T_COVER_FREQUENCY, coversInEveryGame,
+  SHOCK_T_CLAIM_RANGE, T_COVER_30M_MULTIPLIER, T_COVER_40M_MULTIPLIER, T_COVER_FREQUENCY, coversInEveryGame, coverPriceFactorFor,
   type ReinsuranceOption,
 } from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
@@ -140,9 +140,13 @@ for (const line of LINES) {
   }
 }
 
-/** A placement's price for a year: the option it is, priced by tCoverPrice at growth factor `g`. */
-export function placementPrice(line: TowerLine, placed: readonly boolean[], g = 1): number {
-  return tCoverPrice(line, optionOfPlacement(line, placed), g);
+/**
+ * A placement's price for a year: the option it is, priced by tCoverPrice at
+ * growth factor `g`, x the cover price factor for `yearNumber`
+ * (COVER_PRICE_FACTOR in a played year; 1 in the prior board's history).
+ */
+export function placementPrice(line: TowerLine, placed: readonly boolean[], g: number, yearNumber: number): number {
+  return tCoverPrice(line, optionOfPlacement(line, placed), g) * coverPriceFactorFor(yearNumber);
 }
 
 /**
@@ -150,8 +154,9 @@ export function placementPrice(line: TowerLine, placed: readonly boolean[], g = 
  * the engine charges: tCoverPrice at the year's growth factor `factor`
  * (shockCost.shockCostFactor; 1 is year 1).
  */
-export function optionPrice(line: CoverageLine, optionId: string, factor = 1): number {
-  return tCoverPrice(line, optionId, factor);
+export function optionPrice(line: CoverageLine, optionId: string, factor: number, yearNumber: number): number {
+  // x the cover price factor (COVER_PRICE_FACTOR) in a played year: the price a team pays.
+  return tCoverPrice(line, optionId, factor) * coverPriceFactorFor(yearNumber);
 }
 
 /** The per-claim packages a line offers, in display order (dormant with AGGREGATE_STOP on). */

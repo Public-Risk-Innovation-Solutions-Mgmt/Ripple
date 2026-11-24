@@ -228,7 +228,7 @@ export function occurrenceProgramCost(
   // use (shockCost.shockCostFactor); expected ceded stays the moments' own, for
   // the record.
   if (newLossEngineRuns()) {
-    premium = placementPrice(line, placed, pricedGrowthFactor(line, members, yearNumber));
+    premium = placementPrice(line, placed, pricedGrowthFactor(line, members, yearNumber), yearNumber);
   }
   return { premium, expectedCeded };
 }

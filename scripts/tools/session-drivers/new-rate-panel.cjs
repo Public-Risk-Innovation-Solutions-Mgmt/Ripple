@@ -254,8 +254,13 @@ async function plrIs(rc) {
   ok(offered.length === 8, `all eight T covers are offered (${offered.join(', ')})`);
   const wcPrice = (await page.textContent('[data-testid="reins-option-WC-$38M xs $2M"]')).replace(/\s+/g, ' ');
   // wip/reinsurance-layers: priced by the workbook's method on the year's claims —
-  // year 1, growth 1: WC 38 xs 2 = 1.2 x (5.25% x $2.5M + 2.25% x $21M) = $724,500.
-  ok(/\$724,500\/yr/.test(wcPrice), `38 xs 2 on WC shows its year-1 price by the method ("${wcPrice}")`);
+  // year 1, growth 1: WC 38 xs 2 = 1.2 x (5.25% x $2.5M + 2.25% x $21M) = $724,500,
+  // x the cover price factor in a played year (wip/cover-price-double;
+  // COVER_PRICE_FACTOR, written out here: 2.0) = $1,449,000 — not the table's $724,500.
+  const COVER_PRICE_FACTOR = 2.0;
+  const want = `$${(724500 * COVER_PRICE_FACTOR).toLocaleString('en-US')}/yr`;
+  ok(wcPrice.includes(want) && !wcPrice.includes('$724,500/yr'),
+    `38 xs 2 on WC shows its year-1 price: the method x the cover price factor, ${want} ("${wcPrice}")`);
   const ppLine = t => (t.match(/Pure premium[^+]*/) || [''])[0];
   const atNone = await panelText();
   await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');

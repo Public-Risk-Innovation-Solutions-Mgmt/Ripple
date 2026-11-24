@@ -394,6 +394,16 @@ last year unless it sets funding and covers back up. Within a year, changes not 
 restores the year's draft, not last year's). A hosted team that does not lock a year plays the reset for it (section
 2). The Annual Statement's Decisions section records what was actually played each year.
 
+**Cover costs twice its table price** (`COVER_PRICE_FACTOR`, ×2.0, in the parameters file) — the per-claim layers
+and the aggregate covers alike, in every scenario and mode, and in every year: the prior board's pre-game history pays
+the doubled price too, so each scenario's opening surplus and premium-to-surplus reflect it (the scenario seeds are
+unchanged; the opening bars were restated to what they now achieve). Recoveries, attachments and limits are unchanged.
+The prices on the Decisions page, the Rate Indication and the statements are the doubled ones, which the engine
+charges. Why: with GL and Property large claims, cover was too clear a choice at the table's price; doubling makes it
+cost more in quiet years. A team that buys back the prior board's covers therefore pays about what the history paid
+for its reinsurance in 2027 — the history paid the doubled price too — so the price of cover adds no jump to its 2027
+rate.
+
 **Where the rest comes in:**
 
 - **Shocks:** single player draws from a 12-event catalogue (about 0.3 a year, from year 2); hosted rooms use

@@ -384,6 +384,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // text (RENDER_TEXT_DIR): on each of the 26, exactly two insertions and nothing
 // removed or changed — the index ("SECTIONS" and its seven entries) and the
 // Decisions section after the Reinsurance section. No key added or removed.
+// v151: COVER COSTS TWICE ITS TABLE PRICE IN EVERY YEAR, THE PRIOR BOARD'S
+// HISTORY INCLUDED (wip/cover-price-double; COVER_PRICE_FACTOR x2.0; save key
+// v64 -> v65), on aws cb0ac7e, whose own build reproduced v150, 174 of 174.
+// 140 of 174 move. Attributed exactly with a third build — this branch with
+// COVER_PRICE_FACTOR.factor set to 1 — word-diffed against the control's text
+// (RENDER_TEXT_DIR): it moves 26, the Year Walkthrough screens, each by the
+// Version only (riskpool_gamestate_v64 -> v65). Every other move, head against
+// that build, is the price of cover: the Decisions page's cover prices, each
+// twice ($9M xs $1M on GL $487,500/yr -> $975,000/yr) and the aggregate covers'
+// ($675,955 -> $1,351,911); the Rate Indication's reinsurance per $100 (0.079 ->
+// 0.159); the opening surplus in the header, Introduction and Decisions (GL
+// $20.85M -> $20.83M, WC $21.40M -> $21.38M, Property $20.10M -> $20.06M) — the
+// prior board's history now paying the doubled price — and the history's
+// written premium, current rate, loss, combined and operating ratios,
+// investment and operating income, assets and net worth on the Annual
+// Statement; the rate's change against last year on Decisions (+3.5% -> +0.5%,
+// last year's rate now carrying the doubled cover); the Year Walkthrough's
+// surplus, investment income and capital steps and Year codes. No loss,
+// reserve, recovery, exposure or member figure moves. By screen: Annual
+// Statement, Decision History, Decisions and Year Walkthrough 26 each,
+// Introduction 16, Rate Indication 10, the header 10. No key added or removed.
 const BASELINE = process.env.RENDER_BASELINE
 //
 // ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
@@ -2007,13 +2028,6 @@ const BASELINE = process.env.RENDER_BASELINE
 //     reinsurance", and Decisions carries the reset line.
 // Value identity holds, and the export guard moves by the save key alone
 // (export v149): both play their own decisions every year.
-// v151: THE SAVE KEY v64 -> v65 (pr/market-new-only), on aws cb0ac7e, which
-// reproduces v150 here 174 of 174. Word-diffed (RENDER_TEXT_DIR both sides), 26
-// move — every Year Walkthrough, by one line each and one word: the save key it
-// shows, "riskpool_gamestate_v64" -> "riskpool_gamestate_v65". With the key
-// normalised all 26 are identical to the control. The host's setup and Game
-// Setup screens that changed are not in this baseline (it plays single-player
-// configurations); market-new-version.cjs checks them. 148 match.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v151.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
