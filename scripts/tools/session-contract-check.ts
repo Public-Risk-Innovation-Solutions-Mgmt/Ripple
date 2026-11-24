@@ -231,6 +231,8 @@ interface StoreHooks {
   unmarket(code: string): Promise<void>;
   /** MARKET VERSION: take the room's version off the stored record — a room from before the option. */
   unversion(code: string): Promise<void>;
+  /** MARKET LEVEL RESCALE: take the room's level-table stamp off the stored record — a New room from before the rescale. */
+  unscale(code: string): Promise<void>;
   /**
    * TEAM-CHOSEN POOL NAMES: take teamPoolNames off the stored room — a room from
    * before teams named their pools — and, given `from`/`to`, store one team's
@@ -242,7 +244,7 @@ let store: StoreHooks;
 
 /** The localStorage room record — the localStorage pass and the stub server's store alike. */
 const localStore: StoreHooks = (() => {
-  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; teamPoolNames?: boolean; teams: Array<{ name: string; teamNumber?: number }> };
+  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; marketScale?: number; teamPoolNames?: boolean; teams: Array<{ name: string; teamNumber?: number }> };
   const get = (code: string): Rec => JSON.parse(globalThis.localStorage.getItem(ROOM_KEY_PREFIX + code)!) as Rec;
   const put = (code: string, r: Rec) => globalThis.localStorage.setItem(ROOM_KEY_PREFIX + code, JSON.stringify(r));
   return {
@@ -251,6 +253,7 @@ const localStore: StoreHooks = (() => {
     async stored(code) { const r = get(code); return { next: r.nextTeamNumber, byName: Object.fromEntries(r.teams.map(x => [x.name, x.teamNumber])) }; },
     async unmarket(code) { const r = get(code); delete r.market; put(code, r); },
     async unversion(code) { const r = get(code); delete r.marketVersion; put(code, r); },
+    async unscale(code) { const r = get(code); delete r.marketScale; put(code, r); },
     async legacyRoom(code, from, to) {
       const r = get(code); delete r.teamPoolNames;
       if (from && to) for (const x of r.teams) if (x.name === from) x.name = to;
@@ -2080,11 +2083,13 @@ async function main(): Promise<void> {
     const cur = await t.createRoom({ hostToken: newSessionToken(), seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Current',
       expectedTeams: 2, lines: WC, shocks: [], market: 'medium', marketVersion: 'current' });
     eq(cur.room.marketVersion, undefined, 'a room created on Current stores and sends no version');
+    eq(cur.room.marketScale, undefined, 'nor any level-table stamp (the rescale is the New version\'s)');
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 3, startingYear: 2027, eventName: 'New',
       expectedTeams: 3, lines: WC, shocks: [], market: 'medium', marketVersion: 'new' });
     const code = made.code;
     eq(made.room.marketVersion, 'new', 'a New-version room carries its version');
+    eq(made.room.marketScale, 2, 'and is stamped with the rescaled levels it was created on (scale 2)');
     const again = await t.createRoom({ hostToken: host, seed: '7', yearCount: 3, startingYear: 2027, eventName: 'New',
       expectedTeams: 3, lines: WC, shocks: [], market: 'medium', marketVersion: 'new' });
     eq(again.reused === true && again.code === code && again.room.marketVersion === 'new', true, 'a retried create returns the same room, still New');
@@ -2092,6 +2097,7 @@ async function main(): Promise<void> {
     for (const n of ['Alpha', 'Bravo', 'Charlie']) joined.push(await t.join({ code, teamName: n, role: 'player' }));
     eq((await t.read({ code, token: joined[0].teamToken })).room.marketVersion, 'new', 'every team reads the version');
     eq((await t.read({ code, token: '' })).room.marketVersion, 'new', 'and so does an anonymous caller');
+    eq((await t.read({ code, token: joined[0].teamToken })).room.marketScale, 2, 'every caller reads the level-table stamp');
     const game0 = buildTeamGame((await t.read({ code, token: host })).room, WC).gameState;
     eq(game0.setup.marketVersion, 'new', "each team's game is built on the room's version");
     const d1 = decisionsForYear(1, undefined, true);
@@ -2104,6 +2110,7 @@ async function main(): Promise<void> {
     await step(t, code, host);
     const y1 = (await t.read({ code, token: host })).room.marketByYear?.['1'];
     eq(y1?.version, 'new', "the year's stored market step carries the version it ran on");
+    eq(y1?.scale, 2, 'and the level table (scale 2)');
     ok((y1?.result.Charlie?.WC?.leftShare ?? 0) > 0, 'members leave the dearest team');
 
     // YEAR 2, so the fixed admin bites (in year 1 its fixed half is year 1's own admin).
@@ -2148,6 +2155,24 @@ async function main(): Promise<void> {
     await step(t, old.code, oldHost);
     const oy1 = (await t.read({ code: old.code, token: oldHost })).room.marketByYear?.['1'];
     eq(oy1 !== undefined && oy1.version === undefined, true, 'and its market step runs on Current, storing no version');
+
+    // A NEW ROOM FROM BEFORE THE RESCALE: the stamp taken off reads absent (scale 1, the levels it started with), and its
+    // market step stores no scale; which values scale 1 plays is market-new-version-check's job.
+    const preHost = newSessionToken();
+    const pre = await t.createRoom({ hostToken: preHost, seed: '7', yearCount: 2, startingYear: 2027, eventName: 'Pre-rescale',
+      expectedTeams: 2, lines: WC, shocks: [], market: 'high', marketVersion: 'new' });
+    await store.unscale(pre.code);
+    const preRoom = (await t.read({ code: pre.code, token: preHost })).room;
+    eq(preRoom.marketVersion === 'new' && preRoom.marketScale === undefined, true,
+      'a New room created before the rescale, with no stamp stored, reads New with no scale (it keeps the levels it started with)');
+    const pj = [await t.join({ code: pre.code, teamName: 'Elder', role: 'player' }), await t.join({ code: pre.code, teamName: 'Oak', role: 'player' })];
+    for (let i = 0; i < 2; i++) {
+      await t.submit({ code: pre.code, token: pj[i].teamToken, yearNumber: 1, decisions: decisionsToJson(d1),
+        market: { byLine: { WC: { ...base.byLine.WC!, rate: base.byLine.WC!.rate * f[i * 2], newMembers: 0.10 } } } });
+    }
+    await step(t, pre.code, preHost);
+    const py1 = (await t.read({ code: pre.code, token: preHost })).room.marketByYear?.['1'];
+    eq(py1 !== undefined && py1.version === 'new' && py1.scale === undefined, true, 'and its market step runs New with no scale stored (scale 1)');
   }
 
   // ---- TEAM NUMBERS ------------------------------------------------------
@@ -2498,6 +2523,9 @@ async function dynamoPasses(): Promise<number> {
       },
       async unversion(code) {
         await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE marketVersion' }));
+      },
+      async unscale(code) {
+        await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE marketScale' }));
       },
       async legacyRoom(code, from, to) {
         const id = from ? Object.entries((await header(code)).roster).find(([, e]) => e.name === from)?.[0] : undefined;

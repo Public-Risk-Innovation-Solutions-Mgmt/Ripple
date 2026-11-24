@@ -12,8 +12,8 @@
 // ============================================================================
 
 import {
-  MARKET_DEFAULT_LEVEL, MARKET_VERSION_DEFAULT, MARKET_VERSIONS, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, type MarketLevel,
-  type MarketVersion,
+  MARKET_DEFAULT_LEVEL, MARKET_NEW_SCALE_CURRENT, MARKET_VERSION_DEFAULT, MARKET_VERSIONS, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, type MarketLevel,
+  type MarketNewScale, type MarketVersion,
 } from '../data/pricingParameters';
 import type { CoverageLine, MarketLineInput } from '../types/simulation';
 import { runMarketStep, type MarketTeamInput, type MarketTeamLineResult } from '../utils/market/marketStep';
@@ -28,10 +28,16 @@ export const marketLevelOf = (v: unknown): MarketLevel =>
 /** A create request's level: absent reads 'off' too (the form always sends one; MARKET_DEFAULT_LEVEL is its default). */
 export const requestedMarketLevel = (v: unknown): MarketLevel | null =>
   v === undefined ? 'off' : (LEVELS as readonly string[]).includes(v as string) ? (v as MarketLevel) : null;
-export { MARKET_DEFAULT_LEVEL };
+export { MARKET_DEFAULT_LEVEL, MARKET_NEW_SCALE_CURRENT };
 
 /** A stored room's market version: only 'new' is ever stored; anything else (an older room) reads 'current'. */
 export const marketVersionOf = (v: unknown): MarketVersion => (v === 'new' ? 'new' : 'current');
+
+/**
+ * A stored room's New-version level table (pr/market-level-rescale): only 2 is ever stored; anything else — every
+ * room created before the rescale — reads 1 and keeps playing the levels it started with.
+ */
+export const marketScaleOf = (v: unknown): MarketNewScale => (v === 2 ? 2 : 1);
 
 /** A create request's market version: absent reads MARKET_VERSION_DEFAULT ('current'); anything unknown is refused (null). */
 export const requestedMarketVersion = (v: unknown): MarketVersion | null =>
@@ -84,6 +90,8 @@ export function marketYearForAdvance(a: {
   level: Exclude<MarketLevel, 'off'>;
   /** The room's market version; 'current' (or absent) plays the market as it was before the option. */
   version?: MarketVersion;
+  /** The New version's level table: 2 for a room created from pr/market-level-rescale on; absent plays 1. */
+  scale?: MarketNewScale;
   lines: readonly CoverageLine[];
   year: number;
   roster: readonly MarketRosterEntry[];
@@ -116,12 +124,17 @@ export function marketYearForAdvance(a: {
     nameOfKey[keyOf(t.teamNumber)] = t.name;
   }
   const step = runMarketStep({
-    level: a.level, ...(a.version === 'new' ? { version: 'new' as const } : {}), seed: `${a.code}|${a.seed}`, year: a.year, lines: a.lines, teams,
+    level: a.level, ...(a.version === 'new' ? { version: 'new' as const } : {}),
+    ...(a.version === 'new' && a.scale === 2 ? { scale: 2 as const } : {}), seed: `${a.code}|${a.seed}`, year: a.year, lines: a.lines, teams,
     untakenDroppedLastYear: a.previous?.untakenDropped ?? {},
   });
   const result: Record<string, Partial<Record<CoverageLine, MarketTeamLineResult>>> = {};
   for (const [key, r] of Object.entries(step.teams)) result[nameOfKey[key]] = r;
-  return { year: a.year, level: a.level, ...(a.version === 'new' ? { version: 'new' as const } : {}), inputs, missing, result, untakenDropped: step.untakenDropped };
+  return {
+    year: a.year, level: a.level, ...(a.version === 'new' ? { version: 'new' as const } : {}),
+    ...(a.version === 'new' && a.scale === 2 ? { scale: 2 as const } : {}),
+    inputs, missing, result, untakenDropped: step.untakenDropped,
+  };
 }
 
 /** One team's stored results, by year — CallerView.marketByYear. */

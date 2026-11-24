@@ -31,7 +31,7 @@ import type {
 } from '../contract';
 import { teamNumbers } from '../contract';
 import type { MarketLevel, MarketTeamLineResult, StoredMarketYear } from '../contract';
-import { marketLevelOf, marketVersionOf } from '../market';
+import { marketLevelOf, marketScaleOf, marketVersionOf } from '../market';
 import type { CoverageLine } from '../../types/simulation';
 import { shownShares, type RoomSharesByYear } from '../marketShares';
 import { buildStandings } from '../standings';
@@ -136,6 +136,8 @@ export interface RoomHeader {
   market?: MarketLevel;
   /** Market version. ⚠ Only 'new' is stored; absent (Current, or a header from before the option) reads 'current'. */
   marketVersion?: 'new';
+  /** The New version's level table. ⚠ Only 2 is stored; absent (a room created before the rescale) reads 1. */
+  marketScale?: 2;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -281,6 +283,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     ...(role === 'host' && header.editHistory ? { editHistory: header.editHistory.map(e => ({ ...e })) } : {}),
     market: marketLevelOf(header.market),
     ...(marketVersionOf(header.marketVersion) === 'new' ? { marketVersion: 'new' as const } : {}),
+    ...(marketScaleOf(header.marketScale) === 2 ? { marketScale: 2 as const } : {}),
     ...(role === 'host' && fetched.marketYears && Object.keys(fetched.marketYears).length > 0 ? { marketByYear: fetched.marketYears } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,
