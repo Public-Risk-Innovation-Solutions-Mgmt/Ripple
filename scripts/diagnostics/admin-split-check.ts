@@ -21,21 +21,31 @@
 // 2. FIXED + VARIABLE = TOTAL in every column — Prior, each year, and All Years
 //    where shown — at every as-of year and scope.
 // 3. FIXED IS THE ENGINE'S, recomputed here: per line, 0.25 × year-1 admin ×
-//    1.03^(year − 1) in a year with the line's market result, 0 otherwise (a
-//    history year, a team that never locked); the pool's the lines' sum. And it
+//    1.03^(year − 1) in a played year with the line's market result, 0 in one
+//    without (a team that never locked); the pool's the lines' sum. A HISTORY
+//    YEAR (pr/admin-split-history; display only) reads the same formula
+//    backwards — year 1's fixed admin ÷ 1.03 a year (2026 ÷ 1.03, 2025 ÷ 1.03²)
+//    — read from the whole game so every as-of view splits it alike, 0 for a
+//    line with no market result in any year, and "—" before year 1 is played.
+//    Variable is never negative. And it
 //    ties to what the engine booked: (Fixed + 0.75 × the admin charged) × (1 +
 //    the year's overrun) = General Admin Expense, the overrun read from a twin
 //    game on the same stored market without the version.
 // 4. NOTHING ELSE MOVES: every other figure of the split statement — the Total
 //    (today's General Admin Expense), every ratio, every other line — equals the
 //    statement built from the same results without the split.
+// 3c. ONE TEAM: a hosted New room with a single team (no rivals) gets a
+//    market result every year, and its statement shows Fixed above 0 in every
+//    played year, as the brief recomputes it.
 // 5. THE DOWNLOADS: the Excel file, read back, carries the three admin rows and
 //    the note where the rows say, Fixed + Variable = Total in every cell; the
 //    PDF's cell text carries them too.
 //
 // CONTROLS, each of which must fail: Variable off by $1,000 in one year (the
 // sum check); Fixed recomputed at 50%; with no trend; the split shown in a
-// Current room; the note left out.
+// Current room; the note left out; history Fixed not stepped back; history
+// Fixed left at 0 (the old all-Variable history); a one-team game without its
+// market results.
 // ============================================================================
 import ExcelJS from 'exceljs';
 import type { CoverageLine, GameState, LineResultSet, LineView, ResultSet } from '../../src/types/simulation';
@@ -92,7 +102,8 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00 },       // never locks
   ];
   /** A room played four years; each team's game replayed to the end, with a twin without the version. */
-  async function playRoom(level: 'off' | 'medium', version: 'current' | 'new', createdBeforeRescale = false) {
+  async function playRoom(level: 'off' | 'medium', version: 'current' | 'new', createdBeforeRescale = false, teams = plan) {
+    const plan = teams;
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: `Split ${level} ${version}`,
       expectedTeams: plan.length, lines: LINES, shocks: [], market: level, ...(version === 'new' ? { marketVersion: 'new' as const } : {}) });
@@ -152,9 +163,16 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
   const statementsOf = (gs: GameState): TS[] => allOf(gs).flatMap(r => SCOPES.map(s => T.buildTemplateStatement(gs, s, r.yearNumber)));
 
   /** The brief's fixed admin for a year at a scope, from the results alone. */
-  function briefFixed(gs: GameState, r: ResultSet, scope: LineView, fx = BRIEF): number {
-    if (r.yearNumber < 1) return 0;
-    const y1 = gs.lockedResults.find(x => x.yearNumber === 1)!;
+  function briefFixed(gs: GameState, r: ResultSet, scope: LineView, fx = BRIEF, step = true): number | null {
+    const y1 = gs.lockedResults.find(x => x.yearNumber === 1);
+    if (r.yearNumber < 1) {
+      // A history year, display only: year 1's fixed admin stepped back the trend a year; no figure before year 1.
+      if (!y1) return null;
+      return (scope === 'pool' ? LINES : [scope as CoverageLine]).reduce((t, l) =>
+        t + (Object.values(gs.setup.marketByYear ?? {}).every(m => m?.[l] === undefined) ? 0
+          : fx.share * (y1.byLine[l] as LineResultSet).adminExpense * (1 + fx.trend) ** (step ? r.yearNumber - 1 : 0)), 0);
+    }
+    if (!y1) return 0;
     return (scope === 'pool' ? LINES : [scope as CoverageLine]).reduce((t, l) =>
       t + (gs.setup.marketByYear?.[String(r.yearNumber)]?.[l] === undefined ? 0
         : fx.share * (y1.byLine[l] as LineResultSet).adminExpense * (1 + fx.trend) ** (r.yearNumber - 1)), 0);
@@ -176,13 +194,17 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     return p;
   }
   /** Fixed as the brief recomputes it, column by column (Prior the rolled years summed). */
-  function fixedProblems(gs: GameState, ts: TS, fx = BRIEF): string[] {
+  function fixedProblems(gs: GameState, ts: TS, fx = BRIEF, step = true): string[] {
     const p: string[] = [];
     const all = allOf(gs).filter(r => r.yearNumber <= ts.asOf);
     const window = ts.years.map(y => all.find(r => r.calendarYear === y)!);
     const rolled = all.filter(r => r.calendarYear < ts.years[0]);
-    const want = [rolled.reduce((t, r) => t + briefFixed(gs, r, ts.scope, fx), 0), ...window.map(r => briefFixed(gs, r, ts.scope, fx))];
-    ts.figures.adminFixed?.forEach((x, k) => { if (x !== null && !near(x, want[k])) p.push(`${ts.scope}@${ts.asOf} ${ts.columns[k]}: Fixed ${x.toFixed(0)} ≠ ${want[k].toFixed(0)}`); });
+    const priors = rolled.map(r => briefFixed(gs, r, ts.scope, fx, step));
+    const want = [priors.some(x => x === null) ? null : priors.reduce((t, x) => t! + x!, 0), ...window.map(r => briefFixed(gs, r, ts.scope, fx, step))];
+    ts.figures.adminFixed?.forEach((x, k) => {
+      if (x === null && ts.figures.admin[k] === null) return;
+      if (x === null || want[k] === null ? x !== want[k] : !near(x, want[k]!)) p.push(`${ts.scope}@${ts.asOf} ${ts.columns[k]}: Fixed ${x?.toFixed(0) ?? '—'} ≠ ${want[k]?.toFixed(0) ?? '—'}`);
+    });
     return p;
   }
 
@@ -199,7 +221,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     'the New room carries #110\'s scale stamp; the older New room carries none');
   let statements = 0, sums: string[] = [], fixed: string[] = [];
   const same: string[] = [], layout: string[] = [];
-  let fixedYears = 0, firZero = true, historyZero = true;
+  let fixedYears = 0, firZero = true, historyCells = 0, negVar = 0;
   const tagged = [...nw.games, ...old.games.map(g => ({ ...g, name: `older ${g.name}` }))];
   const differ = old.games.some((g, i) => JSON.stringify(g.gs.lockedResults.map(r => r.byLine.WC.operatingExpense))
     !== JSON.stringify(nw.games[i].gs.lockedResults.map(r => r.byLine.WC.operatingExpense)));
@@ -214,7 +236,8 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
       ts.figures.adminFixed!.forEach((x, k) => {
         if (k > 0 && x !== null && x > 0) fixedYears++;
         if (g.name.endsWith('Fir') && x !== null && x !== 0) firZero = false;
-        if (k > 0 && ts.years[k - 1] < g.gs.setup.startingYear && x !== 0) historyZero = false;
+        if (k > 0 && ts.years[k - 1] < g.gs.setup.startingYear && x !== null && x > 0) historyCells++;
+        if (ts.figures.adminVariable![k] !== null && ts.figures.adminVariable![k]! < 0) negVar++;
       });
       // 4. Every other figure equals the statement without the split.
       const plain = T.buildTemplateStatement(strip(g.gs), ts.scope, ts.asOf);
@@ -241,8 +264,20 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
   ok(layout.length === 0 && nw.room.marketVersion === 'new', `every statement of both New rooms, the older one included (${statements}), has the split rows`, layout.slice(0, 3).join('; '));
   ok(sums.length === 0 && statements > 300, `2. Fixed + Variable = Total in every column, Prior and All Years included (${statements} statements)`, sums.slice(0, 3).join('; '));
   ok(fixed.length === 0 && fixedYears > 200, `3. Fixed is 0.25 × year-1 admin × 1.03^(year − 1) in each year with the line's market result (${fixedYears} year-cells above 0), the pool the lines' sum`, fixed.slice(0, 3).join('; '));
-  ok(historyZero, '   a history year\'s admin is all Variable (Fixed 0)');
-  ok(firZero, '   Fir, which never locked (no market result), shows Fixed 0 in every year');
+  ok(historyCells > 100, `   a history year (display only) shows year 1's fixed admin stepped back 3% a year — 2026 = ÷ 1.03, 2025 = ÷ 1.03², … (${historyCells} history year-cells above 0)`);
+  // The step-back read straight off one statement: each history year's Fixed × 1.03 = the next year's, 2026's × 1.03 = year 1's.
+  const stepTs = T.buildTemplateStatement(nw.games[0].gs, 'WC', 2);
+  const fx = stepTs.figures.adminFixed.slice(1) as number[];
+  const stepOk = fx.every((x, k) => k === 0 || near(fx[k - 1] * 1.03, x)) && stepTs.years[0] < 2027 && stepTs.years.includes(2027);
+  ok(stepOk, `   Alder's WC as of year 2, ${stepTs.years.join(', ')}: Fixed ${fx.map(x => x.toFixed(0)).join(' → ')} — each year 1.03 × the one before, across the start of play`);
+  ok(negVar === 0, '   Variable is never negative, history years included');
+  ok(firZero, '   Fir, which never locked (no market result), shows Fixed 0 in every year, history included');
+  // Before year 1 is played there is no year-1 fixed admin to step back from: the history years' Fixed and Variable show no figure.
+  const pre = buildTeamGame(nw.room, LINES).gameState;
+  const preTs = SCOPES.map(s => T.buildTemplateStatement(pre, s));
+  ok(pre.lockedResults.length === 0 && preTs.every(ts => ts.rows === T.ADMIN_SPLIT_ROWS
+    && ts.figures.admin.slice(1).every(x => x !== null) && ts.figures.adminFixed.every(x => x === null) && ts.figures.adminVariable.every(x => x === null)),
+    '   before year 1 is played: the split rows, the Total as today, and Fixed and Variable "—" (nothing yet to step back from)');
   ok(same.length === 0, '4. every other figure — the Total, every ratio, every other line — equals the statement without the split', same.slice(0, 3).join('; '));
 
   // 3b. Fixed ties to the admin the engine booked: (Fixed + 0.75 × charged) × (1 + overrun) = booked.
@@ -252,7 +287,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     const tw = g.twin.lockedResults.find(x => x.yearNumber === r.yearNumber)!.byLine[l] as LineResultSet;
     const x = r.byLine[l] as LineResultSet;
     const over = tw.operatingExpense / tw.adminExpense - 1;
-    const f = briefFixed(g.gs, r, l);
+    const f = briefFixed(g.gs, r, l)!;
     const want = f > 0 ? (f + (1 - BRIEF.share) * x.adminExpense) * (1 + over) : x.adminExpense * (1 + over);
     if (!near(x.operatingExpense, want)) tie.push(`${g.name} y${r.yearNumber} ${l}: booked ${x.operatingExpense.toFixed(0)} ≠ ${want.toFixed(0)}`);
     else tied++;
@@ -273,6 +308,32 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     'a New-version room with the market Off (no admin fixed): its games carry no version, and keep the single line');
   ok(!showsAdminSplit({ ...cur.games[0].gs, setup: { ...cur.games[0].gs.setup, testPlayer: true } } as GameState),
     'a setup without the version (single player, Test player) keeps the single line');
+
+  // ==========================================================================
+  console.log('\n1c. A hosted New room with ONE team: no rivals, and the fixed admin still shows in its played years');
+  const solo = await playRoom('medium', 'new', false, [{ name: 'Alder', f: 1.00, nm: 0.05, nr: 0.02 }]);
+  const sg = solo.games[0];
+  /** Played year-cells, at every scope, whose Fixed is not the brief's figure above 0. */
+  const soloProblems = (gs: GameState): string[] => {
+    const p: string[] = [];
+    for (const s of SCOPES) {
+      const ts = T.buildTemplateStatement(gs, s);
+      ts.years.forEach((y, k) => {
+        if (y < gs.setup.startingYear) return;
+        const r = gs.lockedResults.find(x => x.calendarYear === y)!;
+        const f = ts.figures.adminFixed?.[k + 1];
+        const want = briefFixed(sg.gs, r, s);
+        if (!(f !== null && f !== undefined && f > 0 && want !== null && near(f, want))) p.push(`${s} ${y}: Fixed ${f ?? '—'} (want ${want?.toFixed(0)})`);
+      });
+      p.push(...sumProblems(ts).map(x => `solo ${x}`), ...fixedProblems(sg.gs, ts).map(x => `solo ${x}`));
+    }
+    return p;
+  };
+  const soloP = soloProblems(sg.gs);
+  ok(Object.keys(sg.stored ?? {}).length === 4 && LINES.every(l => [1, 2, 3, 4].every(y => sg.gs.setup.marketByYear?.[String(y)]?.[l] !== undefined)),
+    'the one team gets a market result every year, on every line, with no rivals');
+  ok(sg.gs.setup.marketVersion === 'new' && soloP.length === 0,
+    'its statement splits: Fixed above 0 and the brief\'s in every played year at every scope, Fixed + Variable = Total, history stepped back', soloP.slice(0, 3).join('; '));
 
   // ==========================================================================
   console.log('\n5. The downloads');
@@ -318,6 +379,16 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
     }
     control('Fixed recomputed at 50% disagrees', half);
     control('Fixed recomputed with no trend disagrees', flat);
+    let noStep = 0, histZero = 0;
+    for (const x of tagged) for (const s of statementsOf(x.gs)) {
+      noStep += fixedProblems(x.gs, s, BRIEF, false).length;
+      const zeroed = { ...s, figures: { ...s.figures, adminFixed: s.figures.adminFixed.map((f, k) => (k > 0 && s.years[k - 1] < 2027 && f !== null ? 0 : f)) } };
+      histZero += fixedProblems(x.gs, zeroed).length;
+    }
+    control('history Fixed not stepped back (year 1\'s fixed admin in every history year) disagrees', noStep);
+    control('history Fixed left at 0 (the old all-Variable history) disagrees', histZero);
+    const { marketByYear: _m, ...noMarket } = sg.gs.setup; void _m;
+    control('a one-team game without its market results (the fixed admin dropped) fails the one-team check', soloProblems({ ...sg.gs, setup: noMarket }).length);
     const wrongly = cur.games.map(x => ({ ...x.gs, setup: { ...x.gs.setup, marketVersion: 'new' as const } }));
     control('the split shown in a Current room is caught (its Fixed is 0 where the brief has none, or its rows split)',
       wrongly.filter(x => T.buildTemplateStatement(x, 'pool').rows === T.ADMIN_SPLIT_ROWS).length);
