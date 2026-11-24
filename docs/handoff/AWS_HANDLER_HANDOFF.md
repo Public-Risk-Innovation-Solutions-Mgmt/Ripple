@@ -1,5 +1,16 @@
 # AWS session handler — handoff
 
+## ⚠ ONE MORE ROUTE: POST /renameTeam (teams name their own pools)
+
+Each team now names its own pool at join (wip/team-chosen-names), and the host
+can rename a team from the Teams tab with a new endpoint, `POST /renameTeam`,
+host token in the body like `editGame`. It is in `infra/ripple-backend.yaml`
+(`RenameTeamRoute`); a gateway without it 404s and the Teams tab reports the
+rename failed. A roster entry gains one optional attribute, `displayName`, and
+the room header one, `teamPoolNames` (true on rooms created from now on); a
+rename also appends to `editHistory`. Older rooms carry neither and read exactly
+as before. Deploy the handler first, then the front end, as below.
+
 ## ⚠ ONE MORE ROUTE: POST /editGame (mid-game edits)
 
 The host's "Edit game" panel (wip/mid-game-edits) calls a new endpoint,

@@ -620,6 +620,8 @@ export interface StandingSummary {
 }
 export interface StandingTeam {
   name: string;
+  /** The host's rename (TeamView.displayName); the table shows teamDisplayName. */
+  displayName?: string;
   teamNumber: number;
   lines: CoverageLine[];
   /** Keyed by year as a string, as TeamView.resultsByYear; absent with nothing posted. */
@@ -699,8 +701,45 @@ export function teamNumbers(inJoinOrder: Array<{ teamNumber?: number }>, next?: 
   return { numbers, next: n };
 }
 
-/** "Team 1 | Bob's Pool" — how every host screen pairs a team's number with its name. */
-export const teamLabel = (t: { teamNumber: number; name: string }): string => `Team ${t.teamNumber} | ${t.name}`;
+/**
+ * A TEAM'S POOL NAME, AS EVERYONE SEES IT (wip/team-chosen-names): the name the
+ * host renamed it to (TeamView.displayName), or the name it chose at join.
+ * `name` itself never changes once a team has joined — it is the team's handle
+ * on the wire (rejoin, viewers, the reclaim path) — so a rename is display only.
+ */
+export const teamDisplayName = (t: { name: string; displayName?: string }): string => t.displayName ?? t.name;
+
+/** "Team 1 | Bob's Pool" — how every screen pairs a team's number with its pool name. */
+export const teamLabel = (t: { teamNumber: number; name: string; displayName?: string }): string =>
+  `Team ${t.teamNumber} | ${teamDisplayName(t)}`;
+
+/**
+ * THE POOL NAME RULES — one place for the join screen, the host's rename and
+ * both transports: trimmed, 3 to 30 characters, and unique within the room
+ * regardless of case ("Harbour" and "harbour" are one name). Checked when a
+ * team is CREATED or RENAMED; a team already in an older room keeps the name it
+ * has, whatever its length.
+ */
+export const TEAM_NAME_MIN = 3;
+export const TEAM_NAME_MAX = 30;
+/** What is wrong with a pool name, or null. `name` is trimmed first. */
+export function teamNameProblem(name: string): string | null {
+  const n = name.trim();
+  if (n.length === 0) return 'Enter a pool name.';
+  if (n.length < TEAM_NAME_MIN || n.length > TEAM_NAME_MAX) {
+    return `A pool name must be ${TEAM_NAME_MIN} to ${TEAM_NAME_MAX} characters.`;
+  }
+  return null;
+}
+/** One name, case and surrounding space aside. */
+export const sameTeamName = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
+/** Is `name` held by another team in the room — as its join name or its renamed display name? */
+export function teamNameTaken(
+  teams: ReadonlyArray<{ name: string; displayName?: string }>, name: string, except?: { name: string },
+): boolean {
+  return teams.some(t => t !== except && t.name !== except?.name
+    && (sameTeamName(t.name, name) || (t.displayName !== undefined && sameTeamName(t.displayName, name))));
+}
 
 export function mayCreateTeam(status: EventStatus): boolean {
   return status === 'OPEN';
@@ -782,6 +821,30 @@ export interface SetEventHiddenResponse {
  * year is processed on the new settings when the host advances, like every
  * other team's. Teams are not told (wip/mid-game-edits rule 4).
  */
+/**
+ * THE HOST RENAMES A TEAM (wip/team-chosen-names) — e.g. an inappropriate pool
+ * name. Host token only (NOT_HOST otherwise). `teamName` names the team as it
+ * joined, or by its current display name; `newName` follows the join rules
+ * (teamNameProblem; free in the room regardless of case, the team's own names
+ * aside) and becomes TeamView.displayName. The team's handle (`name`) does not
+ * change, so its tokens, viewers, results and decisions are untouched. The
+ * change history (RoomView.editHistory) records it: kind 'team-renamed'.
+ * Renaming a team to the name it already shows writes nothing.
+ */
+export interface RenameTeamRequest {
+  code: string;
+  /** Host token only. */
+  token: string;
+  teamName: string;
+  newName: string;
+}
+
+export interface RenameTeamResponse {
+  room: RoomView;
+  /** What the history recorded — absent when nothing changed. */
+  edit?: GameEdit;
+}
+
 export interface EditGameRequest {
   code: string;
   /** Host token only. */
@@ -805,7 +868,17 @@ export interface EditGameResponse {
 // accidental render away from projecting it. `read` enforces this rather than
 // trusting the caller to look away.
 export interface TeamView {
+  /**
+   * The name the team chose at join — its POOL NAME and its handle on the wire
+   * (rejoin, viewers, reclaim). Never changed after the join; see displayName.
+   */
   name: string;
+  /**
+   * THE HOST'S RENAME (renameTeam), when there has been one — e.g. to replace an
+   * inappropriate name. Every screen shows teamDisplayName(team): this, or
+   * `name`. Absent on a team never renamed, and on every older room.
+   */
+  displayName?: string;
   /**
    * THE TEAM'S NUMBER IN THE ROOM — the first team to join is 1, the next 2, and
    * so on (teamNumbers below). Stored with the room, given once at join and
@@ -918,8 +991,18 @@ export interface RoomView {
    * when creating the room, separate from the event name the lobby shows.
    * ⚠ ALWAYS PRESENT ON THE VIEW: a room created before it existed, or created
    * with it blank, reads the event name here.
+   * ⚠ NOT READ BY A ROOM WITH teamPoolNames: there each team's pool is named
+   * after the team (below).
    */
   poolName: string;
+  /**
+   * EACH TEAM NAMES ITS OWN POOL (wip/team-chosen-names). True on every room
+   * created since: a team's game calls its pool by the team's own name
+   * (teamDisplayName), not the room's poolName, and the host sets no pool name.
+   * ⚠ ABSENT ON AN OLDER ROOM, which keeps its host-set pool name for every
+   * team, exactly as before.
+   */
+  teamPoolNames?: boolean;
   yearCount: number;
   startingYear: number;
   /**
@@ -1156,6 +1239,9 @@ export interface CreateRoomRequest {
    * The pool's name — see RoomView.poolName. ⚠ OPTIONAL ON THE REQUEST so a
    * client older than the handler still creates rooms (the handler deploys
    * first); absent or blank, the room's pool is named after the event.
+   * ⚠ SINCE wip/team-chosen-names EACH TEAM NAMES ITS OWN POOL at join
+   * (RoomView.teamPoolNames), so the host's screen no longer asks; a value sent
+   * is stored but no team's game reads it.
    */
   poolName?: string;
   /** Non-binding — see RoomView.expectedTeams. */
@@ -1241,6 +1327,12 @@ export interface JoinRequest {
    * VIEWER names an existing team to watch. The host no longer pre-registers a
    * roster, because the name is part of the team's own game setup — the same
    * act as choosing its lines, and set at the same single moment.
+   *
+   * ⚠ IT IS THE TEAM'S POOL NAME (wip/team-chosen-names): trimmed, 3 to 30
+   * characters (teamNameProblem, else INVALID_REQUEST), and free in the room
+   * regardless of case — a name any team holds, as chosen or as renamed by the
+   * host, is TEAM_TAKEN. A viewer or a returning player may give the name in
+   * any case, or a team's renamed display name.
    *
    * Omit when `pin` is given.
    */
@@ -1581,6 +1673,8 @@ export interface SessionTransport {
   // ⚠ HOST-ONLY, AND ITS OWN ENDPOINT for the reason setEventHidden is: a write
   // that is neither a year's advance nor a team's submit. See EditGameRequest.
   editGame(req: EditGameRequest): Promise<EditGameResponse>;
+  // ⚠ HOST-ONLY, its own endpoint for the same reason. See RenameTeamRequest.
+  renameTeam(req: RenameTeamRequest): Promise<RenameTeamResponse>;
 }
 
 // ---------------------------------------------------------------- faults

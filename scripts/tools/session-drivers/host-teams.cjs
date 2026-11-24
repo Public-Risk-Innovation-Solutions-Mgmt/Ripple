@@ -28,9 +28,9 @@ const readPairs = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
 // (wip/newest-year-combined-ratio: the year's own, as on the team's statement and top bar).
 // The room is created at the default, Market competition Medium. ⚠ THE MARKET'S TWO HOST-ONLY COLUMNS
 // (Exposure moved, Book risk — pr/market-competition) WERE TAKEN OFF THE SCREEN (pr/pool-share-average):
-// the host's table is the Market Survey's, with Hand Off after Market share.
-const COLUMNS = ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Hand Off'];
-// Hand Off (7fc44f9, the host hand-off) is the host's action column, after the figures.
+// the host's table is the Market Survey's, with Rename / Hand off after Market share.
+const COLUMNS = ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Rename / Hand off'];
+// Rename / Hand off (7fc44f9's hand-off; wip/team-chosen-names's rename) is the host's action column, after the figures.
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
 // never the loss-ratio scale's sky.

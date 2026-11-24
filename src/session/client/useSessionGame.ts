@@ -27,7 +27,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CoverageLine, GameState, Member, ResultSet, StartingFinancials } from '../../types/simulation';
-import { sessionTransport, type CallerView, type RoomView } from '../index';
+import { sessionTransport, teamDisplayName, type CallerView, type RoomView } from '../index';
 import { summarize } from './results';
 import { buildTeamGame, replayTeamYears } from './buildGame';
 import { marketByYearForEngine } from '../market';
@@ -105,8 +105,16 @@ export function useSessionGame(
   // on the new settings. Every played year replays byte-identical (only the
   // current and later years can change), so the rebuild re-posts what it posted.
   const myLines = you?.lines;
+  // ⚠ THE TEAM'S OWN POOL NAME (RoomView.teamPoolNames): in a room where each
+  // team names its pool, the game calls its pool by the team's shown name — so a
+  // host's rename is in the key and rebuilds the game under the new name (every
+  // played year replays identical; only the name moves). An older room reads
+  // the room's poolName, as before.
+  const myTeam = room?.teams.find(t => t.name === you?.teamName);
+  const ownPoolName = room?.teamPoolNames && you?.teamName
+    ? teamDisplayName(myTeam ?? { name: you.teamName }) : undefined;
   const buildKey = room && myLines && myLines.length > 0
-    ? `${room.seed}|${room.yearCount}|${room.startingYear}|${myLines.join(',')}|${room.eventName}|${room.poolName}|${JSON.stringify(room.shocks)}`
+    ? `${room.seed}|${room.yearCount}|${room.startingYear}|${myLines.join(',')}|${room.eventName}|${room.poolName}|${ownPoolName ?? ''}|${JSON.stringify(room.shocks)}`
       + `|${JSON.stringify(room.developmentLevelsByYear ?? null)}|${room.shocksOn ?? ''}`
     : null;
   const builtKey = useRef<string | null>(null);
@@ -117,8 +125,8 @@ export function useSessionGame(
   // scheduled wildfire never fired. It is closed in generateGameInstance, which
   // now takes the schedule as an argument from both callers, rather than by this
   // layer attaching it to an instance assembled some other way.
-  const build = useCallback((r: RoomView, lines: CoverageLine[]) => {
-    const built = buildTeamGame(r, lines);
+  const build = useCallback((r: RoomView, lines: CoverageLine[], poolName?: string) => {
+    const built = buildTeamGame(r, lines, poolName);
     setGameState(built.gameState);
     setStartingFinancials(built.startingFinancials);
     setInitialMembers(built.initialMembers);
@@ -142,7 +150,7 @@ export function useSessionGame(
       // never reach the tab's game (seen: the second of two quick edits lost).
       builtKey.current = buildKey;
       try {
-        const built = build(room, myLines!);
+        const built = build(room, myLines!, ownPoolName);
         setPhase('ready');
 
         // ⚠ POSTED ONCE, AT BUILD, BECAUSE THE HOST CANNOT DERIVE IT. The room
@@ -167,7 +175,7 @@ export function useSessionGame(
       }
     }, 0);
     return () => window.clearTimeout(id);
-  }, [room, buildKey, build, myLines, code, token, you?.role]);
+  }, [room, buildKey, build, myLines, ownPoolName, code, token, you?.role]);
 
   // ---- process when the room's year moves ahead of ours --------------------
   useEffect(() => {

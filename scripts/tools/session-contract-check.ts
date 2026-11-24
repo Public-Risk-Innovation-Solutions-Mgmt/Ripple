@@ -231,12 +231,18 @@ interface StoreHooks {
   unmarket(code: string): Promise<void>;
   /** MARKET VERSION: take the room's version off the stored record — a room from before the option. */
   unversion(code: string): Promise<void>;
+  /**
+   * TEAM-CHOSEN POOL NAMES: take teamPoolNames off the stored room — a room from
+   * before teams named their pools — and, given `from`/`to`, store one team's
+   * name as an older room may hold it (shorter than the rules allow today).
+   */
+  legacyRoom(code: string, from?: string, to?: string): Promise<void>;
 }
 let store: StoreHooks;
 
 /** The localStorage room record — the localStorage pass and the stub server's store alike. */
 const localStore: StoreHooks = (() => {
-  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; teams: Array<{ name: string; teamNumber?: number }> };
+  type Rec = { nextTeamNumber?: number; market?: string; marketVersion?: string; teamPoolNames?: boolean; teams: Array<{ name: string; teamNumber?: number }> };
   const get = (code: string): Rec => JSON.parse(globalThis.localStorage.getItem(ROOM_KEY_PREFIX + code)!) as Rec;
   const put = (code: string, r: Rec) => globalThis.localStorage.setItem(ROOM_KEY_PREFIX + code, JSON.stringify(r));
   return {
@@ -245,6 +251,11 @@ const localStore: StoreHooks = (() => {
     async stored(code) { const r = get(code); return { next: r.nextTeamNumber, byName: Object.fromEntries(r.teams.map(x => [x.name, x.teamNumber])) }; },
     async unmarket(code) { const r = get(code); delete r.market; put(code, r); },
     async unversion(code) { const r = get(code); delete r.marketVersion; put(code, r); },
+    async legacyRoom(code, from, to) {
+      const r = get(code); delete r.teamPoolNames;
+      if (from && to) for (const x of r.teams) if (x.name === from) x.name = to;
+      put(code, r);
+    },
   };
 })();
 
@@ -951,8 +962,8 @@ async function main(): Promise<void> {
     );
 
     // expectedTeams still binds nothing.
-    await t.join({ code: wcOnly.code, teamName: 'A', role: 'player' });
-    const third = await t.join({ code: wcOnly.code, teamName: 'B', role: 'player' });
+    await t.join({ code: wcOnly.code, teamName: 'Team Aspen', role: 'player' });
+    const third = await t.join({ code: wcOnly.code, teamName: 'Team Birch', role: 'player' });
     eq(third.rejoined, false, 'a team beyond expectedTeams still joins');
 
     // A viewer needs the watched team's lines, which are the room's.
@@ -2146,6 +2157,98 @@ async function main(): Promise<void> {
       'an older room\'s first join numbers its teams by join order and itself after them, and stores them');
   }
 
+
+  // ---- TEAM-CHOSEN POOL NAMES (wip/team-chosen-names) ----------------------
+  //
+  // Each team names its own pool at join: trimmed, 3 to 30 characters, unique
+  // in the room regardless of case. The host may rename a team (renameTeam);
+  // the history records it, and the team's handle (`name`) never moves, so its
+  // token, recovery code, viewers and replay are untouched. An older room keeps
+  // its host-set pool name and its teams' names.
+  {
+    const t = transport();
+    const made = await freshRoom(t);
+    const { code, hostToken } = made;
+    eq(made.room.teamPoolNames, true, 'a new room has each team name its own pool');
+    await rejects(t.join({ code, teamName: 'Hb', role: 'player' }), 'INVALID_REQUEST', 'a pool name under 3 characters is refused');
+    await rejects(t.join({ code, teamName: 'x'.repeat(31), role: 'player' }), 'INVALID_REQUEST', 'a pool name over 30 characters is refused');
+    await rejects(t.join({ code, teamName: '   ', role: 'player' }), 'INVALID_REQUEST', 'a blank pool name is refused');
+    const a = await t.join({ code, teamName: '  Harbour Mutual  ', role: 'player', token: newSessionToken() });
+    eq(a.teamName, 'Harbour Mutual', 'the name is trimmed');
+    const thirty = await t.join({ code, teamName: 'y'.repeat(30), role: 'player' });
+    eq(thirty.teamName.length, 30, 'exactly 30 characters is allowed');
+    await rejects(t.join({ code, teamName: 'harbour MUTUAL', role: 'player' }), 'TEAM_TAKEN',
+      'the same name in another case is taken');
+    const back = await t.join({ code, teamName: 'HARBOUR MUTUAL', role: 'player', token: a.teamToken });
+    ok(back.rejoined && back.teamName === 'Harbour Mutual', 'its own player returning with the name in another case rejoins its team');
+    const v = await t.join({ code, teamName: 'harbour mutual', role: 'viewer' });
+    eq(v.teamName, 'Harbour Mutual', 'a viewer may name the team in any case');
+    const b = await t.join({ code, teamName: 'Cedar Valley', role: 'player' });
+
+    // ---- the host's rename ----
+    await rejects(t.renameTeam({ code, token: a.teamToken, teamName: 'Harbour Mutual', newName: 'Bayside Pool' }), 'NOT_HOST',
+      'a team cannot rename itself or another');
+    await rejects(t.renameTeam({ code, token: hostToken, teamName: 'No Such Team', newName: 'Bayside Pool' }), 'TEAM_NOT_FOUND',
+      'renaming a team not in the room is refused');
+    await rejects(t.renameTeam({ code, token: hostToken, teamName: 'Harbour Mutual', newName: 'Bp' }), 'INVALID_REQUEST',
+      'a rename follows the length rule');
+    await rejects(t.renameTeam({ code, token: hostToken, teamName: 'Harbour Mutual', newName: 'CEDAR valley' }), 'TEAM_TAKEN',
+      "a rename to another team's name, in any case, is refused");
+    const before = (await t.read({ code, token: hostToken })).room.editHistory?.length ?? 0;
+    const r = await t.renameTeam({ code, token: hostToken, teamName: 'Harbour Mutual', newName: '  Bayside Pool ' });
+    ok(r.edit?.kind === 'team-renamed' && r.edit.fromName === 'Harbour Mutual' && r.edit.toName === 'Bayside Pool' && r.edit.teamNumber === 1,
+      'the rename returns its history entry: team 1, Harbour Mutual -> Bayside Pool');
+    const hostRoom = (await t.read({ code, token: hostToken })).room;
+    const renamed = hostRoom.teams.find(x => x.name === 'Harbour Mutual');
+    ok(renamed?.displayName === 'Bayside Pool' && renamed.teamNumber === 1,
+      "the team shows the new name, keeps its handle and its number");
+    eq(hostRoom.editHistory?.length, before + 1, 'the change history records the rename');
+    // Field for field: a stored map comes back in its own key order.
+    const sorted = (x: unknown) => JSON.stringify(Object.fromEntries(Object.entries((x ?? {}) as object).sort(([p], [q]) => p.localeCompare(q))));
+    eq(sorted(hostRoom.editHistory?.at(-1)), sorted(r.edit), 'as the entry the call returned');
+    const asPlayer = await t.read({ code, token: b.teamToken });
+    eq(asPlayer.room.teams.find(x => x.name === 'Harbour Mutual')?.displayName, 'Bayside Pool', 'another team sees the new name');
+    eq(asPlayer.room.standings?.teams.find(x => x.name === 'Harbour Mutual')?.displayName, 'Bayside Pool',
+      'and so do the standings (the Market Survey)');
+    eq((await t.renameTeam({ code, token: hostToken, teamName: 'Bayside Pool', newName: 'Bayside Pool' })).edit, undefined,
+      'renaming to the name it shows records nothing');
+    eq((await t.read({ code, token: hostToken })).room.editHistory?.length, before + 1, 'and adds no history');
+    await rejects(t.join({ code, teamName: 'BAYSIDE pool', role: 'player' }), 'TEAM_TAKEN', 'a renamed name is taken, in any case');
+    await rejects(t.join({ code, teamName: 'Harbour Mutual', role: 'player' }), 'TEAM_TAKEN', "and the team's joined name stays its own");
+    eq((await t.join({ code, teamName: 'Bayside Pool', role: 'viewer' })).teamName, 'Harbour Mutual',
+      'a viewer may name the team by its new name');
+
+    // ---- rejoin and replay keep it ----
+    const again = await t.join({ code, teamName: 'Harbour Mutual', role: 'player', token: a.teamToken });
+    ok(again.rejoined && again.room.teams.find(x => x.name === 'Harbour Mutual')?.displayName === 'Bayside Pool',
+      'a rejoin keeps the new name');
+    if (a.recoveryCode) {
+      const moved = await t.reclaimTeam({ code, teamName: 'Bayside Pool', recoveryCode: a.recoveryCode, token: newSessionToken() });
+      eq((await t.read({ code, token: moved.teamToken })).room.teams.find(x => x.name === moved.teamName)?.displayName, 'Bayside Pool',
+        'a team reclaimed on another device keeps the new name');
+    }
+    const g = buildTeamGame({ ...hostRoom, shocks: [] }, WC, 'Bayside Pool').gameState;
+    eq(g.setup.poolName, 'Bayside Pool', "the team's game calls its pool by the team's shown name");
+    eq(buildTeamGame({ ...hostRoom, shocks: [] }, WC).gameState.setup.poolName, hostRoom.poolName, 'with no team in hand, the room\'s pool name');
+    const back2 = await t.renameTeam({ code, token: hostToken, teamName: 'Bayside Pool', newName: 'Harbour Mutual' });
+    eq(back2.edit?.toName, 'Harbour Mutual', 'renaming back to the joined name is recorded too');
+    eq((await t.read({ code, token: hostToken })).room.teams.find(x => x.name === 'Harbour Mutual')?.displayName, undefined,
+      'and clears the rename');
+    eq((await t.join({ code, teamName: 'Bayside Pool', role: 'player' })).rejoined, false, 'which frees the renamed name');
+
+    // ---- an older room keeps everything ----
+    const old = await freshRoom(t);
+    const oldTeam = await t.join({ code: old.code, teamName: 'Old Harbour', role: 'player' });
+    await store.legacyRoom(old.code, 'Old Harbour', 'OH');
+    const oldRoom = (await t.read({ code: old.code, token: old.hostToken })).room;
+    eq(oldRoom.teamPoolNames, undefined, 'an older room carries no teamPoolNames');
+    ok(oldRoom.teams.some(x => x.name === 'OH'), 'and keeps a name the rules would refuse today');
+    const oldBack = await t.join({ code: old.code, teamName: 'OH', role: 'player', token: oldTeam.teamToken });
+    ok(oldBack.rejoined && oldBack.teamName === 'OH', "its team rejoins under that name");
+    eq(buildTeamGame({ ...oldRoom, shocks: [] }, WC, 'OH').gameState.setup.poolName, oldRoom.poolName,
+      "and an older room's games keep its host-set pool name for every team");
+  }
+
 }
 
 // ---------------------------------------------------------------- the passes
@@ -2336,6 +2439,14 @@ async function dynamoPasses(): Promise<number> {
       },
       async unversion(code) {
         await dynamo.doc.send(new UpdateCommand({ TableName: table, Key: headerKey(code), UpdateExpression: 'REMOVE marketVersion' }));
+      },
+      async legacyRoom(code, from, to) {
+        const id = from ? Object.entries((await header(code)).roster).find(([, e]) => e.name === from)?.[0] : undefined;
+        await dynamo.doc.send(new UpdateCommand({
+          TableName: table, Key: headerKey(code),
+          UpdateExpression: 'REMOVE teamPoolNames' + (id && to ? ' SET roster.#t.#n = :to' : ''),
+          ...(id && to ? { ExpressionAttributeNames: { '#t': id, '#n': 'name' }, ExpressionAttributeValues: { ':to': to } } : {}),
+        }));
       },
     };
     bad += await reached('DynamoDB, in-process', () =>

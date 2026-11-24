@@ -43,6 +43,7 @@ function standingSummary(s: TeamYearSummary): StandingSummary {
 /** One team's row source: its number, name, lines and every year it has posted. */
 export interface StandingSource {
   name: string;
+  displayName?: string;
   teamNumber: number;
   lines: CoverageLine[];
   results?: Record<string, TeamYearSummary>;
@@ -69,6 +70,7 @@ export function buildStandings(teams: readonly StandingSource[], currentYear: nu
       const s = y === null ? undefined : t.results?.[String(y)];
       return {
         name: t.name,
+        ...(t.displayName !== undefined ? { displayName: t.displayName } : {}),
         teamNumber: t.teamNumber,
         lines: [...t.lines],
         ...(s ? { resultsByYear: { [String(y)]: standingSummary(s) } } : {}),

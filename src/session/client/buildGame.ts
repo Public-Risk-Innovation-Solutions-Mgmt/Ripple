@@ -34,7 +34,7 @@ import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
   'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment' | 'developmentLevels'
-  | 'developmentLevelsByYear' | 'shocksOn' | 'marketVersion'>;
+  | 'developmentLevelsByYear' | 'shocksOn' | 'marketVersion'> & Partial<Pick<RoomView, 'teamPoolNames'>>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -44,14 +44,20 @@ export interface BuiltTeamGame {
   opening: { result: ResultSet; gameState: GameState } | null;
 }
 
-export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]): BuiltTeamGame {
+export function buildTeamGame(
+  r: RoomBuildInputs, lines: readonly CoverageLine[],
+  // THE TEAM'S OWN POOL NAME (RoomView.teamPoolNames): a room where each team
+  // names its pool passes the team's shown name here. Absent — an older room, or
+  // a caller with no team in hand — the room's pool name, as before.
+  teamPoolName?: string,
+): BuiltTeamGame {
   const settings: GameSetupSettings = {
     // ⚠ THE ROOM'S POOL NAME, NOT THE EVENT'S. The engine's
     // GameSetupSettings.poolName is display-only — the Header chip and the
     // welcome memo — and every team in a room runs a pool of this name. The
     // host sets it apart from the event name the lobby shows; a room created
     // before it existed reads the event name (RoomView.poolName).
-    poolName: r.poolName || r.eventName,
+    poolName: (r.teamPoolNames && teamPoolName) || r.poolName || r.eventName,
     gameLength: r.yearCount,
     startingYear: r.startingYear,
     instanceId: r.seed,

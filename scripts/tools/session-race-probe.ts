@@ -155,8 +155,8 @@ try {
   {
     const t = fresh(); const { code } = await mkRoom(t); const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'A', role: 'player', token })); });
-    const b = await settle(t.join({ code, teamName: 'B', role: 'player', token }));
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'Team A', role: 'player', token })); });
+    const b = await settle(t.join({ code, teamName: 'Team B', role: 'player', token }));
     const room = (await fresh().read({ code })).room;
     check(a.ok && !b.ok && b.code === 'BAD_TOKEN', `A: second name with the same token is BAD_TOKEN (a ${a.ok}, b ${shown(b, () => 'resolved')})`);
     check(room.teams.length === 1, `A: one team holds the token (teams ${room.teams.length})`);
@@ -166,19 +166,19 @@ try {
   {
     const t = fresh(); const { code } = await mkRoom(t); const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'A', role: 'player', token })); });
-    const b = await settle(t.join({ code, teamName: 'A', role: 'player', token }));
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'Team A', role: 'player', token })); });
+    const b = await settle(t.join({ code, teamName: 'Team A', role: 'player', token }));
     check(a.ok && a.v.rejoined === false, 'B: the first attempt creates the team');
     check(b.ok && b.v.rejoined === true, `B: the retry that lost the race is a REJOIN, not TEAM_TAKEN (${shown(b, v => 'rejoined ' + v.rejoined)})`);
   }
 
   // B2. viewer token racing a player join with the same token
   {
-    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'W', role: 'player' });
+    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'Team W', role: 'player' });
     const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'W', role: 'viewer', token })); });
-    const b = await settle(t.join({ code, teamName: 'P', role: 'player', token }));
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'Team W', role: 'viewer', token })); });
+    const b = await settle(t.join({ code, teamName: 'Team P', role: 'player', token }));
     check(a.ok && !b.ok && b.code === 'BAD_TOKEN', `B2: a player cannot take a token a viewer claimed mid-flight (b ${shown(b, () => 'resolved')})`);
   }
 
@@ -198,7 +198,7 @@ try {
   // E. decisions racing an advance: the submit's read is stale across the advance
   {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
-    const p = await t.join({ code, teamName: 'A', role: 'player' });
+    const p = await t.join({ code, teamName: 'Team A', role: 'player' });
     stallNextRead(t, async () => { await fresh().advance({ code, token: hostToken, expectedYear: 1 }); });
     const s = await settle(t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: { m: 'late' } }));
     const mine = await fresh().read({ code, token: p.teamToken });
@@ -215,7 +215,7 @@ try {
     for (let i = 0; i < 30; i++) {
       const { code } = await mkRoom(fresh());
       const token = newSessionToken();
-      await Promise.all(['A', 'B'].map(n => settle(fresh().join({ code, teamName: n, role: 'player', token }))));
+      await Promise.all(['Team A', 'Team B'].map(n => settle(fresh().join({ code, teamName: n, role: 'player', token }))));
       if ((await fresh().read({ code })).room.teams.length > 1) doubled++;
     }
     check(doubled === 0, `A∥: 30 parallel same-token pairs — rooms where one token got two seats: ${doubled}`);
@@ -228,7 +228,7 @@ try {
     for (let i = 0; i < 30; i++) {
       const { code } = await mkRoom(fresh());
       const token = newSessionToken();
-      const out = await Promise.all([0, 1].map(() => settle(fresh().join({ code, teamName: 'A', role: 'player', token }))));
+      const out = await Promise.all([0, 1].map(() => settle(fresh().join({ code, teamName: 'Team A', role: 'player', token }))));
       if (out.some(o => !o.ok)) taken++;
       if ((await fresh().read({ code })).room.teams.length !== 1) doubled++;
     }
@@ -245,7 +245,7 @@ try {
     for (let i = 0; i < 5; i++) {
       const { code } = await mkRoom(fresh());
       const out = await Promise.all(Array.from({ length: 12 }, (_, k) =>
-        settle(fresh().join({ code, teamName: `N${k}`, role: 'player' }))));
+        settle(fresh().join({ code, teamName: `Team N${k}`, role: 'player' }))));
       refused += out.filter(o => !o.ok).length;
       const numbers = (await fresh().read({ code })).room.teams.map(x => x.teamNumber).sort((a, b) => a - b);
       if (JSON.stringify(numbers) !== JSON.stringify(Array.from({ length: 12 }, (_, k) => k + 1))) wrong++;
@@ -254,13 +254,48 @@ try {
     check(wrong === 0, `N∥: rooms whose numbers are not exactly 1 to 12, each once: ${wrong}`);
   }
 
+  // C∥. ONE POOL NAME IN TWO CASES, AT ONCE (wip/team-chosen-names): "Team Echo"
+  // and "team echo" join together, twenty rooms over. Names are unique in a room
+  // regardless of case, so exactly one team must come of each pair and the
+  // other must be TEAM_TAKEN — held by the join's claim on the room's counter,
+  // which makes the loser re-read and find the winner.
+  {
+    let wrong = 0;
+    for (let i = 0; i < 20; i++) {
+      const { code } = await mkRoom(fresh());
+      const out = await Promise.all(['Team Echo', 'team echo'].map(n => settle(fresh().join({ code, teamName: n, role: 'player' }))));
+      const teams = (await fresh().read({ code })).room.teams.length;
+      if (teams !== 1 || out.filter(o => o.ok).length !== 1 || !out.some(o => !o.ok && o.code === 'TEAM_TAKEN')) wrong++;
+    }
+    check(wrong === 0, `C∥: 20 rooms, one name in two cases joining at once — rooms not ending with one team and one TEAM_TAKEN: ${wrong}`);
+  }
+
+  // R∥. A HOST'S RENAME RACING A JOIN UNDER THE SAME NAME: the host renames a
+  // team to "Team Foxtrot" while another team joins as "Team Foxtrot". Both may
+  // not land — the rename claims the name's NAME# item as a join does.
+  {
+    let both = 0;
+    for (let i = 0; i < 20; i++) {
+      const hostToken = newSessionToken();
+      const { code } = await mkRoom(fresh(), 3, hostToken);
+      await fresh().join({ code, teamName: 'Team Golf', role: 'player' });
+      const [ren, join] = await Promise.all([
+        settle(fresh().renameTeam({ code, token: hostToken, teamName: 'Team Golf', newName: 'Team Foxtrot' })),
+        settle(fresh().join({ code, teamName: 'Team Foxtrot', role: 'player' })),
+      ]);
+      const shownAs = (await fresh().read({ code })).room.teams.filter(x => (x.displayName ?? x.name) === 'Team Foxtrot').length;
+      if ((ren.ok && join.ok) || shownAs > 1) both++;
+    }
+    check(both === 0, `R∥: 20 rooms, a rename and a join for one name at once — rooms where two teams show it: ${both}`);
+  }
+
   // F. THE BURST keys.ts HARD 1 is about: twenty teams post at once, every
   // transaction touching the one header item. All must land, rev must count
   // them exactly, and the host must see all twenty.
   {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
     const teams = [];
-    for (let i = 0; i < 20; i++) teams.push(await t.join({ code, teamName: `T${i}`, role: 'player' }));
+    for (let i = 0; i < 20; i++) teams.push(await t.join({ code, teamName: `Team T${i}`, role: 'player' }));
     const before = (await t.read({ code, token: hostToken })).room.rev;
     const conflictsBefore = conflicts;
     const posts = await Promise.all(teams.map((p, i) => settle(fresh().submit({
@@ -290,11 +325,11 @@ try {
 
   // B3. B2's mirror: the PLAYER claims the token while the viewer's read is stale.
   {
-    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'W', role: 'player' });
+    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'Team W', role: 'player' });
     const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'P', role: 'player', token })); });
-    const b = await settle(t.join({ code, teamName: 'W', role: 'viewer', token }));
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'Team P', role: 'player', token })); });
+    const b = await settle(t.join({ code, teamName: 'Team W', role: 'viewer', token }));
     check(a.ok && !b.ok && b.code === 'BAD_TOKEN', `B3: a viewer cannot take a token a player claimed mid-flight (b ${shown(b, () => 'resolved')})`);
   }
 
@@ -304,7 +339,7 @@ try {
   // a poller would store that rev and never fetch the missing result.
   {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
-    const p = await t.join({ code, teamName: 'A', role: 'player' });
+    const p = await t.join({ code, teamName: 'Team A', role: 'player' });
     stallNextQuery(t, async () => {
       await fresh().submit({ code, token: p.teamToken, yearNumber: 0, result: { yearNumber: 0, calendarYear: 2025, byLine: {}, pool: { endingSurplus: 1, actualLossRatioPricingBasis: 0, poolPremium: 0, activeExposure: 0, netUltimateLoss: 0 } } });
     });

@@ -20,7 +20,7 @@ import { CheckCircle2, Circle, Clock, Copy, Eye, EyeOff, KeyRound, Loader2 } fro
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { loadActive, loadHeld, rememberHostToken, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
-import { eventStatusOf, teamLabel } from '../contract';
+import { eventStatusOf, teamDisplayName, teamLabel } from '../contract';
 import { EditGamePanel } from '../../components/EditGamePanel';
 import type { YearSettings } from '../../utils/gameEdits';
 
@@ -351,7 +351,7 @@ export default function HostRoomScreen({ code }: Props) {
                 {teams.map(t => (
                   <tr key={t.name} data-testid={`team-row-${t.name}`} className="border-t border-slate-50">
                     <td data-testid={`setup-number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-black">Team {t.teamNumber}</td>
-                    <td className="px-5 py-2.5 text-slate-700">{t.name}</td>
+                    <td data-testid={`setup-name-${t.name}`} className="px-5 py-2.5 text-slate-700">{teamDisplayName(t)}</td>
                     {/* ⚠ THE HOST IS NOW READING A TABLE OF DIFFERENT GAMES, not
                         of seats at one. Two teams' numbers are not comparable
                         unless this column matches, so it sits beside the name

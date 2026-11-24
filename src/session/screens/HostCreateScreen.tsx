@@ -178,8 +178,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
         yearCount,
         startingYear,
         eventName: eventName.trim(),
-        // Blank: the room names its pool after the event (RoomView.poolName).
-        ...(poolName.trim() ? { poolName: poolName.trim() } : {}),
+        // No pool name: each team names its own at join (RoomView.teamPoolNames).
         expectedTeams,
         lines,
         developmentLevels: baseLevels,
@@ -251,21 +250,29 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             </span>
           </label>}
 
-          <label className="block">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Pool name</span>
-            <input
-              data-testid="pool-name"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={poolName}
-              onChange={e => setPoolName(e.target.value)}
-              placeholder="e.g. Harbour Public Entity Risk Pool"
-            />
-            <span className="mt-1 block text-xs text-black">
-              {soloTest
-                ? 'Required. The pool you run, as the welcome memo and your screens name it.'
-                : <>The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.</>}
-            </span>
-          </label>
+          {/* ⚠ TEST PLAYER ONLY (wip/team-chosen-names). In a hosted room each
+              team names its own pool when it joins (RoomView.teamPoolNames), so
+              the host is no longer asked; the host can rename a team from the
+              Teams tab. */}
+          {soloTest ? (
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Pool name</span>
+              <input
+                data-testid="pool-name"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={poolName}
+                onChange={e => setPoolName(e.target.value)}
+                placeholder="e.g. Harbour Public Entity Risk Pool"
+              />
+              <span className="mt-1 block text-xs text-black">
+                Required. The pool you run, as the welcome memo and your screens name it.
+              </span>
+            </label>
+          ) : (
+            <p data-testid="pool-name-note" className="text-xs text-black">
+              Each team names its own pool when it joins. You can rename a team from the Teams tab.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <label className="block">

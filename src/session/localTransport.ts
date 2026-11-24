@@ -48,6 +48,7 @@ import type {
   ListEventsResponse, LobbyEvent,
   SetEventHiddenRequest, SetEventHiddenResponse,
   EditGameRequest, EditGameResponse, GameEdit,
+  RenameTeamRequest, RenameTeamResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
@@ -67,6 +68,7 @@ import type {
 import {
   SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken,
   normalizeRecoveryCode, eventStatusOf, mayCreateTeam, teamNumbers,
+  teamNameProblem, teamNameTaken, sameTeamName, teamDisplayName,
 } from './contract';
 import { Faults } from './faults';
 import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
@@ -299,6 +301,8 @@ function resolveHandoff(code: string, handoffToken: string): string | null {
 // this shape directly.
 interface TeamRecord {
   name: string;
+  /** The host's rename (renameTeam) — what every screen shows. Absent until renamed. */
+  displayName?: string;
   // ⚠ COPIED FROM THE ROOM AT JOIN, never from a request and never written
   // again. The host owns the line set now; a team has no say and sends none.
   lines: CoverageLine[];
@@ -375,6 +379,8 @@ interface RoomRecord {
   eventName: string;
   /** The pool's name. ⚠ Optional on the record: one written before it existed reads the event name. */
   poolName?: string;
+  /** Each team names its own pool (RoomView.teamPoolNames). ⚠ Absent on a room written before it existed. */
+  teamPoolNames?: boolean;
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
@@ -564,6 +570,7 @@ function teamView(t: TeamRecord, currentYear: number, role: CallerRole, ownTeam?
   const results = sees ? Object.entries(t.resultsByYear) : [];
   return {
     name: t.name,
+    ...(t.displayName !== undefined ? { displayName: t.displayName } : {}),
     // Given on load to any team without one, so always present here.
     teamNumber: t.teamNumber ?? 0,
     lines: [...t.lines],
@@ -603,6 +610,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     hidden: room.hidden ?? false,
     eventName: room.eventName,
     poolName: room.poolName || room.eventName,
+    ...(room.teamPoolNames ? { teamPoolNames: true } : {}),
     yearCount: room.yearCount,
     startingYear: room.startingYear,
     expectedTeams: room.expectedTeams,
@@ -616,7 +624,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     // the host's table's figures alone, built as the server builds them.
     ...(role === 'player' || role === 'viewer'
       ? { standings: buildStandings(
-        room.teams.map(t => ({ name: t.name, teamNumber: t.teamNumber ?? 0, lines: t.lines, results: t.resultsByYear })),
+        room.teams.map(t => ({ name: t.name, displayName: t.displayName, teamNumber: t.teamNumber ?? 0, lines: t.lines, results: t.resultsByYear })),
         room.currentYear,
         shownShares(room, room.marketSharesByYear),
       ) } : {}),
@@ -876,6 +884,8 @@ export class LocalSessionTransport implements SessionTransport {
         seed: req.seed,
         eventName: req.eventName,
         ...(req.poolName?.trim() ? { poolName: req.poolName.trim() } : {}),
+        // Each team names its own pool at join (RoomView.teamPoolNames).
+        teamPoolNames: true,
         yearCount: req.yearCount,
         startingYear: req.startingYear,
         expectedTeams: req.expectedTeams,
@@ -940,7 +950,11 @@ export class LocalSessionTransport implements SessionTransport {
       if (name.length === 0) {
         throw new SessionError('INVALID_REQUEST', 'A team needs a name.');
       }
-      const team = room.teams.find(t => t.name === name);
+      // ⚠ THE EXACT NAME FIRST, THEN THE SAME NAME IN ANY CASE OR A RENAMED
+      // DISPLAY NAME (wip/team-chosen-names). Exact first keeps an older room
+      // that happens to hold "Bob" and "bob" resolving each as it always did.
+      const team = room.teams.find(t => t.name === name)
+        ?? room.teams.find(t => sameTeamName(t.name, name) || (t.displayName !== undefined && sameTeamName(t.displayName, name)));
 
       // ⚠ A VIEWER WATCHES SOMETHING THAT EXISTS; A PLAYER MAY CREATE IT. That
       // is the whole asymmetry now that the roster is not pre-registered — the
@@ -993,7 +1007,7 @@ export class LocalSessionTransport implements SessionTransport {
         }
         // The name is the identity now, so a second person arriving with a name
         // already in the room is a COLLISION rather than a claim on a seat.
-        throw new SessionError('TEAM_TAKEN', `A team called ${team.name} is already in this room.`);
+        throw new SessionError('TEAM_TAKEN', `A team called ${teamDisplayName(team)} is already in this room.`);
       }
 
       // ---- a player creating its team -------------------------------------
@@ -1023,6 +1037,13 @@ export class LocalSessionTransport implements SessionTransport {
       // is IGNORED rather than refused — it joins and plays the room's set,
       // which is the behaviour the contract asks a server for.
       const lines = [...(room.lines ?? LINE_ORDER)];
+
+      // ⚠ THE POOL NAME RULES (teamNameProblem): 3 to 30 characters, checked
+      // only here, on CREATING a team — a returning team keeps its name. Its
+      // uniqueness regardless of case was settled by the lookup above: a name
+      // any team holds, in any case or as renamed, found that team.
+      const nameProblem = teamNameProblem(name);
+      if (nameProblem) throw new SessionError('INVALID_REQUEST', nameProblem);
 
       // ⚠ THE CLIENT'S TOKEN, WHICH IS WHAT MAKES THE FIRST JOIN REPLAYABLE.
       // The team is created owning a secret the caller ALREADY HOLDS, so if the
@@ -1119,7 +1140,8 @@ export class LocalSessionTransport implements SessionTransport {
         const entry = room.teams.find(t => t.name === teamName);
         if (!entry) throw new SessionError('TEAM_NOT_FOUND', 'That team no longer exists in this room.');
         // ⚠ A DEFENSIVE CROSS-CHECK, NOT THE NORMAL PATH — see contract.ts.
-        if (typeof req.teamName === 'string' && req.teamName.trim() !== entry.name) {
+        if (typeof req.teamName === 'string' && !sameTeamName(req.teamName, entry.name)
+          && !(entry.displayName !== undefined && sameTeamName(req.teamName, entry.displayName))) {
           throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link does not match the team named.');
         }
         team = entry;
@@ -1132,11 +1154,14 @@ export class LocalSessionTransport implements SessionTransport {
         if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
         if (typeof req.recoveryCode !== 'string') throw new SessionError('INVALID_REQUEST', 'recoveryCode must be a string.');
         const name = req.teamName.trim();
-        const found = room.teams.find(t => t.name === name);
+        // The joined name exactly, else in any case or as the host renamed it (as join).
+        const found = room.teams.find(t => t.name === name)
+          ?? room.teams.find(t => sameTeamName(t.name, name) || (t.displayName !== undefined && sameTeamName(t.displayName, name)));
         if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
         team = found;
 
-        const key = attemptKeyFor(room.code, name);
+        // Keyed by the team's handle, so every spelling counts against one limit.
+        const key = attemptKeyFor(room.code, found.name);
         if (isReclaimBlocked(key)) {
           throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
         }
@@ -1494,6 +1519,38 @@ export class LocalSessionTransport implements SessionTransport {
         saveRoom(room);
       }
       return { room: roomView(room, 'host'), edits: out.edits, lockedTeams };
+    }, true);
+  }
+
+  renameTeam(req: RenameTeamRequest): Promise<RenameTeamResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') throw new SessionError('NOT_HOST', 'Only the host may rename a team.');
+      if (typeof req.teamName !== 'string' || typeof req.newName !== 'string') {
+        throw new SessionError('INVALID_REQUEST', 'teamName and newName must be strings.');
+      }
+      const target = req.teamName.trim();
+      const team = room.teams.find(t => t.name === target)
+        ?? room.teams.find(t => sameTeamName(t.name, target) || (t.displayName !== undefined && sameTeamName(t.displayName, target)));
+      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${target} is not a team in this room.`);
+      const newName = req.newName.trim();
+      const problem = teamNameProblem(newName);
+      if (problem) throw new SessionError('INVALID_REQUEST', problem);
+      const shown = teamDisplayName(team);
+      if (newName === shown) return { room: roomView(room, 'host') };
+      if (teamNameTaken(room.teams, newName, team)) {
+        throw new SessionError('TEAM_TAKEN', `A team called ${newName} is already in this room.`);
+      }
+      const edit: GameEdit = {
+        at: Date.now(), by: 'Host', yearNumber: Math.min(room.currentYear, room.yearCount),
+        kind: 'team-renamed', teamNumber: team.teamNumber ?? 0, fromName: shown, toName: newName,
+      };
+      // Back to the joined name clears the rename rather than storing it twice.
+      if (newName === team.name) delete team.displayName; else team.displayName = newName;
+      room.editHistory = [...(room.editHistory ?? []), edit];
+      saveRoom(room);
+      return { room: roomView(room, 'host'), edit };
     }, true);
   }
 

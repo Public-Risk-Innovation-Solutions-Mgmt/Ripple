@@ -42,9 +42,9 @@
 
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { Smartphone, Loader2, Copy } from 'lucide-react';
+import { Smartphone, Loader2, Copy, Pencil } from 'lucide-react';
 import StandingsTable from './StandingsTable';
-import { sessionTransport, isSessionError, type RoomView } from '../index';
+import { sessionTransport, isSessionError, teamDisplayName, teamNameProblem, teamNameTaken, TEAM_NAME_MAX, type RoomView } from '../index';
 
 /**
  * ⚠ ONE-TIME, LIKE THE RECOVERY CODE IT MAY REISSUE. Opened from a row's
@@ -158,6 +158,76 @@ function HandoffModal({ code, hostToken, teamName, onClose }: {
   );
 }
 
+/**
+ * THE HOST RENAMES A TEAM (wip/team-chosen-names) — e.g. an inappropriate pool
+ * name. The same rules as a join (teamNameProblem; free in the room in any
+ * case), checked here as the host types and again by the transport, whose
+ * answer is shown if it refuses. The room's change history records it; the
+ * team's own game rebuilds under the new name on its next poll.
+ */
+function RenameModal({ room, code, hostToken, teamName, onClose }: {
+  room: RoomView;
+  code: string;
+  hostToken: string;
+  teamName: string;
+  onClose: () => void;
+}) {
+  const team = room.teams.find(t => t.name === teamName);
+  const shown = team ? teamDisplayName(team) : teamName;
+  const [draft, setDraft] = useState(shown);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const problem = teamNameProblem(draft)
+    ?? (team && teamNameTaken(room.teams, draft, team) ? 'Another team in this room already has that name.' : null);
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await sessionTransport().renameTeam({ code, token: hostToken, teamName, newName: draft.trim() });
+      onClose();
+    } catch (e) {
+      setError(isSessionError(e) ? e.message : 'Could not rename the team.');
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div data-testid="rename-modal" className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><Pencil size={18} /></span>
+          <h2 className="text-lg font-bold text-slate-900">Rename Team {team?.teamNumber} | {shown}</h2>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          The new name shows everywhere the team appears, its own screens included. The change history records it.
+        </p>
+        <input
+          data-testid="rename-input"
+          className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          maxLength={TEAM_NAME_MAX}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+        />
+        {problem && draft.trim() !== shown && <p data-testid="rename-problem" className="mt-1 text-xs text-red-700">{problem}</p>}
+        {error && <p data-testid="rename-error" className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-5 flex gap-2">
+          <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            data-testid="rename-save"
+            onClick={() => { void save(); }}
+            disabled={saving || problem !== null || draft.trim() === shown}
+            className="flex-1 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:bg-slate-300"
+          >
+            {saving ? 'Saving…' : 'Rename'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   room: RoomView;
   code: string;
@@ -168,6 +238,7 @@ interface Props {
 // renders. The host adds its hand-off column.
 export default function HostTeamsTab({ room, code, hostToken }: Props) {
   const [handoffTeam, setHandoffTeam] = useState<string | null>(null);
+  const [renameTeam, setRenameTeam] = useState<string | null>(null);
   return (
     <>
       <StandingsTable
@@ -176,13 +247,25 @@ export default function HostTeamsTab({ room, code, hostToken }: Props) {
         startingYear={room.startingYear}
         currentYear={room.currentYear}
         yearCount={room.yearCount}
-        actionHead="Hand Off"
+        actionHead="Rename / Hand off"
         // ⚠ "MOVE TO NEW DEVICE" — THE HOST'S HALF OF A HAND-OFF. A QR code and a
         // one-time link for this team, from HandoffModal; see ClaimScreen.tsx for
         // the device side. Disabled without a hostToken (admin not yet confirmed
         // for this room), which should not happen once the tab itself is
         // reachable, but the button has nothing to call without one.
         renderAction={name => (
+          <span className="inline-flex gap-1">
+          <button
+            type="button"
+            data-testid={`rename-${name}`}
+            onClick={() => setRenameTeam(name)}
+            disabled={!hostToken}
+            title="Rename this team"
+            aria-label={`Rename ${name}`}
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Pencil size={14} />
+          </button>
           <button
             type="button"
             data-testid={`handoff-${name}`}
@@ -194,8 +277,19 @@ export default function HostTeamsTab({ room, code, hostToken }: Props) {
           >
             <Smartphone size={14} />
           </button>
+          </span>
         )}
       />
+
+      {renameTeam && hostToken && (
+        <RenameModal
+          room={room}
+          code={code}
+          hostToken={hostToken}
+          teamName={renameTeam}
+          onClose={() => setRenameTeam(null)}
+        />
+      )}
 
       {handoffTeam && hostToken && (
         <HandoffModal

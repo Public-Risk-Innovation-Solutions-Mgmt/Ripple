@@ -17,6 +17,7 @@ import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { colorForCombinedRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import type { RoomMarketShares, StandingTeam } from '../index';
+import { teamDisplayName } from '../contract';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -120,7 +121,7 @@ export default function StandingsTable({
                       "T" read "TWC+GL+Property"; the line view shows the lines. */}
                   {/* The team's number in the room (contract teamNumbers), before its name. */}
                   <td data-testid={`number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-black">Team {t.teamNumber}</td>
-                  <td data-testid={`name-${t.name}`} className="px-5 py-2.5 text-slate-700">{t.name}</td>
+                  <td data-testid={`name-${t.name}`} className="px-5 py-2.5 text-slate-700">{teamDisplayName(t)}</td>
                   {state.kind === 'absent' && (
                     // ⚠ ONE CELL, IN WORDS. Nothing here can be read as a
                     // number, which is the requirement.

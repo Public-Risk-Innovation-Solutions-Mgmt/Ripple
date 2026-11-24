@@ -383,6 +383,17 @@ Resources:
       AuthorizationType: NONE
       ApiKeyRequired: false
 
+  RenameTeamRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /renameTeam"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
   SessionInvokePermission:
     Type: AWS::Lambda::Permission
     DeletionPolicy: Retain
