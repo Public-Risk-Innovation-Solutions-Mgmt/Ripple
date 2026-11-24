@@ -1370,7 +1370,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (GUARD_TEXT_DIR): 48 lines differ, every one the Version row; with the key
 // normalised all 48 files are identical to the control. The guard's games are
 // single player, which plays with adverse development Off, so no figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v145.json');
+// v147: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; numbered past
+// every export and render baseline on any branch, v146). The control: aws
+// 61fcf79 reproduced v145 on all 48 keys. All 48 move. Text-diffed against
+// 61fcf79's own text (GUARD_TEXT_DIR): 7,886 of 148,242 lines, every one on
+// the surplus side — Invested Assets, Investment Income, Net Income, Beginning
+// and Ending Investments, Total Assets, Beginning Surplus, Surplus from
+// Income, Ending Surplus, Excess Available Surplus, Excess Capital Ratio (60
+// each); on the statements Investment Income, Net Operating Income, Assets,
+// Invested, Net Worth, Paid in Capital, Earned Surplus (42 each), Reserve to
+// Surplus (40), Premium to Surplus (38) and Operating Ratio (24); the Decisions
+// index's surplus column (42); the Year Walkthrough sheet's surplus-side steps
+// (6,686: Surplus 2,460, Investment income 1,500, Capital 1,406, Dividends and
+// assessments 1,020, and the Year code 300, which hashes the year's figures —
+// no premium, rate or loss step moves); Excess Capital Status (7, a band crossed, e.g. Adequate ->
+// Strong on WC); Ending Cash and Uninvested (5, a few hundred dollars in a
+// late year); and the Version row (24, save key v62 -> v63). No premium, rate,
+// loss or reserve row moves; no row is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v147.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
