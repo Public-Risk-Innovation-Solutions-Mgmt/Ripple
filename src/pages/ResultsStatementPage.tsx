@@ -303,6 +303,7 @@ function MarketSurveySection({ table }: { table: MarketSurveyTable }) {
         </table>
       )}
       <p className="px-3 pt-1 text-[11px] text-black">{table.footnote}</p>
+      {table.shareNote && <p data-testid="survey-share-note" className="px-3 text-[11px] text-black">{table.shareNote}</p>}
     </section>
   );
 }

@@ -184,6 +184,7 @@ function expectedSurveyLines(t: MarketSurveyTable): string[][] {
   out.push([...t.heads]);
   for (const r of t.rows) out.push(marketSurveyCells(r, ' · ').filter(x => x !== '').map(dash));
   out.push([dash(t.footnote)]);
+  if (t.shareNote) out.push([dash(t.shareNote)]);
   return out;
 }
 const isSurveyPage = (p: Page) => (p.lines[0]?.[0] ?? '').startsWith(`${MARKET_SURVEY_TITLE} - `);

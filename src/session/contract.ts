@@ -550,8 +550,11 @@ export interface TeamYearSummary {
  *
  *   per line  the team's exposure on the line / the total exposure on that line
  *             of every team in the room that writes it
- *   pool      the team's total premium / the room's total premium — the lines'
- *             exposures are in different units (payroll, TIV), premium is not
+ *   pool      the simple AVERAGE of the team's line shares, over the lines in
+ *             the room (marketShares.poolShareOf). The lines' exposures are in
+ *             different units (payroll, TIV), so they are not summed; each
+ *             line's share is a fraction, and fractions average. It was the
+ *             team's share of the room's premium until pr/pool-share-average.
  *
  * Fractions, not percentages. At the opening every team holds the same book, so
  * N teams each read 1/N on every line and the pool.

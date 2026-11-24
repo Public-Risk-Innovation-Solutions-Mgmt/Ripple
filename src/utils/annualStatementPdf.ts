@@ -230,6 +230,7 @@ export function pdfSurveyPlan(table: MarketSurveyTable): PdfSurveyLine[][] {
     pages.push([{ kind: 'title' }, { kind: 'header' }, ...table.rows.slice(n, n + per).map((_, k) => ({ kind: 'row' as const, n: n + k }))]);
   }
   pages[pages.length - 1].push({ kind: 'note', text: table.footnote });
+  if (table.shareNote) pages[pages.length - 1].push({ kind: 'note', text: table.shareNote });
   return pages;
 }
 /** One Market Survey cell's text, column k (0 = Team number … 8 = Market share), as the PDF writes it; the rate's lines joined. */

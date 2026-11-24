@@ -49,6 +49,30 @@ const TEAMS = [
 ];
 const WC = "Workers' Compensation";
 
+/**
+ * THE ROOM'S STORED MARKET RESULTS FOR A YEAR (RoomView.marketByYear, host only),
+ * read as the host's own screen reads the room. ⚠ THE HOST'S MARKET COLUMNS WERE
+ * TAKEN OFF THE SCREEN (pr/pool-share-average); the results are still stored and
+ * played, so this driver checks them where they live.
+ */
+async function storedMarket(host, api, code, year) {
+  const token = await host.evaluate(c => {
+    for (const k of ['active', 'held']) {
+      const v = localStorage.getItem(`ripple.session.v1.${k}.${c}`);
+      if (v) { const j = JSON.parse(v); if (j.hostToken) return j.hostToken; }
+    }
+    return null;
+  }, code);
+  const res = await fetch(`${api}/read`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ code, token }) });
+  const view = await res.json();
+  return view.room?.marketByYear?.[String(year)];
+}
+/** A line's exposure moved in the year — in less out, of the book at its start — as the Teams column worked it. */
+function movedOf(x) {
+  const before = x.bookAfter + x.outExposure - x.inGood - x.inOutside - x.inDropped;
+  return before > 0 ? (x.inGood + x.inOutside + x.inDropped - x.outExposure) / before : 0;
+}
+
 async function shot(page, name, locator) {
   if (!SHOTS) return;
   const file = path.join(SHOTS, name);
@@ -168,21 +192,25 @@ async function setupRoom(host, API, name, version) {
     ok(true, `every team played year ${year} on its New-version market result and posted it`);
   }
 
-  // The host's Teams tab: the market's columns, members moved.
+  // The host's Teams tab: no market columns (taken off the screen); the stored results carry the moves.
   await host.click('[data-testid="host-tab-teams"]');
-  await host.waitForSelector('[data-testid="teams-moved-head"]', { timeout: 30000 });
+  await host.waitForSelector('[data-testid="teams-table"] tr', { timeout: 30000 });
   await host.getByRole('button', { name: WC, exact: true }).first().click();
-  await host.waitForFunction(() => document.querySelectorAll('[data-testid^="moved-"]').length >= 4, null, { timeout: 60000 });
+  await host.waitForTimeout(400);
+  ok(await host.locator('[data-testid="teams-moved-head"], [data-testid="teams-bookrisk-head"], [data-testid^="moved-"], [data-testid^="bookrisk-"]').count() === 0,
+    'the host\'s Teams tab shows no Exposure moved or Book risk column');
+  const year2 = await storedMarket(host, API, code, 2);
   const risk = {};
   for (const [name] of TEAMS) {
-    moved[name] = (await host.textContent(`[data-testid="moved-${name}"]`)).trim();
-    risk[name] = (await host.textContent(`[data-testid="bookrisk-${name}"]`)).trim();
+    const x = year2?.result?.[name]?.WC;
+    moved[name] = x ? movedOf(x) : undefined;
+    risk[name] = x?.bookRisk;
   }
-  console.log('  moved', JSON.stringify(moved), 'book risk', JSON.stringify(risk));
-  ok(moved.Elm.startsWith('−') && moved.Alder.startsWith('+') && num(moved.Alder) > 0,
-    'members moved: the dearest team lost exposure, the cheapest gained', `${moved.Elm} / ${moved.Alder}`);
-  ok(Object.values(risk).every(r => /^\d\.\d{3}$/.test(r)) && num(risk.Elm) > 1,
-    'every team\'s book risk is shown; the dearest team kept the worse risks (above 1.00)', JSON.stringify(risk));
+  console.log('  stored: moved', JSON.stringify(moved), 'book risk', JSON.stringify(risk));
+  ok(moved.Elm < 0 && moved.Alder > 0,
+    'still stored: members moved — the dearest team lost exposure, the cheapest gained', `${moved.Elm} / ${moved.Alder}`);
+  ok(Object.values(risk).every(r => typeof r === 'number') && risk.Elm > 1,
+    'still stored: every team\'s book risk; the dearest team kept the worse risks (above 1.00)', JSON.stringify(risk));
   await shot(host, '03-new-version-teams-tab.png');
 
   // A team is shown no market results.

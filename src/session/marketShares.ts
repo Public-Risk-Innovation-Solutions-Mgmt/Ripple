@@ -20,6 +20,24 @@ export interface ShareTeam {
   results: Record<string, TeamYearSummary>;
 }
 
+/**
+ * THE POOL'S MARKET SHARE: the simple AVERAGE of the team's line shares, over
+ * the lines in the room — each line's share already being the team's share of
+ * the room's exposure on that line. 52% WC, 48% GL and 50% Property is 50%; a
+ * WC-only room's pool share is its WC share.
+ *
+ * ⚠ NOT ITS SHARE OF THE ROOM'S PREMIUM, which it was until
+ * pr/pool-share-average: premium weighted the pool toward whichever line
+ * carried the most premium, so a team could lead every line's exposure and
+ * still trail on the pool. Every screen and download reads this one function,
+ * through roomSharesFor (a set as it is worked out) and shownShares (a set as
+ * it is read back, so a room stored before the change shows the average too).
+ */
+export function poolShareOf(byLine: Partial<Record<CoverageLine, number>>): number {
+  const shares = Object.values(byLine).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return shares.length === 0 ? 0 : shares.reduce((a, v) => a + v, 0) / shares.length;
+}
+
 /** The newest posted result at or before `year` — a stopped team's last figures. */
 function lastAtOrBefore(results: Record<string, TeamYearSummary>, year: number): TeamYearSummary | undefined {
   let best: number | null = null;
@@ -58,7 +76,6 @@ export function roomSharesFor(year: number, teams: ShareTeam[], lines: CoverageL
   }
   if (figures.length === 0) return null;
 
-  const premiumTotal = figures.reduce((a, f) => a + (f.s.pool?.poolPremium ?? 0), 0);
   const exposureTotal: Partial<Record<CoverageLine, number>> = {};
   for (const line of lines) {
     exposureTotal[line] = figures.reduce((a, f) => a + (f.s.byLine?.[line]?.activeExposure ?? 0), 0);
@@ -71,7 +88,7 @@ export function roomSharesFor(year: number, teams: ShareTeam[], lines: CoverageL
       const total = exposureTotal[line] ?? 0;
       if (own !== undefined && total > 0) byLine[line] = own / total;
     }
-    byTeam[name] = { pool: premiumTotal > 0 ? (s.pool?.poolPremium ?? 0) / premiumTotal : 0, byLine };
+    byTeam[name] = { pool: poolShareOf(byLine), byLine };
   }
   return { year, byTeam };
 }
@@ -114,7 +131,12 @@ export function shownShares(
     const y = Number(k);
     if (Number.isFinite(y) && y <= known && (best === null || y > best)) best = y;
   }
-  return best === null ? undefined : { year: best, byTeam: structuredClone(stored[String(best)]) };
+  if (best === null) return undefined;
+  // The pool share re-derived from the stored line shares: a set stored before
+  // pr/pool-share-average holds the old premium share in `pool`.
+  const byTeam = structuredClone(stored[String(best)]);
+  for (const t of Object.values(byTeam)) t.pool = poolShareOf(t.byLine);
+  return { year: best, byTeam };
 }
 
 /**

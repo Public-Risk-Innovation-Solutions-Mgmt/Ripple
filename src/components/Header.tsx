@@ -26,8 +26,8 @@ interface HeaderProps {
   lineView?: LineView;
   /**
    * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM for the latest
-   * known year (CallerView.marketShare) — its line's on a line view, its
-   * premium share on the pool view. Passed only by a session screen; null
+   * known year (CallerView.marketShare) — its line's on a line view, on the
+   * pool view the average of its line shares (marketShares.poolShareOf). Passed only by a session screen; null
    * there means the room holds no share for this team (an older handler sends
    * none), and the chip is left out. Absent (single player): no chip.
    */

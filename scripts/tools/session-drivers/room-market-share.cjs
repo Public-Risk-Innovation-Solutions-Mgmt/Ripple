@@ -1,8 +1,9 @@
 // THE ROOM MARKET SHARE — a hosted room of three teams, three years.
 //
 // In a hosted game a team's market share is its share of the ROOM: per line,
-// its exposure over every team's exposure on the line; on the pool, its premium
-// over the room's (RoomMarketShares, contract.ts). Each team plays different
+// its exposure over every team's exposure on the line; on the pool, the simple
+// average of its line shares (RoomMarketShares, contract.ts; it was the team's
+// premium over the room's until pr/pool-share-average). Each team plays different
 // underwriting (Harbour Mutual at the defaults, Cedar Valley not renewing 10%
 // of its book, Tri-County adding 10% new members, on every line — the most each
 // slider allows since the sliders widened to 0-10%; 5% before). Checked:
@@ -132,16 +133,18 @@ function expectedShares(rec, year) {
     const use = year === 0 ? 0 : (t.decisionsByYear[String(year)] !== undefined ? year : Math.max(...keys));
     fig[t.name] = t.resultsByYear[String(use)];
   }
-  const tot = { pool: 0 };
+  const tot = {};
   for (const l of LINES) tot[l] = 0;
   for (const s of Object.values(fig)) {
-    tot.pool += s.pool.poolPremium;
     for (const l of LINES) tot[l] += s.byLine[l].activeExposure;
   }
   const out = {};
   for (const [n, s] of Object.entries(fig)) {
-    out[n] = { pool: s.pool.poolPremium / tot.pool };
+    out[n] = {};
     for (const l of LINES) out[n][l] = s.byLine[l].activeExposure / tot[l];
+    // THE POOL: the simple average of the team's line shares, over the room's lines
+    // (pr/pool-share-average) — no longer its share of the room's premium.
+    out[n].pool = LINES.reduce((a, l) => a + out[n][l], 0) / LINES.length;
   }
   return out;
 }

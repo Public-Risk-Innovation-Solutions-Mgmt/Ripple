@@ -53,6 +53,31 @@ const TEAMS = [
 ];
 const WC = "Workers' Compensation";
 
+/**
+ * THE ROOM'S STORED MARKET RESULTS FOR A YEAR (RoomView.marketByYear, host only),
+ * read as the host's own screen reads the room: the host's token from its
+ * browser, a read of the stub. ⚠ THE HOST'S MARKET COLUMNS AND BOOK RISK CHART
+ * WERE TAKEN OFF THE SCREEN (pr/pool-share-average); the market's results are
+ * still stored and played, so this driver checks them where they live.
+ */
+async function storedMarket(host, api, code, year) {
+  const token = await host.evaluate(c => {
+    for (const k of ['active', 'held']) {
+      const v = localStorage.getItem(`ripple.session.v1.${k}.${c}`);
+      if (v) { const j = JSON.parse(v); if (j.hostToken) return j.hostToken; }
+    }
+    return null;
+  }, code);
+  const res = await fetch(`${api}/read`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ code, token }) });
+  const view = await res.json();
+  return view.room?.marketByYear?.[String(year)];
+}
+/** A line's exposure moved in the year — in less out, of the book at its start — as the Teams column worked it. */
+function movedOf(x) {
+  const before = x.bookAfter + x.outExposure - x.inGood - x.inOutside - x.inDropped;
+  return before > 0 ? (x.inGood + x.inOutside + x.inDropped - x.outExposure) / before : 0;
+}
+
 async function shot(page, name, locator) {
   if (!SHOTS) return;
   const file = path.join(SHOTS, name);
@@ -183,25 +208,30 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   for (const name of Object.keys(pages)) await posted(pages[name], 1);
   ok(true, 'every team played year 1 on its market result and posted it');
 
-  // The host's Teams tab: two market columns.
+  // The host's Teams tab: no market columns (taken off the screen); the stored results carry the moves.
   await host.click('[data-testid="host-tab-teams"]');
-  await host.waitForSelector('[data-testid="teams-moved-head"]', { timeout: 30000 });
+  await host.waitForSelector('[data-testid="teams-table"] tr', { timeout: 30000 });
   await host.getByRole('button', { name: WC, exact: true }).first().click();
-  await host.waitForFunction(() => document.querySelectorAll('[data-testid^="moved-"]').length >= 5, null, { timeout: 60000 });
+  await host.waitForTimeout(400);
+  ok(await host.locator('[data-testid="teams-moved-head"], [data-testid="teams-bookrisk-head"], [data-testid^="moved-"], [data-testid^="bookrisk-"]').count() === 0
+    && !/Exposure moved|Book risk/.test(await host.locator('[data-testid="teams-table"]').innerText()),
+    'the host\'s Teams tab shows no Exposure moved or Book risk column');
+  const year1 = await storedMarket(host, API, code, 1);
   const moved = {}, risk = {};
   for (const [name] of TEAMS) {
-    moved[name] = (await host.textContent(`[data-testid="moved-${name}"]`)).trim();
-    risk[name] = (await host.textContent(`[data-testid="bookrisk-${name}"]`)).trim();
+    const x = year1?.result?.[name]?.WC;
+    moved[name] = x ? movedOf(x) : undefined;
+    risk[name] = x?.bookRisk;
   }
-  console.log('  moved', JSON.stringify(moved), 'book risk', JSON.stringify(risk));
-  ok(moved.Elm.startsWith('−') && moved.Alder.startsWith('+') && num(moved.Alder) > 0, 'members moved: the dearest team lost exposure, the cheapest gained', `${moved.Elm} / ${moved.Alder}`);
-  ok(Object.values(risk).every(r => /^\d\.\d{3}$/.test(r)) && num(risk.Elm) > 1, 'every team\'s book risk is shown; the dearest team kept the worse risks (above 1.00)', JSON.stringify(risk));
-  await shot(host, '02-teams-columns.png');
+  console.log('  stored: moved', JSON.stringify(moved), 'book risk', JSON.stringify(risk));
+  ok(moved.Elm < 0 && moved.Alder > 0, 'still stored: members moved — the dearest team lost exposure, the cheapest gained', `${moved.Elm} / ${moved.Alder}`);
+  ok(Object.values(risk).every(r => typeof r === 'number') && risk.Elm > 1, 'still stored: every team\'s book risk; the dearest team kept the worse risks (above 1.00)', JSON.stringify(risk));
+  await shot(host, '02-teams.png');
 
-  // The Charts tab: the book risk line.
+  // The Charts tab: no book risk line.
   await host.click('[data-testid="host-tab-charts"]');
-  await host.waitForSelector('[data-testid="chart-bookRisk"]', { timeout: 30000 });
-  ok(true, 'the Charts tab draws a Book risk chart');
+  await host.waitForSelector('[data-testid^="chart-"]', { timeout: 30000 });
+  ok(await host.locator('[data-testid="chart-bookRisk"]').count() === 0, 'the Charts tab draws no Book risk chart');
 
   // A team is shown no market results — on Decisions or anywhere else.
   for (const name of ['Alder', 'Elm']) {
@@ -265,16 +295,15 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await host.click('[data-testid="advance"]');
   await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '3', null, { timeout: 30000 });
   for (const name of Object.keys(pages)) await posted(pages[name], 2);
-  await host.click('[data-testid="host-tab-teams"]');
-  await host.getByRole('button', { name: WC, exact: true }).first().click();
-  await host.waitForSelector('[data-testid="market-flag-Dogwood"]', { timeout: 60000 });
-  ok((await host.textContent('[data-testid="market-flag-Dogwood"]')).includes('counted at its 2027 lock'), 'the host\'s Teams tab flags Dogwood as counted at its last lock');
-  // The Charts line, two years drawn.
+  // Dogwood did not lock year 2: the stored market step counted it at its year-1 lock (the host's flag went with the column).
+  const year2 = await storedMarket(host, API, code, 2);
+  const dog = year2?.inputs?.Dogwood;
+  ok(!!dog && dog.stale === true && dog.fromYear === 1, 'still stored: the market counted Dogwood at its 2027 lock', JSON.stringify(dog));
+  ok(!!year2?.result?.Elm?.WC && typeof year2.result.Elm.WC.bookRisk === 'number', 'still stored: year 2\'s book risk, for every replay');
   await host.click('[data-testid="host-tab-charts"]');
-  await host.waitForSelector('[data-testid="chart-bookRisk"]', { timeout: 30000 });
-  await host.waitForTimeout(500);
-  ok(await host.locator('[data-testid="chart-bookRisk"] path, [data-testid="chart-bookRisk"] polyline').count() > 0, 'after two years the Book risk chart draws each team\'s line');
-  await shot(host, '03-charts-book-risk.png', host.locator('div.relative', { has: host.locator('[data-testid="chart-expand-bookRisk"]') }).first());
+  await host.waitForSelector('[data-testid^="chart-"]', { timeout: 30000 });
+  ok(await host.locator('[data-testid="chart-bookRisk"]').count() === 0, 'after two years, still no Book risk chart');
+  await shot(host, '03-charts.png');
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors', errs[0] ?? '');
