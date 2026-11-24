@@ -8,7 +8,7 @@
 //
 // 1. THE BRIEF'S VALUES, AS LITERALS IN THIS FILE: k per line and level, the
 //    average leaver at a 10%+ gap, the leaver cap, the fade, the bucket power,
-//    and the fixed admin (50%, +3% a year). The parameters file must carry
+//    and the fixed admin (25%, +3% a year). The parameters file must carry
 //    exactly these. The widened buckets are recomputed here ((raw ÷ 1.02)^m,
 //    renormalised) and must be the engine's; the average leaver is 1.00 at a 1%
 //    gap and the brief's at 10% and beyond. Current's values are untouched.
@@ -21,7 +21,7 @@
 //    room stores no version and moves members differently.
 // 3. THE FIXED ADMIN, PER WORLD. Each New-room team's game is replayed year by
 //    year; in every world, every year and line, the admin it books must be
-//    (0.5 × year-1 admin × 1.03^(year − 1) + 0.5 × this year's admin) × (1 +
+//    (0.25 × year-1 admin × 1.03^(year − 1) + 0.75 × this year's admin) × (1 +
 //    the year's overrun), the overrun read from a twin game on the same stored
 //    market without the version (which books admin as today), and the member
 //    charge (the admin priced) the same in both. A team that never locked (no
@@ -39,7 +39,8 @@
 // CONTROLS, each of which must fail: a recompute on Current's values; on
 // Current's buckets alone; on Current's cap alone; on Current's fade alone; a
 // parameters table with one k changed; the fixed admin recomputed with no trend,
-// with this year's admin as the base, and with no fixed part; a recompute with
+// with this year's admin as the base, with no fixed part, and at 50% (the share
+// before pr/market-fixed-admin-25); a recompute with
 // inherited quality back; a recompute at 1.00 (the value before 0.95); a stored
 // New result with leavers taken in at 0.85.
 // ============================================================================
@@ -88,7 +89,8 @@ const BRIEF = {
   medium: { k: { WC: 2.100, GL: 2.163, Property: 2.160 }, mean: 0.65, cap: 0.25, fade: 0.25, power: 1.75 },
   high: { k: { WC: 3.600, GL: 3.708, Property: 3.702 }, mean: 0.55, cap: 0.30, fade: 0.20, power: 2.25 },
 } as const;
-const BRIEF_FIXED = { share: 0.50, trend: 0.03 };
+/** pr/market-fixed-admin-25: a quarter of year-1 admin fixed (it was 50%), still growing 3% a year. */
+const BRIEF_FIXED = { share: 0.25, trend: 0.03 };
 /** pr/market-new-intake(-095): in New, the members a team takes in arrive at 0.95 — slightly better than average. */
 const BRIEF_INTAKE = 0.95;
 
@@ -314,7 +316,7 @@ async function main() {
     + 'average leaver 0.75/0.65/0.55; cap 20/25/30%; fade 35/25/20%; bucket power 1.25/1.75/2.25');
   control('a table with Medium GL k at 2.200 is refused', tableIsBrief({ ...MARKET_NEW, medium: { ...MARKET_NEW.medium, k: { ...MARKET_NEW.medium.k, GL: 2.200 } } }) ? 0 : 1);
   ok(MARKET_NEW_FIXED_ADMIN.share === BRIEF_FIXED.share && MARKET_NEW_FIXED_ADMIN.trend === BRIEF_FIXED.trend,
-    'the fixed admin is 50% of the year-1 admin dollars, growing 3% a year');
+    'the fixed admin is 25% of the year-1 admin dollars, growing 3% a year');
   ok(MARKET_VERSION_DEFAULT === 'current', 'the default version is Current');
   ok(MARKET_NEW_INTAKE_QUALITY === BRIEF_INTAKE && LEVELS.every(l => marketParams(l, 'new').intakeQuality === BRIEF_INTAKE && marketParams(l, 'current').intakeQuality === null),
     'New takes members in at 0.95 (slightly better than average) at every level; Current keeps inherited quality');
@@ -496,7 +498,7 @@ async function main() {
   {
     const M = rooms.medium;
     const strip = (gs: GameState): GameState => { const { marketVersion: _v, ...setup } = gs.setup; void _v; return { ...gs, setup }; };
-    let probs: string[] = [], noTrend = 0, thisYear = 0, noFixed = 0, worlds = 0, teamsChecked = 0, grew = 0;
+    let probs: string[] = [], noTrend = 0, thisYear = 0, noFixed = 0, half = 0, worlds = 0, teamsChecked = 0, grew = 0;
     // The cheapest, a middle team and the one that lost its book (the others play the same arithmetic).
     for (const i of ['Alder', 'Dogwood', 'Elm'].map(n => plan.findIndex(p => p.name === n))) {
       const me = await t.read({ code: M.code, token: M.tokens[i] });
@@ -509,15 +511,17 @@ async function main() {
       noTrend += fixedProblems(nw, twin, { ...BRIEF_FIXED, trend: 0 }).length;
       thisYear += fixedProblems(nw, twin, { ...BRIEF_FIXED, baseIsThisYear: true }).length;
       noFixed += fixedProblems(nw, twin, { share: 0, trend: 0 }).length;
+      half += fixedProblems(nw, twin, { ...BRIEF_FIXED, share: 0.50 }).length;
       worlds = nw[0].length; teamsChecked++;
       if (plan[i].name === 'Elm') grew = nw[3][0][0].op / twin[3][0][0].op;
     }
-    ok(probs.length === 0 && worlds > 1, `three New-room teams (${teamsChecked}), every world (${worlds}), year and line: admin booked = (0.5 × year-1 admin × 1.03^(year − 1) `
-      + `+ 0.5 × this year's admin) × (1 + the overrun), and the admin charged is the twin's`, probs.slice(0, 4).join('; '));
+    ok(probs.length === 0 && worlds > 1, `three New-room teams (${teamsChecked}), every world (${worlds}), year and line: admin booked = (0.25 × year-1 admin × 1.03^(year − 1) `
+      + `+ 0.75 × this year's admin) × (1 + the overrun), and the admin charged is the twin's`, probs.slice(0, 4).join('; '));
     ok(grew > 1, `Elm, which lost its book to price, books more admin in year 4 than with all admin a share of premium (× ${grew.toFixed(3)}, world 1 WC)`);
     control('the fixed admin recomputed with no trend disagrees', noTrend);
     control('the fixed admin recomputed on this year\'s admin as the base disagrees', thisYear);
     control('the fixed admin recomputed with no fixed part (today\'s admin) disagrees', noFixed);
+    control('the fixed admin recomputed at 50% (the share before pr/market-fixed-admin-25) disagrees', half);
 
     // A team that never locked has no market result: its admin books as today.
     const fir = await t.read({ code: M.code, token: M.tokens[plan.findIndex(p => p.name === 'Fir')] });

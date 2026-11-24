@@ -26,7 +26,7 @@ import { sessionTransport, isSessionError, type ScheduledShockSpec, type Session
 import type { DevelopmentLevels } from '../contract';
 import { DevelopmentByYearTable, DevelopmentLevelSelect, ShockScheduleFields, type LevelsRow } from '../../components/GameRulesFields';
 import { startingEdits, startingLevelsByYear } from '../../utils/gameEdits';
-import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, MARKET_VERSION_DEFAULT, type DevelopmentSetting, type MarketLevel, type MarketVersion } from '../../data/pricingParameters';
+import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, MARKET_DEFAULT_LEVEL, MARKET_LEVELS, MARKET_NEW_FIXED_ADMIN, MARKET_VERSION_DEFAULT, type DevelopmentSetting, type MarketLevel, type MarketVersion } from '../../data/pricingParameters';
 import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
 import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -369,8 +369,9 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               {marketVersion === 'current'
                 ? 'Current: the market as it plays today.'
                 : <>New (for review): members leave a dearer team more readily, the best risks go first more strongly, and
-                  a book keeps the cost of losing them longer. Half of each team&apos;s admin is fixed at its year-1 dollars,
-                  growing 3% a year, so a shrinking book keeps its overheads.{market === 'off' ? ' With the market Off, New changes nothing.' : ''}</>}
+                  a book keeps the cost of losing them longer. {MARKET_NEW_FIXED_ADMIN.share * 100}% of each team&apos;s admin is
+                  fixed at its year-1 dollars, growing {MARKET_NEW_FIXED_ADMIN.trend * 100}% a year, so a shrinking book keeps
+                  some of its overheads.{market === 'off' ? ' With the market Off, New changes nothing.' : ''}</>}
             </p>
           </div>}
 
