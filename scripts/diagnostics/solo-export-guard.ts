@@ -1387,7 +1387,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Strong on WC); Ending Cash and Uninvested (5, a few hundred dollars in a
 // late year); and the Version row (24, save key v62 -> v63). No premium, rate,
 // loss or reserve row moves; no row is added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v147.json');
+// v149: THE SAVE KEY v63 -> v64 (pr/decision-reset: every decision resets at the
+// start of each round, year 1 included; v148 is aws's render baseline), on aws
+// e885e77, which reproduces v147 here 48 of 48. Text-diffed (GUARD_TEXT_DIR both
+// sides): the 24 Results workbooks move and nothing else — 48 rows, each file's
+// Version row ("riskpool_gamestate_v63" -> "riskpool_gamestate_v64") in its shown
+// and its raw text. The 24 statement workbooks are byte-identical. Every arm
+// sets every decision every year (defaultDecisionSet), so the reset moves no
+// figure here.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v149.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

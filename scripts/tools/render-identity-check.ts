@@ -1983,7 +1983,31 @@ const BASELINE = process.env.RENDER_BASELINE
 // Version (riskpool_gamestate_v62 -> v63); Decision History, Rate Indication
 // and the header only the chip. No rate or premium figure moves; no key added
 // or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v148.json');
+// v150: THE DECISION RESET (pr/decision-reset; v149 is this branch's export
+// baseline), on aws e885e77, which reproduces v148 here 174 of 174. Every round
+// opens on the reset — funding at Expected, no cover, 0% sliders, no dividend or
+// assessment, 20/75/5 — year 1 included, where it opened on the prior board's
+// 65% with $19M xs $1M and the 125/50 aggregate cover. Word-diffed
+// (RENDER_TEXT_DIR both sides), 93 move, 81 match:
+//   y0, Year Walkthrough (13): the save key alone, "riskpool_gamestate_v63" ->
+//     "riskpool_gamestate_v64".
+//   y0, Decisions (13): the reset itself — the new line "Every decision starts
+//     each year at the reset …", the funding label "(65%)" -> "Expected
+//     (~51%/~52%)" with no "Reset to Expected" button, the cover prices to $0.00,
+//     "Expected to surplus" +$1.1M-1.7M -> +$0.00M, and the year-1 rates lower
+//     (GL $4.41 -> $4.21; "vs last year" +1.6% -> -7.1%, +4.5% -> -5.3%,
+//     +11.8% -> +3.5%): year-1 rates drop from 2026's, as
+//     docs/HOW_THE_GAME_WORKS.md section 6 says.
+//   y2 (67: header 5, Introduction 5, Rate Indication 5, Decisions 13, Decision
+//     History 13, Annual Statement 13, Year Walkthrough 13): the two years each
+//     configuration plays are played on what the game opens on — the reset now —
+//     so the year-2 figures follow (surplus $27.24M -> $24.59M on GL, the
+//     combined ratio, the statement, the indication, the walkthrough's codes and
+//     its save key), Decision History's covers read "Full retention — no
+//     reinsurance", and Decisions carries the reset line.
+// Value identity holds, and the export guard moves by the save key alone
+// (export v149): both play their own decisions every year.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v150.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

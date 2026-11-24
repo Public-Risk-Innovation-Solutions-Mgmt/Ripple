@@ -167,19 +167,22 @@ async function setupRoom(host, API, name, version) {
     pages[name] = p;
   }
   ok(Object.values(codes).every(c => /^\d{4}$/.test(c || '')), 'four teams joined');
-  for (const [name, funding, nm] of TEAMS) {
-    const p = pages[name];
-    await toDecisionsWC(p);
-    if (funding !== null) await setSlider(p, /^Funding Confidence Level$/, funding);
-    if (nm) await setSlider(p, /^New Members$/, nm);
-    if (name === 'Alder') {
-      ok(!/New version|Market version|admin is fixed/.test(await p.textContent('body')), 'a team\'s Decisions page says nothing of the version');
-    }
-  }
 
   // ---- two years ---------------------------------------------------------------
+  // ⚠ EACH YEAR'S DECISIONS ARE SET THAT YEAR (pr/decision-reset): every round
+  // opens on the reset, so each team sets its funding and New Members again
+  // before each lock — they used to be set once and carried into year 2.
   const moved = {};
   for (const year of [1, 2]) {
+    for (const [name, funding, nm] of TEAMS) {
+      const p = pages[name];
+      await toDecisionsWC(p);
+      if (funding !== null) await setSlider(p, /^Funding Confidence Level$/, funding);
+      if (nm) await setSlider(p, /^New Members$/, nm);
+      if (name === 'Alder' && year === 1) {
+        ok(!/New version|Market version|admin is fixed/.test(await p.textContent('body')), 'a team\'s Decisions page says nothing of the version');
+      }
+    }
     for (const [name] of TEAMS) {
       await lockAndConfirm(pages[name]);
       await pages[name].waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 60000 });
