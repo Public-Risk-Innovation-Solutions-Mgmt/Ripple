@@ -82,7 +82,6 @@ import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import { teamLabel, type RoomView, type TeamYearFigures, type TeamView } from '../index';
-import type { StoredMarketYear } from '../contract';
 import { hostShockLabel } from '../../utils/shockLosses';
 
 
@@ -149,7 +148,7 @@ interface Metric {
   title: string;
   note: string;
   /** Where the value comes from: a year's own figures, or the developed column. */
-  source: 'figures' | 'developed' | 'market';
+  source: 'figures' | 'developed';
   pick: (f: TeamYearFigures) => number;
   format: (v: number) => string;
   /** Money quantities anchor at zero; a member count does not. */
@@ -230,24 +229,6 @@ const METRICS: Metric[] = [
   },
 ];
 
-/**
- * MARKET COMPETITION — THE HOST'S BOOK RISK LINE (RoomView.marketByYear, host
- * only). The factor each year played at: it multiplies the team's losses. Not a
- * posted figure — the server's own market step. On the pool view, the lines'
- * factors weighted by their books after the moves. Shown only in a room with the
- * market on.
- */
-const BOOK_RISK_METRIC: Metric = {
-  id: 'bookRisk',
-  title: 'Book risk',
-  note: 'market step · bookRisk',
-  subtitle: 'How risky each book is against an average one (1.00), after members moved. It multiplies the year\'s losses and fades halfway back each year.',
-  source: 'market',
-  pick: () => 1,   // unused on this source
-  format: v => v.toFixed(3),
-  anchorZero: false,
-  zeroRule: false,
-};
 
 // ---------------------------------------------------------------- series
 
@@ -269,8 +250,6 @@ interface TeamSeries {
    * the frozen series and draw the as-booked chart twice.
    */
   developed: Map<number, number>;
-  /** MARKET COMPETITION: year -> the book risk the year played at. Empty with the market off. */
-  market: Map<number, number>;
 }
 
 /**
@@ -283,19 +262,9 @@ interface TeamSeries {
 // column is the one posted AT that year: every post is kept, never rewritten.
 function seriesFor(
   team: TeamView, color: string, view: LineView, years: number[], lastShown: number,
-  marketByYear?: Record<string, StoredMarketYear>,
 ): TeamSeries {
   if (view !== 'pool' && !team.lines.includes(view)) {
-    return { team, color, state: { kind: 'absent' }, byYear: new Map(), developed: new Map(), market: new Map() };
-  }
-  const market = new Map<number, number>();
-  for (const y of years) {
-    if (y < 1 || y > lastShown) continue;
-    const r = marketByYear?.[String(y)]?.result[team.name];
-    if (!r) continue;
-    const lines = (view === 'pool' ? team.lines : [view]).filter(l => r[l]);
-    const w = lines.reduce((t, l) => t + r[l]!.bookAfter, 0);
-    if (lines.length > 0 && w > 0) market.set(y, lines.reduce((t, l) => t + r[l]!.bookRisk * r[l]!.bookAfter, 0) / w);
+    return { team, color, state: { kind: 'absent' }, byYear: new Map(), developed: new Map() };
   }
   const byYear = new Map<number, TeamYearFigures>();
   for (const y of years) {
@@ -328,7 +297,6 @@ function seriesFor(
     state: drawn.length === 0 ? { kind: 'silent' } : { kind: 'drawn', years: drawn },
     byYear,
     developed,
-    market,
   };
 }
 
@@ -395,7 +363,6 @@ const PLOT_H = H - M.top - M.bottom;
  */
 function pointsOf(metric: Metric, s: TeamSeries): Map<number, number> {
   if (metric.source === 'developed') return s.developed;
-  if (metric.source === 'market') return s.market;
   const out = new Map<number, number>();
   for (const [yr, f] of s.byYear) out.set(yr, metric.pick(f));
   return out;
@@ -651,7 +618,7 @@ export default function HostChartsTab({ room }: Props) {
     );
   }
 
-  const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years, lastPlayable, room.marketByYear));
+  const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years, lastPlayable));
   // A scheduled shock's host-facing name under the x-axis year it fired —
   // ScheduledShockSpec.yearNumber is the SAME year numbering the x-axis
   // already uses (0 = opening, 1..yearCount = played), so no offset here.
@@ -669,8 +636,10 @@ export default function HostChartsTab({ room }: Props) {
     shockLabelByYear.set(s.yearNumber, [...(shockLabelByYear.get(s.yearNumber) ?? []), s.shockId]);
     shocksShown.push({ id: s.shockId, yearNumber: s.yearNumber });
   }
-  // The book risk line joins the charts in a room with the market on.
-  const metrics = (room.market ?? 'off') !== 'off' ? [...METRICS, BOOK_RISK_METRIC] : METRICS;
+  // ⚠ NO BOOK RISK LINE. The host's chart of the market step's book risk was
+  // taken off the screen (pr/pool-share-average); the room still stores the
+  // market's results (RoomView.marketByYear), which the engine and replays use.
+  const metrics = METRICS;
 
   // ⚠ ONE DOMAIN ACROSS A SCALE GROUP, COMPUTED BEFORE ANY OF ITS CHARTS DRAWS.
   // The two loss charts are the same quantity at two valuations, so a reader

@@ -3275,11 +3275,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'One setting for every session screen. Kept at today\'s 3 seconds; set to 5 to move them all.',
       }],
       ['Room market share', {
-        value: 'per line: own exposure / the room\'s exposure on the line · pool: own premium / the room\'s premium',
+        value: 'per line: own exposure / the room\'s exposure on the line · pool: the average of the line shares',
         unit: 'share of the room, hosted games only',
         what: 'In a hosted game a team\'s market share is its share of the room, not of the full market. Per line, '
-          + 'its exposure over the total exposure of every team in the room that writes the line; for the pool, its '
-          + 'premium over the room\'s, since the lines\' exposures are in different units. Before year 1 it comes '
+          + 'its exposure over the total exposure of every team in the room that writes the line; for the pool, the '
+          + 'simple average of its line shares over the lines in the room (the lines\' exposures are in different '
+          + 'units, so they are not summed; each line\'s share is a fraction). Before year 1 it comes '
           + 'from the opening books, so N teams each read 1/N.',
         basis: 'CHOSEN',
         note: 'Worked out once a year and stored with the room, in the submit that brings in the last result from '

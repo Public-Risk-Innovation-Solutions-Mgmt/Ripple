@@ -153,21 +153,24 @@ market share. A team's own row is highlighted.
 **Ripple Ranking** is a placeholder until the real ranking is designed: rank by the pool's net surplus ("1st",
 "2nd"…), ties sharing a rank, the same on every line view (`utils/rippleScore.ts`).
 
-**Market share** is a team's exposure over the room's on a line, and its premium over the room's for the pool,
-fixed once every team that locked has posted the year. It is display only and never enters a simulation.
+**Market share** is a team's exposure over the room's on a line. For the **pool** it is the simple **average of the
+team's line market shares**, over the lines in the room (`marketShares.poolShareOf`): 52% WC, 48% GL and 50%
+Property reads 50%, and a WC-only room's pool share is its WC share. (It was the team's share of the room's
+premium until this change; a room stored before it reads back as the average.) It is fixed once every team that
+locked has posted the year, is display only, and never enters a simulation. The notes under the table, and the
+Annual Statement's Market Survey section in a hosted game, say how the pool's is worked out.
 
 **The top bar** (Surplus, Combined ratio and, in a hosted game, Market Share) reads the **pool** on every tab — the
-pool's market share is the team's premium share of the room, as on the Market Survey. Only on the Decisions page,
+pool's market share is the average of the team's line shares, as on the Market Survey. Only on the Decisions page,
 with a line selected, does it show that line's figures. A "Showing" chip says which: Pool, WC, GL or Property.
 
 **The host also sees** each team's decisions for completed years, and charts of surplus, exposure and losses.
-With market competition on, the Teams tab adds two host-only columns — **Exposure moved** (members in less out,
-of the book at the start of the year) and **Book risk** — and the Charts tab a **Book risk** line. A team's
-Market Survey shows neither.
+The Teams tab is the same table as a team's Market Survey; the host's market columns (Exposure moved, Book risk)
+and the Charts tab's Book risk line were taken off the screen.
 
 **A team is not shown its market results** (market on): who wanted to leave, who left and how its appetite filled
-appear nowhere on a team's screens. The server stores them, the team's game plays them (its book and book risk), and
-only the host sees them, in the Teams columns and the Charts line. A team sees their effect in its own figures and
+appear nowhere on a team's screens, and no longer on the host's either. The server still stores them and the
+team's game plays them (its book and book risk), on every replay. A team sees their effect in its own figures and
 in the Market Survey's shares.
 
 **Nor any market explanation.** With the market on, no note on the Decisions page or the Market Survey explains it,

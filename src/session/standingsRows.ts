@@ -77,8 +77,16 @@ export function rateLines(state: Extract<RowState, { kind: 'reported' }>, view: 
 }
 
 /**
+ * THE POOL'S MARKET SHARE, AS THE NOTES UNDER THE TABLE SAY IT — the Market
+ * Survey, the host's Teams tab and the Annual Statement's Market Survey section
+ * (screen, Excel and PDF) all print this one sentence (marketShares.poolShareOf).
+ */
+export const POOL_SHARE_NOTE = 'Market share on the pool is the simple average of the team\u2019s market shares on the lines in the room.';
+
+/**
  * THE ROOM'S MARKET SHARE for a team, on the view: on a line, its exposure over
- * the room's on the line; on the pool, its premium over the room's. With the year
+ * the room's on the line; on the pool, the simple average of its line shares
+ * (marketShares.poolShareOf). With the year
  * it is from — the newest complete year, which the heading's year may run ahead of.
  */
 export function shareOf(

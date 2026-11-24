@@ -345,6 +345,9 @@ const FAST: string[] = [
                                      //         every sheet in the workbook's order from its own page,
                                      //         headers and page numbers, every row and figure the
                                      //         statement's, negatives red — each with a failing control
+  'pool-share-average-check',        //   1s   a hosted team's pool market share is the average of its
+                                     //         line shares, worked out and read back, every reader
+                                     //         agreeing — premium share put back is a failing control
   'statement-decisions-check',       //   4s   the Annual Statement's Decisions section is the recorded
                                      //         decisions, every scope and year, history years included —
                                      //         three failing controls

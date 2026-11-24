@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { useState } from 'react';
-import { rateText, reportingYearOf, rowState, shareOf } from '../standingsRows';
+import { POOL_SHARE_NOTE, rateText, reportingYearOf, rowState, shareOf } from '../standingsRows';
 import { ordinal, rippleScoreRanks } from '../../utils/rippleScore';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
@@ -17,7 +17,6 @@ import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { colorForCombinedRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import type { RoomMarketShares, StandingTeam } from '../index';
-import type { StoredMarketYear } from '../contract';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -39,17 +38,10 @@ export interface StandingsTableProps {
   /** A last column — the host's hand-off button; none on a team's screen. */
   actionHead?: string;
   renderAction?: (teamName: string) => React.ReactNode;
-  /**
-   * MARKET COMPETITION — THE HOST'S ALONE (RoomView.marketByYear is host-only;
-   * a team's Market Survey passes nothing and shows no such columns). Two
-   * columns for the row's year: the exposure the market moved (in less out, of
-   * the book at the start of the year) and the book risk the year played at.
-   */
-  market?: Record<string, StoredMarketYear>;
 }
 
 export default function StandingsTable({
-  teams, marketShares, startingYear, currentYear, yearCount, ownTeam, actionHead, renderAction, market,
+  teams, marketShares, startingYear, currentYear, yearCount, ownTeam, actionHead, renderAction,
 }: StandingsTableProps) {
   const [view, setView] = useState<LineView>('pool');
 
@@ -113,9 +105,7 @@ export default function StandingsTable({
                 {reportingYear < 0 ? 'Combined ratio' : `Combined ratio ${startingYear + reportingYear - 1}`}
               </th>
               <th className="px-5 py-2 font-medium" title="Surplus at the year's end">Net surplus</th>
-              <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line, premium on the pool">Market share</th>
-              {market && <th data-testid="teams-moved-head" className="px-5 py-2 font-medium" title="Members the market moved in the year: in less out, of the book at the start of the year">Exposure moved</th>}
-              {market && <th data-testid="teams-bookrisk-head" className="px-5 py-2 font-medium" title="The book risk factor the year played at: it multiplies the team's losses">Book risk</th>}
+              <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line; on the pool, the average of the team's line shares">Market share</th>
               {renderAction && <th className="px-5 py-2 text-right font-medium">{actionHead}</th>}
             </tr>
           </thead>
@@ -182,8 +172,9 @@ export default function StandingsTable({
                       (shownShares). Worked out once a year, when the last team
                       that locked in has posted; while a locked team has not, the
                       newest complete year before it. On a line, the team's
-                      exposure over the room's on the line; on the pool, its
-                      premium over the room's. */}
+                      exposure over the room's on the line; on the pool, the
+                      simple average of its line shares, over the room's lines
+                      (marketShares.poolShareOf). */}
                   <td data-testid={`share-${t.name}`} className="px-5 py-2.5 font-mono text-sky-700">
                     {(() => {
                       const share = shareOf(marketShares, t.name, effectiveView);
@@ -194,34 +185,6 @@ export default function StandingsTable({
                         : <>{formatPct(share.value)} <span className="text-[10px] text-black">({startingYear + share.year - 1})</span></>;
                     })()}
                   </td>
-                  {market && (() => {
-                    const step = reportingYear < 1 ? undefined : market[String(reportingYear)];
-                    const lines = effectiveView === 'pool' ? t.lines : [effectiveView];
-                    const r = step?.result[t.name];
-                    const flag = step?.missing.includes(t.name) ? 'not in the market (never locked)'
-                      : step?.inputs[t.name]?.stale ? `counted at its ${startingYear + step.inputs[t.name]!.fromYear - 1} lock` : null;
-                    const moved = (l: CoverageLine) => {
-                      const x = r?.[l];
-                      if (!x) return undefined;
-                      const before = x.bookAfter + x.outExposure - x.inGood - x.inOutside - x.inDropped;
-                      return before > 0 ? (x.inGood + x.inOutside + x.inDropped - x.outExposure) / before : 0;
-                    };
-                    const signed = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}%`;
-                    const each = (f: (l: CoverageLine) => string | undefined) => lines.length === 1
-                      ? (f(lines[0]) ?? <span className="text-black">—</span>)
-                      : lines.map(l => <span key={l} className="block whitespace-nowrap text-xs">{l} {f(l) ?? <span className="text-black">—</span>}</span>);
-                    return (
-                      <>
-                        <td data-testid={`moved-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
-                          {each(l => { const v = moved(l); return v === undefined ? undefined : signed(v); })}
-                          {flag && <span data-testid={`market-flag-${t.name}`} className="block text-[10px] font-sans text-amber-700">{flag}</span>}
-                        </td>
-                        <td data-testid={`bookrisk-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
-                          {each(l => r?.[l]?.bookRisk.toFixed(3))}
-                        </td>
-                      </>
-                    );
-                  })()}
                   {renderAction && <td className="px-5 py-2.5 text-right">{renderAction(t.name)}</td>}
                 </tr>
               );
@@ -233,6 +196,7 @@ export default function StandingsTable({
           {effectiveView === 'pool'
             ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
             : `Every figure is ${effectiveView}, so the column compares like with like.`}
+          {effectiveView === 'pool' ? <>{' '}{POOL_SHARE_NOTE}</> : null}
           {' '}Ripple Ranking is for now each team&rsquo;s rank by the pool&rsquo;s net surplus; the full ranking is still being designed.
         </p>
       </div>

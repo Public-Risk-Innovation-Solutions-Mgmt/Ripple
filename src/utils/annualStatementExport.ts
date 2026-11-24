@@ -211,8 +211,9 @@ export function fillMarketSurvey(ws: Worksheet, table: MarketSurveyTable, firstR
     });
   });
   ws.getCell(last + 1, 2).value = table.footnote;
+  if (table.shareNote) ws.getCell(last + 2, 2).value = table.shareNote;
   ws.getColumn(SURVEY_LAST).width = 12;
-  return last + 1;
+  return table.shareNote ? last + 2 : last + 1;
 }
 
 /** Excel's serial day number for a calendar date (the 1900 system, past its leap-year bug). */

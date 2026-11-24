@@ -176,7 +176,6 @@ export default function HostTeamsTab({ room, code, hostToken }: Props) {
         startingYear={room.startingYear}
         currentYear={room.currentYear}
         yearCount={room.yearCount}
-        market={room.marketByYear}
         actionHead="Hand Off"
         // ⚠ "MOVE TO NEW DEVICE" — THE HOST'S HALF OF A HAND-OFF. A QR code and a
         // one-time link for this team, from HandoffModal; see ClaimScreen.tsx for
