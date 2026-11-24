@@ -1983,7 +1983,24 @@ const BASELINE = process.env.RENDER_BASELINE
 // Version (riskpool_gamestate_v62 -> v63); Decision History, Rate Indication
 // and the header only the chip. No rate or premium figure moves; no key added
 // or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v148.json');
+// v149: COVER COSTS TWICE ITS TABLE PRICE IN PLAYED YEARS (wip/cover-price-double;
+// COVER_PRICE_FACTOR x2.0), on aws e885e77, which reproduces v148 here 174 of 174.
+// Word-diffed (RENDER_TEXT_DIR both sides), 93 move:
+//   before year 1 (y0): the Decisions page (8) — every cover's price doubled
+//   ("$9M xs $1M $487,500/yr" -> "$975,000/yr"; "+ Reinsurance $0.16" -> "$0.32")
+//   and the rate it is added to ("$5.68" -> "$5.84"); the Rate Indication (5) —
+//   each cover's price per $100 doubled (GL 9xs1 0.079 -> 0.159); and the Year
+//   Walkthrough (13), its save version alone (riskpool_gamestate_v63 -> v64).
+//   NOTHING ELSE AT y0: the header, Introduction, statements and every opening
+//   figure match, the prior board's history keeping the table's prices;
+//   at year 2 (y2): every screen with the top bar (Annual Statement, Decision
+//   History, Decisions, Introduction, Rate Indication, Year Walkthrough, _header)
+//   — the surplus and combined ratio the doubled cost and the higher rate leave
+//   (GL pool surplus $27.24M -> $27.23M, combined ratio 2028 104.4% -> 104.2%),
+//   the doubled prices and the rates they are added to, the statements' premium,
+//   ratios and surplus that follow, and the walkthrough's year codes.
+// No loss, reserve or recovery figure moves. 81 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v149.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

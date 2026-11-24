@@ -1679,7 +1679,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   NOTHING ELSE: no premium, rate, charge, expected or incurred loss,
 //   reserve, exposure, member count, cover cost or recovery moves (pricing
 //   reads no surplus), and no field is added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v100.json');
+// v101: COVER COSTS TWICE ITS TABLE PRICE IN PLAYED YEARS (wip/cover-price-double;
+// COVER_PRICE_FACTOR x2.0), on aws e885e77, which reproduces v100 here. 9,997 of
+// 39,600 values move across 39 fields, every one the price of cover or downstream
+// of it: reinsuranceCost on all 300 line-years, each EXACTLY twice v100's (first
+// instance's WC Y1 $978,925 -> $1,957,850); the rate it is added to
+// (finalRatePer100 / ratePer100 and the next year's priorFinalRatePer100 —
+// WC Y1 $4.0291 -> $4.1360), the member charge and gross premium, the expense and
+// combined ratios, and the income, cash, investments, surplus and capital that
+// follow; marketShare (32, a premium-weighted pool share) and investmentReturnRate
+// (25, by an ulp) with them. NO RECOVERY, LOSS, RESERVE, DEVELOPMENT, EXPECTED
+// LOSS OR EXPOSURE FIELD MOVES (reinsuranceRecovery, grossUltimateLoss,
+// netIncurredLoss, endingNetReserve, priorYearDevelopment, expectedLoss,
+// activeExposure: 0 of 300 each), and THE OPENING DOES NOT MOVE: all 336 of year
+// 1's beginning figures match, the prior board's history keeping the table's
+// prices. No field added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v101.json');
 
 function seedOf(id: string) {
   let h = 5381;
