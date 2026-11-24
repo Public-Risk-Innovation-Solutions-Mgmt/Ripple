@@ -341,6 +341,13 @@ const FAST: string[] = [
                                      //         on one), the Excel file is the template cell for cell less
                                      //         "Profit and Contigency", borders included, the operating ratio by hand on
                                      //         scenario 1 WC 2027 — each with a failing control
+  'admin-split-check',               //  47s   pr/admin-fixed-variable-split: a New-version room's statements (every team, as-of
+                                     //         year and scope) split General Admin Expense into Fixed / Variable / Total and carry
+                                     //         the note; Fixed + Variable = Total in every column; Fixed is 0.25 × year-1 admin ×
+                                     //         1.03^(y−1) and ties to what the engine booked; every other figure unchanged; Current
+                                     //         and market-Off New rooms keep the single line; the Excel file and PDF carry it —
+                                     //         controls on a Variable off by $1,000, 50%, no trend, the split in Current, no note,
+                                     //         the Total read as Variable
   'annual-statement-pdf-check',      //  15s   the Annual Statement PDF read back with pdf.js on six games:
                                      //         every sheet in the workbook's order from its own page,
                                      //         headers and page numbers, every row and figure the

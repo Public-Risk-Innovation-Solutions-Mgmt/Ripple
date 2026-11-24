@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v63';
+export const SAVE_KEY = 'riskpool_gamestate_v64';
 
 /**
  * ⚠ v58 (pr/named-scenarios): SCENARIO 20 PLAYS A NEW SEED. A game saved on
@@ -161,6 +161,20 @@ export const SAVE_KEY = 'riskpool_gamestate_v63';
  * builds a different instance (its old seed is the named scenario Test Seed,
  * "22"), so an old save would replay on the wrong game. Past every key on any
  * branch (v57 is aws's).
+ *
+ * ⚠ v62 (pr/development-ranges): THE ADVERSE DEVELOPMENT RANGES NARROWED —
+ * Low 0–5%, Mid 3–8%, High 7–15% (were 1–5%, 5–15%, 15–20%). A hosted or Test
+ * player game replays its years with the λ each level now draws, so a v61 save
+ * would reload with different results from the ones it was played on. Past
+ * aws's v61 (pr/market-level-rescale, merged above v59); v60, which that
+ * branch skipped for this one, was never shipped. v60 and v61 are retired; no
+ * branch uses v62.
+ *
+ * ⚠ v63 (pr/round-paid-in-capital): THE PAID-IN CAPITAL IS ROUND — WC $2.0M,
+ * GL $8.0M, Property $8.5M (were $0 / $8.06M / $8.53M). Every game's pre-game
+ * starts on it, so every opening surplus moves (WC about +$2.4M) and a v62 save
+ * would replay its years from an opening it was not played on. Past every key
+ * on any branch (v62 is aws's); v62 is retired.
  */
 
 /**
@@ -383,13 +397,17 @@ export const SAVE_KEY = 'riskpool_gamestate_v63';
 // before. v59 is retired. ⚠ v60 IS SKIPPED, NOT RETIRED: it is left for the
 // adverse-development ranges branch, in progress and not yet pushed, so no two
 // pull requests share a key.
-// ⚠ v63: EVERY DECISION RESETS AT THE START OF EACH NEW ROUND (pr/decision-reset;
-// decisionDefaults resetDecisionSet). A save's current decisions used to be the
-// year before's carried forward; a v61 save would reopen a round on those, so it
-// is retired. ⚠ v62 IS SKIPPED, NOT RETIRED: wip/pool-progress-step is on v61
-// and in progress, and its next bump would take v62, so no two pull requests
-// share a key.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58', 'riskpool_gamestate_v59', 'riskpool_gamestate_v61'];
+// ⚠ v62: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges; see
+// SAVE_KEY). It took v62, past aws's v61, rather than the skipped v60; v60 and
+// v61 are retired.
+// ⚠ v63: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; see
+// SAVE_KEY). v62 is retired.
+// ⚠ v64: EVERY DECISION RESETS AT THE START OF EACH ROUND, YEAR 1 INCLUDED
+// (pr/decision-reset; decisionDefaults resetDecisionSet). A save's current
+// decisions used to be the year before's carried forward (and year 1's the prior
+// board's 65% with its covers); a v63 save would reopen a round on those, so it
+// is retired. Taken past aws's v63 (pr/round-paid-in-capital).
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58', 'riskpool_gamestate_v59', 'riskpool_gamestate_v60', 'riskpool_gamestate_v61', 'riskpool_gamestate_v62', 'riskpool_gamestate_v63'];
 
 /**
  * Fields dropped on the way out.

@@ -465,9 +465,44 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
 export const ADVERSE_DEVELOPMENT = { enabled: true };
 export type DevelopmentLevel = 'Low' | 'Mid' | 'High';
 export const DEVELOPMENT_LEVELS: readonly DevelopmentLevel[] = ['Low', 'Mid', 'High'];
-/** λ's range per level, a yearly share of each open prior year's outstanding. */
+/**
+ * λ's range per level, a yearly share of each open prior year's outstanding,
+ * drawn evenly (uniform) within it. The same table in every mode that has a
+ * level — a hosted room (simple or advanced), Test player and Edit game;
+ * single player is Off (SOLO_ADVERSE_DEVELOPMENT).
+ *
+ *   Low   0–5%   (mean 2.5%)   was 1–5%   (mean 3%)
+ *   Mid   3–8%   (mean 5.5%)   was 5–15%  (mean 10%)
+ *   High  7–15%  (mean 11%)    was 15–20% (mean 17.5%)
+ *
+ * STILL UNPRICED: no level load — the rate meets development only as it
+ * emerges in the experience (ADVERSE_DEVELOPMENT, above).
+ *
+ * WHY NARROWED (pr/development-ranges): the old Mid and High swamped even 90%
+ * funding. Measured in a 16-team hosted room (the eight player types, two
+ * seats each: Expected, 50% and 55% funding, the 65% defaults, 70%, 75%, 80%
+ * and a 90% team with deep covers), five years, market Medium, NO events, every
+ * line at one level, scenarios 1, 6 and 16. The 90% team's mean combined ratio
+ * and year-5 surplus ÷ opening (no development: 88%, ×2.59–3.05):
+ *
+ *            old ranges                     new ranges
+ *   Low      91–92%  ×2.33–2.66             90–91%  ×2.38–2.73
+ *   Mid      99–100% ×1.63–1.68             94–95%  ×2.09–2.32
+ *   High     109–110% ×0.53–0.83            101–102% ×1.51–1.54
+ *
+ * At the old Mid the 90% team's whole funding margin went to development; at
+ * the old High it LOST 17–47% of its surplus in five quiet years, the 65%
+ * team went below zero in two of the three scenarios (×−0.02 and ×−0.30 at
+ * year 5), the 70% team in one, and every poor-chooser type in all three. With
+ * the new ranges no team of any type goes below zero at any level in these
+ * games; High still takes about two thirds of the growth the 90% team has
+ * with none, and leaves the poor choosers at ×0.25–0.64. Low barely moves
+ * (+0.05 to +0.08 on year-5 surplus ÷ opening, every type). The new High's
+ * mean (11%) sits near the old Mid's (10%), the new Mid's at about twice the
+ * new Low's.
+ */
 export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readonly [number, number]>> = {
-  Low: [0.01, 0.05], Mid: [0.05, 0.15], High: [0.15, 0.20],
+  Low: [0.00, 0.05], Mid: [0.03, 0.08], High: [0.07, 0.15],
 };
 /**
  * What a game with no level chosen plays, on every line: a hosted room's or a
@@ -475,10 +510,12 @@ export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readon
  * opens on it), and any harness that sets none. Single player sets every line
  * Off (SOLO_ADVERSE_DEVELOPMENT) and never reads this.
  *
- * ⚠ LOW, WAS MID. At Mid (5-15% of each open prior year's outstanding a year,
- * compounding on what is still open), WC — the long tail — fails in most
- * scenarios within five years. Low (1-5%) is the default a host gets without
- * choosing; Mid and High stay one pick away for a room that wants them.
+ * ⚠ LOW, WAS MID. At Mid (then 5-15% of each open prior year's outstanding a
+ * year, compounding on what is still open), WC — the long tail — failed in
+ * most scenarios within five years. Low (now 0-5%, then 1-5%) is the default a
+ * host gets without choosing; Mid and High stay one pick away for a room that
+ * wants them. pr/development-ranges narrowed all three (above) and kept Low
+ * the default.
  */
 export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Low';
 /** A line's setting on a game's setup: a level, or Off — single player's on every line, and the host's None on a line. */
@@ -1012,15 +1049,17 @@ export const NAMED_SCENARIOS: Readonly<Record<number, { name: string; seed: numb
  * THE OPENINGS' BARS — read by scenarios-check section 5 and by nothing in the
  * game: every line within this of its design target, and this many scenarios
  * within 5% on all three lines. What the seeds above achieve on this build:
- * worst miss 7.3% (scenario 6's WC) and 13 (pr/asset-mix-20-75-5: the prior
- * board's 20/75/5 moved the openings and the seeds were kept, by decision —
- * NOT temporary). The bar sits at 7.5%, a fifth of a point over the worst, so
- * a further move of any size shows. Were 4.9% and all 20 (pr/pregame-65);
+ * worst miss 19.8% (scenario 10's WC) and 0 (pr/round-paid-in-capital: the
+ * round paid-in capital, WC $2M from $0, lifts every WC opening about $2.4M,
+ * and the seeds were kept, by decision — NOT temporary). The bar sits at 20%,
+ * a fifth of a point over the worst, so a further move of any size shows; the
+ * 5% leg at 0 checks nothing until the openings come back toward target.
+ * Were 7.3% and 13 (pr/asset-mix-20-75-5, the bar 7.5%); 4.9% and all 20 (pr/pregame-65);
  * 10.5% and 16 with the seeds before (pr/seed-switch); 18.5% and 4,
  * temporarily, while the openings stood as the fixed ALAE load left them
  * (pr/alae-load); 12% and 18 before that.
  */
-export const SCENARIO_OPENING_BARS = { worstMiss: 0.075, within5: 13, temporary: false } as const;
+export const SCENARIO_OPENING_BARS = { worstMiss: 0.20, within5: 0, temporary: false } as const;
 
 /**
  * EACH LINE'S THINNEST AND RICHEST DESIGN TARGET, PREMIUM TO SURPLUS — the
@@ -1122,7 +1161,21 @@ export const SCENARIO_PREMIUM_TO_SURPLUS: PerLine<Readonly<Record<number, number
  * the 1.0 guardrail (0.90 at its richest). $15M (shipped briefly, f096e1a)
  * kept every designed margin above the floor at the cost of two more drops.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 0, GL: 8_060_000, Property: 8_530_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 2_000_000, GL: 8_000_000, Property: 8_500_000 };
+// ⚠ WC $2.0M, GL $8.0M, PROPERTY $8.5M (pr/round-paid-in-capital), FROM $0 /
+// $8.06M / $8.53M — ROUND FIGURES, BY DECISION. The figures below were solved
+// to land today's seeds on target on average, to the ten thousand; a pool's
+// paid-in capital is a round sum, and WC's $0 (the solve wanted below zero)
+// read as a pool that paid nothing in. The seeds were KEPT. Year 1's premium
+// does not move (pricing reads no surplus); the opening surplus does, with the
+// six pre-game years' investment income on the difference: WC +$2.31M to
+// +$2.47M, GL -$0.07M, Property -$0.04M. WC's premium to surplus falls 10% to
+// 18%, GL's and Property's rise under 0.6%. 0 of the twenty now open within 5%
+// of target on every line (13 before), worst 19.8% (scenario 10's WC, 2.70 ->
+// 2.28 against 2.84); Test Seed opens 17.2% under slot 20's WC target and
+// Staff Retreat 13.5% under slot 7's (its nearest). scenarios-check's bars
+// (SCENARIO_OPENING_BARS) and the openings record (SCENARIO_OPENINGS_v7) are
+// restated to that; scripts/probes/paid-in-capital-openings.mts lists each.
 // ⚠ WC $0, GL $8.06M, PROPERTY $8.53M (pr/pregame-65), DOWN FROM $3.0M /
 // $12.0M / $12.5M. The prior board's 65% funding (PRIOR_BOARD) earns a margin
 // every pre-game year, which left the openings too rich for today's design
@@ -3681,7 +3734,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: `Draws from the game seed ('adverse_dev' stream), shared by every world. Hosts choose a level per line; Test `
           + `player takes the host's setup; single player has none (Single player adverse development, below). `
           + `A hosted or Test player game with no level chosen, and a harness with none, reads `
-          + `${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL} on every line — Low since Mid failed WC in most scenarios within five years.`,
+          + `${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL} on every line — Low since Mid (then 5–15%) failed WC in most scenarios within five years. `
+          + 'Narrowed from Low 1–5% · Mid 5–15% · High 15–20% (pr/development-ranges): the old Mid and High swamped even 90% funding. '
+          + 'In a 16-team room, five years, no events, every line at one level (scenarios 1, 6, 16), the 90% team\'s mean combined ratio '
+          + 'was 99–100% at Mid and 109–110% at High, losing 17–47% of its surplus at High, and the 65% team went below zero at High in '
+          + 'two of three; with the new ranges 94–95% and 101–102%, and no team of any type below zero. Still unpriced: no level load.',
       }],
       ['Single player adverse development', {
         value: SOLO_ADVERSE_DEVELOPMENT.enabled ? 'on' : 'off', unit: 'switch',
@@ -3708,8 +3765,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       + '. Picked from seeds 1 to 120,000 (pr/pregame-65): of each slot\'s seeds within 5% on all three lines and '
       + 'drawing at least two shocks in ten years, the steadiest over ten years, single player and a hosted room at '
       + 'development Low — the smallest spread of yearly combined ratios, loss runs and surplus drops, no line below '
-      + 'zero. The prior board\'s 20/75/5 mix moved the openings afterwards; the seeds were kept, and 13 of 20 open '
-      + 'within 5% on every line (worst 7.3%, scenario 6\'s WC). Scenario 20 was re-picked on today\'s pre-game the '
+      + 'zero. The prior board\'s 20/75/5 mix moved the openings afterwards; the seeds were kept, and 13 of 20 opened '
+      + 'within 5% on every line (worst 7.3%, scenario 6\'s WC). The round paid-in capital (pr/round-paid-in-capital) '
+      + 'then lifted every WC opening about $2.4M, the seeds again kept: 0 of 20 within 5%, worst 19.8% (scenario 10\'s '
+      + 'WC); see Starting capital. Scenario 20 was re-picked on today\'s pre-game the '
       + 'same way (pr/named-scenarios): seed 76975, the steadiest of 203 eligible, opening within 4.7% on every line; '
       + 'its old seed is the named scenario Test Seed. Two NAMED scenarios are offered beside the twenty, by name: '
       + 'they have no design target and are never the random pick.',
@@ -3881,7 +3940,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'WC $0, GL $8.06M, Property $8.53M (pr/pregame-65), down from $3.0M / $12.0M / $12.5M: the prior '
+        note: 'WC $2.0M, GL $8.0M, Property $8.5M (pr/round-paid-in-capital), from $0 / $8.06M / $8.53M: round figures, '
+          + 'by decision — the solved amounts were exact to the ten thousand, and WC\'s $0 read as a pool that paid nothing in. '
+          + 'The seeds were kept. Year 1\'s premium does not move; the opening surplus does, with the pre-game\'s investment '
+          + 'income on the difference (WC about +$2.4M, GL -$0.07M, Property -$0.04M), so WC\'s premium to surplus falls 10-18%. '
+          + '0 of the twenty now open within 5% of target on every line (13 before), worst 19.8% (scenario 10\'s WC). '
+          + 'Before: WC $0, GL $8.06M, Property $8.53M (pr/pregame-65), down from $3.0M / $12.0M / $12.5M: the prior '
           + 'board\'s 65% funding left the openings too rich for today\'s targets, so the targets were kept and the capital '
           + 'lowered. GL and Property solved so today\'s twenty seeds land on target on average; WC would need about '
           + '-$2.94M, so it is floored at $0 and the seeds were re-picked at this capital. The same for every scenario; '

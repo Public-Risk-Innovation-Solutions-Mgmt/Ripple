@@ -32,9 +32,12 @@
 //      cover $19M xs $1M and the aggregate cover 125/50 — and the opening is
 //      the played pre-game's own last year-end — NOT on its target (nothing
 //      fits it), yet near it, by the bars in SCENARIO_OPENING_BARS: within
-//      7.5% on every line, and 5% on all three for 13 scenarios — what the
-//      seeds achieve since the prior board's mix became 20/75/5
-//      (pr/asset-mix-20-75-5: worst 7.3%, scenario 6's WC; the seeds kept).
+//      20% on every line, and 5% on all three for 0 scenarios — what the
+//      seeds achieve on the round paid-in capital (pr/round-paid-in-capital:
+//      WC $2M from $0 lifts every WC opening about $2.4M; worst 19.8%,
+//      scenario 10's WC; the seeds kept). The 5% leg is restated to 0, so the
+//      20% bar is the one that bites; it was 7.5% and 13 (pr/asset-mix-20-75-5:
+//      worst 7.3%, scenario 6's WC).
 //      The premium is year 1's at Expected with no cover (atExpectedDecisionSet),
 //      the basis the seeds were chosen on. Were 5% and all 20 (pr/pregame-65),
 //      10.5% and 16 (pr/seed-switch), 18.5% and 4 (pr/alae-load), and 12% and
@@ -60,7 +63,13 @@
 //      solo and hosted alike, each on its own fixed seed; Test Seed opens to
 //      within 5e-5 of scenario 20's opening before slot 20 was re-picked (and
 //      scenario-opening-drift-check holds it to the bit); slot 20 plays a new
-//      seed (76975); neither is a designed slot.
+//      seed (76975); neither is a designed slot. (Restated,
+//      pr/round-paid-in-capital: "as scenario 20 did" is seed 53781's opening
+//      on today's capital — 1.9614 / 1.9228 / 1.5635; on aws 61fcf79's capital
+//      it was 2.2715 / 1.9141 / 1.5605, the premium unmoved.)
+//  10. THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital): STARTING_CAPITAL
+//      is WC $2.0M, GL $8.0M, Property $8.5M — not the solved $0 / $8.06M /
+//      $8.53M before — and section 5 holds every pre-game beginning on it.
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, the
 // named scenarios offered as numbers, a random pick that can draw a named one,
 // a handler accepting "23", refusing "21" or accepting a raw seed, Staff
@@ -76,7 +85,8 @@
 // pre-game on the played years' market, a pre-game on one market draw, a
 // pre-game on the old cash-and-bonds 11/89, a pre-game at the old play default
 // 10/80/10, a pre-game whose equities earn one draw rather than the average,
-// and (8) a default left at 10/80/10 in one mode. (The guardrail, floor and designed-margin
+// (8) a default left at 10/80/10 in one mode, (5) an opening a point past
+// the 20% bar, and (10) the capital before ($0 / $8.06M / $8.53M). (The guardrail, floor and designed-margin
 // controls went with that machinery.)
 // ============================================================================
 
@@ -95,7 +105,7 @@ import { openSoloInstance } from '../../src/utils/soloGame';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { buildTeamGame } from '../../src/session/client/buildGame';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { PRE_GAME_DEPTH, runPriorHistory } from '../../src/utils/priorHistoryEngine';
+import { PRE_GAME_DEPTH, openingYear1Premium, runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { atExpectedDecisionSet, defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { decisionsForYear } from '../../src/session/client/decisions';
 import { staticClf } from '../../src/data/clfTables';
@@ -195,6 +205,15 @@ function gradeNamed(rows: NamedOpened[], seedOf: (id: string) => number, slot20:
     out[0] ?? rows.map(r => `${BRIEFED_NAMED[r.id].name} ${r.solo.instanceId}: ${LINES.map(l => `${l} ${r.ps[l].toFixed(4)}`).join(' ')}`).join('; '));
 }
 
+// ---------------------------------------------------------------- 10
+/** The paid-in capital, as briefed (pr/round-paid-in-capital). */
+const BRIEFED_CAPITAL: Record<CoverageLine, number> = { WC: 2_000_000, GL: 8_000_000, Property: 8_500_000 };
+function gradeCapital(cap: Record<CoverageLine, number>, tag: string) {
+  const off = LINES.filter(l => cap[l] !== BRIEFED_CAPITAL[l]);
+  check(off.length === 0, `${tag}10. the paid-in capital is round: WC $2.0M, GL $8.0M, Property $8.5M`,
+    off.length ? off.map(l => `${l} $${(cap[l] / 1e6).toFixed(2)}M`).join(', ') : LINES.map(l => `${l} $${(cap[l] / 1e6).toFixed(1)}M`).join(', '));
+}
+
 // ---------------------------------------------------------------- 3
 function gradeOneSeed(solo: GameInstance, hosted: GameInstance, soloOpen: number, hostedOpen: number, tag: string) {
   check(solo.scenario === 7 && hosted.scenario === 7 && solo.seed === hosted.seed && solo.instanceId === String(SCENARIO_SEEDS[7])
@@ -223,6 +242,8 @@ function gradeTable(ratio: Record<CoverageLine, Record<number, number>>, order: 
 // ---------------------------------------------------------------- games
 interface Opened {
   n: number; seed: number; line: CoverageLine; premium: number; surplus: number; pre: LineResultSet[];
+  /** Year 1's premium at Expected with no cover as the game states it (openingYear1Premium), whatever `pricing` was. */
+  atExpected: number;
 }
 // The opening's premium: year 1's at Expected with no cover (atExpectedDecisionSet), the seeds' basis.
 function open(id: string, instance: GameInstance, setup: GameSetupSettings,
@@ -236,6 +257,7 @@ function open(id: string, instance: GameInstance, setup: GameSetupSettings,
     opened: LINES.map(line => ({
       n: Number(id), seed: instance.seed, line, premium: struck[line]!.quote.finalRatePer100 * struck[line]!.exposure * 10_000,
       surplus: poolState.lines[line].surplus, pre: pre.map(r => r.byLine[line]!),
+      atExpected: openingYear1Premium(gs.instance, line, gs.poolState.lines[line], priorHistory[priorHistory.length - 1].byLine[line]!, gameShocksOn(gs.setup, gs.instance)),
     })),
   };
 }
@@ -274,11 +296,14 @@ try {
 // differ by the shock switch's catastrophe load, which moves premium, never
 // the opening's surplus.
 function gradeOpening(rows: Opened[], ratioOf: (n: number, line: CoverageLine) => number, tag: string) {
-  let worstOpen = 0, worstStart = 0, worstMargin = 0, offTarget = 0;
+  let worstOpen = 0, worstStart = 0, worstMargin = 0, offTarget = 0, worstBasis = 0;
   const missBy = new Map<number, number>();
   for (const r of rows) {
     const off = Math.abs(r.surplus / (r.premium / ratioOf(r.n, r.line)) - 1);
     offTarget = Math.max(offTarget, off);
+    // ⚠ THE PREMIUM'S BASIS, PINNED (pr/round-paid-in-capital): year 1's at Expected with no cover. The
+    // play-defaults control was caught only by the 7.5% bar before; at 20% the bar cannot see it.
+    worstBasis = Math.max(worstBasis, Math.abs(r.premium / r.atExpected - 1));
     missBy.set(r.n, Math.max(missBy.get(r.n) ?? 0, Math.abs((r.premium / r.surplus) / ratioOf(r.n, r.line) - 1)));
     // The opening is the played history's own last year-end.
     worstOpen = Math.max(worstOpen, Math.abs(r.surplus - r.pre[r.pre.length - 1].endingSurplus));
@@ -295,9 +320,9 @@ function gradeOpening(rows: Opened[], ratioOf: (n: number, line: CoverageLine) =
   const within5 = [...missBy.values()].filter(m => m <= 0.05).length;
   // Not on the target — nothing fits it — and near it.
   const bars = SCENARIO_OPENING_BARS;
-  check(worstOpen < 1e-6 && worstStart < 1e-6 && worstMargin === 0 && offTarget > 0.05 && worstMiss <= bars.worstMiss && within5 >= bars.within5,
+  check(worstOpen < 1e-6 && worstStart < 1e-6 && worstMargin === 0 && worstBasis < 1e-9 && offTarget > 0.05 && worstMiss <= bars.worstMiss && within5 >= bars.within5,
     `${tag}5. the opening is the fixed seed's: from the starting capital, the prior board at 65% with its covers every year, where the played history ends — not on its target, within ${(100 * bars.worstMiss).toFixed(1)}% of it on every line and 5% on all three for ${bars.within5} scenarios${bars.temporary ? ' (TEMPORARY bars — seeds to be re-picked)' : ''}`,
-    `${rows.length} line-scenarios; the prior board's decisions off by ${worstMargin.toExponential(2)}; opening off the played year-end $${worstOpen.toExponential(2)}, `
+    `${rows.length} line-scenarios; the prior board's decisions off by ${worstMargin.toExponential(2)}; premium off year 1's at Expected by ${worstBasis.toExponential(2)}; opening off the played year-end $${worstOpen.toExponential(2)}, `
     + `start off $${worstStart.toExponential(2)}; worst miss ${(100 * worstMiss).toFixed(1)}%, ${within5} scenarios within 5% on every line`);
 }
 
@@ -407,9 +432,12 @@ function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocati
     }
   } finally { SOLO_SHOCKS.enabled = true; }
   const seedOf = (id: string) => Number(gameIdentity(id).gameId);
-  // Scenario 20's opening on seed 53781 before pr/named-scenarios, measured on aws 7af0fc6 (WC, GL, Property).
-  const OLD_SLOT_20: Record<CoverageLine, number> = { WC: 2.2715124, GL: 1.91407235, Property: 1.56049157 };
+  // Scenario 20's opening on seed 53781 before pr/named-scenarios (WC, GL, Property), on today's
+  // paid-in capital (pr/round-paid-in-capital). On aws 61fcf79's capital ($0 / $8.06M / $8.53M) it was
+  // 2.2715124 / 1.91407235 / 1.56049157 (measured on aws 7af0fc6); the year-1 premium is unmoved.
+  const OLD_SLOT_20: Record<CoverageLine, number> = { WC: 1.96137098, GL: 1.92280804, Property: 1.56352989 };
   gradeNamed(named, seedOf, SCENARIO_SEEDS[20], OLD_SLOT_20, '');
+  gradeCapital(STARTING_CAPITAL, '');
 
   console.log('\nCONTROLS — each must FAIL');
   const controlFails = (name: string, run: () => void, expect: string) => {
@@ -452,6 +480,10 @@ function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocati
   controlFails('a pre-game without the aggregate cover', () => gradeOpening(board(d => ({ ...d, aggregateCover: 'none' })), ratioOf, ''), '5.');
   controlFails('a pre-game non-renewing 2%', () => gradeOpening(board(d => ({ ...d, nonRenewal: 0.02 })), ratioOf, ''), '5.');
   controlFails('the opening priced at the play defaults (65% with the covers), not at Expected', () => gradeOpening(atPlayDefaults, ratioOf, ''), '5.');
+  const pastBar = (r: Opened) => r.premium / (ratioOf(10, 'WC') * 0.79);
+  controlFails('an opening a point past the 20% bar (scenario 10\'s WC 21% under target)', () => gradeOpening(atNoShocks.map(r => (r.n === 10 && r.line === 'WC'
+    ? { ...r, surplus: pastBar(r), pre: r.pre.map((y, k) => (k === r.pre.length - 1 ? { ...y, endingSurplus: pastBar(r) } : y)) } : r)), ratioOf, ''), '5.');
+  controlFails('the capital before ($0 / $8.06M / $8.53M)', () => gradeCapital({ WC: 0, GL: 8_060_000, Property: 8_530_000 }, ''), '10.');
   controlFails('a pre-game begun off the capital', () => gradeOpening(atNoShocks.map((r, i) => (i === 0
     ? { ...r, pre: r.pre.map((y, k) => (k === 0 ? { ...y, beginingSurplus: y.beginingSurplus + 1e6 } : y)) } : r)), ratioOf, ''), '5.');
   controlFails('scenarios 12 and 16 on each other\'s seeds', () => gradeOpening(atNoShocks,

@@ -1362,15 +1362,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // raw text; with the key normalised all 48 are identical to the control. The
 // statement workbooks are byte-identical. The rescaled levels are New-version
 // market rooms only; no single-player figure moves.
-// v148: THE SAVE KEY v61 -> v63 (pr/decision-reset; v62 is left for
-// wip/pool-progress-step, and v145-v147 for the baselines it and the branches
-// beside it will claim), on aws bdf0ac1, which reproduces v144 here 48 of 48.
-// Text-diffed (GUARD_TEXT_DIR both sides): the 24 Results workbooks move and
-// nothing else — 48 rows, each file's Version row ("riskpool_gamestate_v61" ->
-// "riskpool_gamestate_v63") in its shown and its raw text. The statement
-// workbooks are byte-identical. Every arm sets every decision every year, so the
-// decision reset moves no figure here.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v148.json');
+// v145: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges,
+// merged with aws bdf0ac1; numbered past every export and render baseline on
+// any branch). The control: aws bdf0ac1 reproduced v144 on all 48 keys. 24 of
+// 48 move — the 24 Results workbooks, both arms — and only in one line: the
+// Version row (save key v61 -> v62). Text-diffed against bdf0ac1's own text
+// (GUARD_TEXT_DIR): 48 lines differ, every one the Version row; with the key
+// normalised all 48 files are identical to the control. The guard's games are
+// single player, which plays with adverse development Off, so no figure moves.
+// v147: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; numbered past
+// every export and render baseline on any branch, v146). The control: aws
+// 61fcf79 reproduced v145 on all 48 keys. All 48 move. Text-diffed against
+// 61fcf79's own text (GUARD_TEXT_DIR): 7,886 of 148,242 lines, every one on
+// the surplus side — Invested Assets, Investment Income, Net Income, Beginning
+// and Ending Investments, Total Assets, Beginning Surplus, Surplus from
+// Income, Ending Surplus, Excess Available Surplus, Excess Capital Ratio (60
+// each); on the statements Investment Income, Net Operating Income, Assets,
+// Invested, Net Worth, Paid in Capital, Earned Surplus (42 each), Reserve to
+// Surplus (40), Premium to Surplus (38) and Operating Ratio (24); the Decisions
+// index's surplus column (42); the Year Walkthrough sheet's surplus-side steps
+// (6,686: Surplus 2,460, Investment income 1,500, Capital 1,406, Dividends and
+// assessments 1,020, and the Year code 300, which hashes the year's figures —
+// no premium, rate or loss step moves); Excess Capital Status (7, a band crossed, e.g. Adequate ->
+// Strong on WC); Ending Cash and Uninvested (5, a few hundred dollars in a
+// late year); and the Version row (24, save key v62 -> v63). No premium, rate,
+// loss or reserve row moves; no row is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v147.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

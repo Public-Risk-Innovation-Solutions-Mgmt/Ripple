@@ -3,6 +3,7 @@
 
 import { alaeRatioFor } from './alaeRatio';
 import { adminOverrunFor } from './adminOverrun';
+import { fixedAdminDollars } from './fixedAdmin';
 import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, AttritionalCoverRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, MarketLineInput } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
@@ -1775,8 +1776,7 @@ export function processLineYear(
   const fixedAdminBase = ctx.fixedAdmin && yearNumber >= 1
     ? (yearNumber === 1 ? adminExpense : lineState.fixedAdminBase) : undefined;
   const adminBooked = ctx.fixedAdmin && ctx.market !== undefined && yearNumber >= 1
-    ? MARKET_NEW_FIXED_ADMIN.share * (fixedAdminBase ?? adminExpense) * (1 + MARKET_NEW_FIXED_ADMIN.trend) ** (yearNumber - 1)
-      + (1 - MARKET_NEW_FIXED_ADMIN.share) * adminExpense
+    ? fixedAdminDollars(fixedAdminBase ?? adminExpense, yearNumber) + (1 - MARKET_NEW_FIXED_ADMIN.share) * adminExpense
     : adminExpense;
   const operatingExpense = adminBooked * (1 + adminOverrunFor(marketSeedOf(instance), yearNumber, line));
   // ⚠ THE PROGRAM'S COST JOINS THE EXISTING RISK-CONTROL EXPENSE LINE RATHER

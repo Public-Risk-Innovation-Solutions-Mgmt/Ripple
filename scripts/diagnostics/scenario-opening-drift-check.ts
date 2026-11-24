@@ -77,6 +77,19 @@
 //      1.9141 -> 1.7904, 1.5605 -> 1.5024 (within 4.7% of its targets on
 //      every line). Test Seed opens to the bit where scenario 20 opened in v5
 //      (asserted below) — the same seed under its own name.
+//   v7 (pr/round-paid-in-capital): the paid-in capital ROUND — WC $2.0M from
+//      $0, GL $8.0M from $8.06M, Property $8.5M from $8.53M (STARTING_CAPITAL);
+//      the seeds KEPT. The control, aws 61fcf79, opened exactly on v6. Of the
+//      198 figures (22 scenarios x 3 lines x 3), the 66 year-1 premiums do not
+//      move — pricing reads no surplus — and all 132 surplus and ratio figures
+//      do, through the capital and the pre-game's investment income on it:
+//      opening surplus WC +$2.31M to +$2.47M, GL -$0.069M to -$0.076M,
+//      Property -$0.036M to -$0.038M; premium to surplus WC -9.99% to -17.90%,
+//      GL +0.28% to +0.56%, Property +0.16% to +0.22%. 0 of the twenty within
+//      5% of target on every line (13 on v6), worst 19.8% (scenario 10's WC);
+//      scenarios-check's bars restated to that (SCENARIO_OPENING_BARS).
+//      Test Seed is now asserted on its PREMIUM to the bit against v5's
+//      scenario 20 (the capital moved its surplus, not the seed).
 // ============================================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -88,8 +101,8 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v6.json');
-/** The record before slot 20 was re-picked: Test Seed (53781) must open exactly where scenario 20 did in it. */
+const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v7.json');
+/** The record before slot 20 was re-picked: Test Seed (53781) must price year 1 exactly where scenario 20 did in it. */
 const RECORD_V5 = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v5.json');
 /** Every scenario the game offers: the twenty, then the named ones (21, 22). */
 const IDS: number[] = [...Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1), ...Object.keys(NAMED_SCENARIOS).map(Number)];
@@ -145,11 +158,12 @@ console.log('SCENARIO OPENINGS, AGAINST THE RECORD');
 gradeDrift(now, recorded, '');
 check(SCENARIO_SEEDS === seedsObject && JSON.stringify(SCENARIO_SEEDS) === seedsBefore,
   'nothing re-picked: SCENARIO_SEEDS is unchanged by the run', '');
-// TEST SEED IS SCENARIO 20 AS IT WAS: its opening, to the bit, is v5's scenario 20's.
+// TEST SEED IS SCENARIO 20 AS IT WAS: its year-1 premium, to the bit, is v5's scenario 20's (restated,
+// pr/round-paid-in-capital: the surplus and ratio moved with the capital in v7; the premium cannot).
 const v5: Openings = JSON.parse(fs.readFileSync(RECORD_V5, 'utf8'));
 function gradeTestSeed(seen: Openings, tag: string) {
-  const off = LINES.flatMap(l => (['surplus', 'premium', 'ps'] as const).filter(k => seen['22']?.[l]?.[k] !== v5['20'][l][k]).map(k => `${l} ${k}`));
-  check(off.length === 0, `${tag}Test Seed opens to the bit where scenario 20 opened before it was re-picked (record v5)`, off.join(', ') || '9 figures equal');
+  const off = LINES.filter(l => seen['22']?.[l]?.premium !== v5['20'][l].premium).map(l => `${l} premium`);
+  check(off.length === 0, `${tag}Test Seed prices year 1 to the bit where scenario 20 did before it was re-picked (record v5)`, off.join(', ') || '3 premiums equal');
 }
 gradeTestSeed(now, '');
 
@@ -169,6 +183,11 @@ controlFails('a recorded opening nudged by one part in a billion', () => {
 controlFails('Test Seed played as the new scenario 20', () => {
   const swapped: Openings = { ...now, '22': now['20'] };
   gradeTestSeed(swapped, 'c ');
+});
+// The openings at aws 61fcf79's capital ($0 / $8.06M / $8.53M) are record v6: graded against v7, they must move.
+controlFails('the openings at the capital before (record v6)', () => {
+  const v6: Openings = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v6.json'), 'utf8'));
+  gradeDrift(v6, recorded, 'c ');
 });
 controlFails('scenarios 13 and 16 played on each other\'s seeds', () => {
   const swapped = openingsOf(n => String(n === 13 ? 16 : n === 16 ? 13 : n));

@@ -6,6 +6,10 @@
 //
 // ⚠ THE BRIEF'S RANGES ARE WRITTEN OUT HERE, not read from pricingParameters,
 // so a changed parameter fails rather than moving the expectation with it.
+// pr/development-ranges RESTATED THEM: Low 0–5%, Mid 3–8%, High 7–15% (were
+// Low 1–5%, Mid 5–15%, High 15–20%; the reason is at ADVERSE_DEVELOPMENT_RANGE).
+// Section 1 now also asks that each range's draws reach both its ends, and a
+// control puts the old table back.
 // Each section is a function returning its problems; each has a CONTROL that
 // breaks the thing it guards, asserts the section FAILS, and restores it.
 //
@@ -56,7 +60,7 @@ const control = (label: string, breakIt: () => () => void, section: () => string
 };
 
 // ---- THE BRIEF -------------------------------------------------------------
-const BRIEF: Record<'Low' | 'Mid' | 'High', [number, number]> = { Low: [0.01, 0.05], Mid: [0.05, 0.15], High: [0.15, 0.20] };
+const BRIEF: Record<'Low' | 'Mid' | 'High', [number, number]> = { Low: [0.00, 0.05], Mid: [0.03, 0.08], High: [0.07, 0.15] };
 const LEVELS: Record<CoverageLine, 'Low' | 'Mid' | 'High'> = { WC: 'High', GL: 'Mid', Property: 'Low' };
 const ID = '3', YEARS = 4;
 
@@ -89,14 +93,17 @@ function sectionDraws(): string[] {
   const out: string[] = [];
   for (const level of ['Low', 'Mid', 'High'] as const) {
     const [lo, hi] = BRIEF[level];
-    let n = 0, s = 0;
+    let n = 0, s = 0, min = Infinity, max = -Infinity;
     for (let seed = 1; seed <= 60; seed++) for (const l of LINES) for (let v = 1; v <= 10; v++) for (let a = -6; a < v; a++) {
       const lam = adverseDevelopmentRate(seed, l, level, v, a);
       if (lam < lo || lam > hi) { out.push(`${level} ${l} v${v} a${a}: λ ${lam} outside [${lo}, ${hi}]`); continue; }
-      n++; s += lam;
+      n++; s += lam; min = Math.min(min, lam); max = Math.max(max, lam);
     }
     const mean = s / n, mid = (lo + hi) / 2, se = (hi - lo) / Math.sqrt(12 * n);
     if (Math.abs(mean - mid) > 4 * se) out.push(`${level}: mean λ ${mean.toFixed(5)}, uniform mean ${mid}`);
+    // The whole range is drawn: over ~18,000 draws the lowest and highest come
+    // within 0.5% of the width of each end — a narrower range inside the brief's fails.
+    if (min - lo > 0.005 * (hi - lo) || hi - max > 0.005 * (hi - lo)) out.push(`${level}: draws span [${min.toFixed(5)}, ${max.toFixed(5)}], the range is [${lo}, ${hi}]`);
   }
   // Each (line, valuation year, accident year) its own draw: not one λ for the whole year.
   const u = new Set([1, 2, 3, 4].map(a => adverseDevelopmentUniform(7, 'WC', 5, a)));
@@ -250,6 +257,12 @@ function sectionNone(): string[] {
 // ---- run -------------------------------------------------------------------
 console.log('adverse-development-check\n');
 check(sectionDraws(), '1. λ: uniform within the brief\'s range per level, one draw per line, valuation and accident year; levels a third each');
+control('the old table back (Low 1–5%, Mid 5–15%, High 15–20%)', () => {
+  const r = ADVERSE_DEVELOPMENT_RANGE as Record<string, readonly number[]>; const o = { ...r };
+  r.Low = [0.01, 0.05]; r.Mid = [0.05, 0.15]; r.High = [0.15, 0.20];
+  return () => { Object.assign(r, o); };
+}, sectionDraws);
+control('Low drawn from 1% (its floor moved back alone)', () => { const r = ADVERSE_DEVELOPMENT_RANGE as Record<string, readonly number[]>; const o = r.Low; r.Low = [0.01, 0.05]; return () => { r.Low = o; }; }, sectionDraws);
 control('the Mid range changed', () => { const r = ADVERSE_DEVELOPMENT_RANGE as Record<string, readonly number[]>; const o = r.Mid; r.Mid = [0.05, 0.25]; return () => { r.Mid = o; }; }, sectionDraws);
 check(sectionCompounding(), '2. each open prior year rises by its own λ x its outstanding at the start of the year, in every world; the current year none');
 control('reserve inflation left on', () => { const r = RESERVE_INFLATION_PER_YEAR as Record<string, number>; const o = r.WC; r.WC = 0.04; return () => { r.WC = o; }; }, sectionCompounding);

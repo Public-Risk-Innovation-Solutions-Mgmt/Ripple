@@ -1962,30 +1962,28 @@ const BASELINE = process.env.RENDER_BASELINE
 // "riskpool_gamestate_v59" -> "riskpool_gamestate_v61". With the key normalised
 // all 26 are identical to the control. The rescaled levels are New-version
 // market rooms only; no single-player figure moves. 148 match.
-// v149: THE DECISION RESET (pr/decision-reset; v146-v148 left for the branches
-// in flight beside it — export v148 is this branch's), on aws bdf0ac1, which
-// reproduces v145 here 174 of 174. Every round opens on the reset — funding at
-// Expected, no cover, 0% sliders, no dividend or assessment, 20/75/5 — year 1
-// included, where it opened on the prior board's 65% with $19M xs $1M and the
-// 125/50 aggregate cover. Word-diffed (RENDER_TEXT_DIR both sides), 93 move, 81
-// match:
-//   y0, Year Walkthrough (13): the save key alone, "riskpool_gamestate_v61" ->
-//     "riskpool_gamestate_v63".
-//   y0, Decisions (13): the reset itself — the new line "Every decision starts
-//     each year at the reset …", the funding label "(65%)" -> "Expected
-//     (~51%/~52%)" with no "Reset to Expected" button, the cover prices to $0.00,
-//     "Expected to surplus" +$1.1M-1.7M -> +$0.00M, and the year-1 rates lower
-//     (GL $4.41 -> $4.21, the "vs last year" change +1.6% -> -7.1% on one line):
-//     year-1 rates drop from 2026's, as docs/HOW_THE_GAME_WORKS.md section 6 says.
-//   y2 (67: header 5, Introduction 5, Rate Indication 5, Decisions 13, Decision
-//     History 13, Annual Statement 13, Year Walkthrough 13): the two years the
-//     configurations play are played on what the game opens on — the reset now —
-//     so the year-2 figures follow (surplus, combined ratio, the statement, the
-//     indication, the walkthrough's codes), Decision History's covers read "Full
-//     retention — no reinsurance", and Decisions carries the reset line.
-// Value identity and the export guard play their own decisions every year and
-// do not move but for the save key (export v148).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v149.json');
+// v146: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges, merged
+// with aws bdf0ac1). The control: aws bdf0ac1's own build reproduced v145, 174
+// of 174. 26 of 174 move, every Year Walkthrough screen, and word-diffed
+// against bdf0ac1's own text (RENDER_TEXT_DIR) each in exactly one word:
+// riskpool_gamestate_v61 -> v62. The harness plays single player, which has
+// adverse development Off, so no figure moves; the host's setup screen, which
+// prints the ranges, is not among its screens. No key added or removed.
+// v148: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; v147 is the
+// export guard's). The control: aws 61fcf79's own build reproduced v146, 174 of
+// 174. 140 of 174 move, and word-diffed against 61fcf79's own text
+// (RENDER_TEXT_DIR) every one keeps its word count and moves only figures:
+// the header's surplus chip on all 140 (GL scenario 7: $20.92M -> $20.85M);
+// on the Annual Statement (26) Paid in Capital, Earned Surplus, Net Worth,
+// Investment Income, Net Operating Income, Invested Assets, the to-Surplus
+// ratios and Operating Ratio, and the Decisions index's surplus column; on the
+// Decisions screen (26) Surplus available; on the Introduction (16) the
+// opening surplus; on the Year Walkthrough (26) the investment income,
+// dividends, surplus and capital steps' figures and Year codes, and the
+// Version (riskpool_gamestate_v62 -> v63); Decision History, Rate Indication
+// and the header only the chip. No rate or premium figure moves; no key added
+// or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v148.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
