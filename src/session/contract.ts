@@ -1060,7 +1060,7 @@ export interface RoomView {
    * creation. ONLY 'new' IS EVER STORED OR SENT: absent — every room created on
    * Current, and every room stored before the option existed — reads 'current'
    * and plays exactly as before. New plays the reworked market
-   * (pricingParameters.ts MARKET_NEW) and books half of each team's admin fixed
+   * (pricingParameters.ts MARKET_NEW) and books part of each team's admin fixed
    * (MARKET_NEW_FIXED_ADMIN) while the market is on. Every caller sees it.
    */
   marketVersion?: 'new';

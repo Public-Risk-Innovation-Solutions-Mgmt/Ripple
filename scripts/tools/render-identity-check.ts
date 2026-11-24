@@ -1948,14 +1948,21 @@ const BASELINE = process.env.RENDER_BASELINE
 // Walkthrough screen, and word-diffed against 7af0fc6's own text
 // (RENDER_TEXT_DIR) each in exactly one word: riskpool_gamestate_v57 -> v58.
 // Every configuration plays scenario 7, whose seed is kept. No key added or removed.
-// v144: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges, from
-// aws 1fae189). The control: aws 1fae189's own build reproduced v143, 174 of
-// 174. 26 of 174 move, every Year Walkthrough screen, and word-diffed against
-// 1fae189's own text (RENDER_TEXT_DIR) each in exactly one word:
-// riskpool_gamestate_v58 -> v59. The harness plays single player, which has
+// v144: THE SAVE KEY v58 -> v59 (pr/market-fixed-admin-25), on aws 1fae189,
+// which reproduces v143 here 174 of 174. Word-diffed (RENDER_TEXT_DIR both
+// sides), 26 move — every Year Walkthrough, by one line each and one word: the
+// save key it shows, "riskpool_gamestate_v58" -> "riskpool_gamestate_v59".
+// With the key normalised all 26 are identical to the control. The fixed admin
+// at 25% is New-version market rooms only; no single-player figure moves. 148
+// match.
+// v145: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges, merged
+// with aws a7f4131). The control: aws a7f4131's own build reproduced v144, 174
+// of 174. 26 of 174 move, every Year Walkthrough screen, and word-diffed
+// against a7f4131's own text (RENDER_TEXT_DIR) each in exactly one word:
+// riskpool_gamestate_v59 -> v60. The harness plays single player, which has
 // adverse development Off, so no figure moves; the host's setup screen, which
 // prints the ranges, is not among its screens. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v144.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v145.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

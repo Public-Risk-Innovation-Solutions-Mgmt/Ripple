@@ -134,8 +134,8 @@ async function setupRoom(host, API, name, version) {
   ok(/Current: the market as it plays today/.test(await host.textContent('[data-testid="market-version-note"]')), 'Current\'s note: the market as it plays today');
   await host.selectOption('[data-testid="market-version"]', 'new');
   const note = await host.textContent('[data-testid="market-version-note"]');
-  ok(/New \(for review\)/.test(note) && /Half of each team.s admin is fixed at its year-1 dollars/.test(note) && /3% a year/.test(note),
-    'New\'s note says what changes: stronger, more selective leaving, and half the admin fixed growing 3% a year', note);
+  ok(/New \(for review\)/.test(note) && /25% of each team.s admin is\s+fixed at its year-1 dollars/.test(note) && /3% a year/.test(note),
+    'New\'s note says what changes: stronger, more selective leaving, and a quarter of the admin fixed, growing 3% a year', note);
   ok(await host.inputValue('[data-testid="market-level"]') === 'medium', 'with the market at Medium');
   await shot(host, '01-setup-market-version.png',
     host.locator('div', { has: host.locator('[data-testid="market-version"]') }).filter({ has: host.locator('[data-testid="market-level"]') }).last());
@@ -148,7 +148,7 @@ async function setupRoom(host, API, name, version) {
   const levelNote = await host.textContent('[data-testid="market-level-note"]');
   ok(/Market competition: Medium/.test(levelNote) && (await host.textContent('[data-testid="market-version-shown"]')).trim() === 'New version',
     'Game Setup names the level and the version: "Market competition: Medium · New version"', levelNote);
-  ok(/Half of each team.s admin is fixed/.test(levelNote), 'and says what the version does to admin');
+  ok(/25% of each team.s admin is fixed/.test(levelNote), 'and says what the version does to admin');
   const hist = (await host.textContent('[data-testid="edit-history-note"]')).trim();
   ok(/Market competition: Medium · New version/.test(hist), 'the change history opens with the market and its version', hist);
   await shot(host, '02-game-setup-version.png');

@@ -637,7 +637,7 @@ interface LineYearContext {
   market?: MarketLineInput;
   /**
    * A NEW-VERSION MARKET ROOM (setup.marketVersion === 'new'): every year that
-   * carries a market result books half of the line's admin fixed
+   * carries a market result books part of the line's admin fixed (25%)
    * (MARKET_NEW_FIXED_ADMIN). False everywhere else, and admin books as before.
    */
   fixedAdmin?: boolean;
@@ -1768,7 +1768,7 @@ export function processLineYear(
   // MARKET_NEW_FIXED_ADMIN): the admin booked is `share` × the line's year-1
   // admin dollars grown `trend` a year, plus (1 − share) × this year's admin as
   // a share of premium; the overrun then applies as before. A book lost to price
-  // leaves its fixed half behind. The member charge (adminExpense, the rate) is
+  // leaves its fixed part behind. The member charge (adminExpense, the rate) is
   // unchanged. Only in a year with a market result: Current rooms, the market
   // Off, a team outside the year's step, single player and Test player all book
   // adminExpense exactly as before.
