@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v58';
+export const SAVE_KEY = 'riskpool_gamestate_v59';
 
 /**
  * ⚠ v58 (pr/named-scenarios): SCENARIO 20 PLAYS A NEW SEED. A game saved on
@@ -161,6 +161,12 @@ export const SAVE_KEY = 'riskpool_gamestate_v58';
  * builds a different instance (its old seed is the named scenario Test Seed,
  * "22"), so an old save would replay on the wrong game. Past every key on any
  * branch (v57 is aws's).
+ *
+ * ⚠ v59 (pr/development-ranges): THE ADVERSE DEVELOPMENT RANGES NARROWED —
+ * Low 0–5%, Mid 3–8%, High 7–15% (were 1–5%, 5–15%, 15–20%). A hosted or Test
+ * player game replays its years with the λ each level now draws, so a v58 save
+ * would reload with different results from the ones it was played on. v58 is
+ * retired; no branch uses v59.
  */
 
 /**
@@ -371,7 +377,9 @@ export const SAVE_KEY = 'riskpool_gamestate_v58';
 // market room's members taken in now arrive at 0.95, not 1.00, so its stored
 // results and every later year's step differ from a v56 save's. Single player,
 // Test player and Current rooms play as before. v56 is retired.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57'];
+// ⚠ v59: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges; see
+// SAVE_KEY). v58 is retired.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58'];
 
 /**
  * Fields dropped on the way out.

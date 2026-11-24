@@ -1948,7 +1948,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // Walkthrough screen, and word-diffed against 7af0fc6's own text
 // (RENDER_TEXT_DIR) each in exactly one word: riskpool_gamestate_v57 -> v58.
 // Every configuration plays scenario 7, whose seed is kept. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v143.json');
+// v144: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges, from
+// aws 1fae189). The control: aws 1fae189's own build reproduced v143, 174 of
+// 174. 26 of 174 move, every Year Walkthrough screen, and word-diffed against
+// 1fae189's own text (RENDER_TEXT_DIR) each in exactly one word:
+// riskpool_gamestate_v58 -> v59. The harness plays single player, which has
+// adverse development Off, so no figure moves; the host's setup screen, which
+// prints the ranges, is not among its screens. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v144.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -1347,7 +1347,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v58). Text-diffed against 7af0fc6's own text (GUARD_TEXT_DIR): 48 lines
 // differ, every one the Version row. The guard's games play harness ids, no
 // scenario, so neither the named scenarios nor slot 20's seed reach them.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v142.json');
+// v143: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges, from
+// aws 1fae189; numbered past every export and render baseline on any branch).
+// The control: aws 1fae189 reproduced v142 on all 48 keys. 24 of 48 move —
+// the 24 Results workbooks, both arms — and only in one line: the Version row
+// (save key v58 -> v59). Text-diffed against 1fae189's own text
+// (GUARD_TEXT_DIR): 48 lines differ, every one the Version row; with the key
+// normalised all 48 files are identical to the control. The guard's games are
+// single player, which plays with adverse development Off, so no figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v143.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

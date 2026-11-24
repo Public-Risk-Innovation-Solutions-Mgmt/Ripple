@@ -465,9 +465,44 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
 export const ADVERSE_DEVELOPMENT = { enabled: true };
 export type DevelopmentLevel = 'Low' | 'Mid' | 'High';
 export const DEVELOPMENT_LEVELS: readonly DevelopmentLevel[] = ['Low', 'Mid', 'High'];
-/** λ's range per level, a yearly share of each open prior year's outstanding. */
+/**
+ * λ's range per level, a yearly share of each open prior year's outstanding,
+ * drawn evenly (uniform) within it. The same table in every mode that has a
+ * level — a hosted room (simple or advanced), Test player and Edit game;
+ * single player is Off (SOLO_ADVERSE_DEVELOPMENT).
+ *
+ *   Low   0–5%   (mean 2.5%)   was 1–5%   (mean 3%)
+ *   Mid   3–8%   (mean 5.5%)   was 5–15%  (mean 10%)
+ *   High  7–15%  (mean 11%)    was 15–20% (mean 17.5%)
+ *
+ * STILL UNPRICED: no level load — the rate meets development only as it
+ * emerges in the experience (ADVERSE_DEVELOPMENT, above).
+ *
+ * WHY NARROWED (pr/development-ranges): the old Mid and High swamped even 90%
+ * funding. Measured in a 16-team hosted room (the eight player types, two
+ * seats each: Expected, 50% and 55% funding, the 65% defaults, 70%, 75%, 80%
+ * and a 90% team with deep covers), five years, market Medium, NO events, every
+ * line at one level, scenarios 1, 6 and 16. The 90% team's mean combined ratio
+ * and year-5 surplus ÷ opening (no development: 88%, ×2.59–3.05):
+ *
+ *            old ranges                     new ranges
+ *   Low      91–92%  ×2.33–2.66             90–91%  ×2.38–2.73
+ *   Mid      99–100% ×1.63–1.68             94–95%  ×2.09–2.32
+ *   High     109–110% ×0.53–0.83            101–102% ×1.51–1.54
+ *
+ * At the old Mid the 90% team's whole funding margin went to development; at
+ * the old High it LOST 17–47% of its surplus in five quiet years, the 65%
+ * team went below zero in two of the three scenarios (×−0.02 and ×−0.30 at
+ * year 5), the 70% team in one, and every poor-chooser type in all three. With
+ * the new ranges no team of any type goes below zero at any level in these
+ * games; High still takes about two thirds of the growth the 90% team has
+ * with none, and leaves the poor choosers at ×0.25–0.64. Low barely moves
+ * (+0.05 to +0.08 on year-5 surplus ÷ opening, every type). The new High's
+ * mean (11%) sits near the old Mid's (10%), the new Mid's at about twice the
+ * new Low's.
+ */
 export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readonly [number, number]>> = {
-  Low: [0.01, 0.05], Mid: [0.05, 0.15], High: [0.15, 0.20],
+  Low: [0.00, 0.05], Mid: [0.03, 0.08], High: [0.07, 0.15],
 };
 /**
  * What a game with no level chosen plays, on every line: a hosted room's or a
@@ -475,10 +510,12 @@ export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readon
  * opens on it), and any harness that sets none. Single player sets every line
  * Off (SOLO_ADVERSE_DEVELOPMENT) and never reads this.
  *
- * ⚠ LOW, WAS MID. At Mid (5-15% of each open prior year's outstanding a year,
- * compounding on what is still open), WC — the long tail — fails in most
- * scenarios within five years. Low (1-5%) is the default a host gets without
- * choosing; Mid and High stay one pick away for a room that wants them.
+ * ⚠ LOW, WAS MID. At Mid (then 5-15% of each open prior year's outstanding a
+ * year, compounding on what is still open), WC — the long tail — failed in
+ * most scenarios within five years. Low (now 0-5%, then 1-5%) is the default a
+ * host gets without choosing; Mid and High stay one pick away for a room that
+ * wants them. pr/development-ranges narrowed all three (above) and kept Low
+ * the default.
  */
 export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Low';
 /** A line's setting on a game's setup: a level, or Off — single player's on every line, and the host's None on a line. */
@@ -3572,7 +3609,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: `Draws from the game seed ('adverse_dev' stream), shared by every world. Hosts choose a level per line; Test `
           + `player takes the host's setup; single player has none (Single player adverse development, below). `
           + `A hosted or Test player game with no level chosen, and a harness with none, reads `
-          + `${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL} on every line — Low since Mid failed WC in most scenarios within five years.`,
+          + `${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL} on every line — Low since Mid (then 5–15%) failed WC in most scenarios within five years. `
+          + 'Narrowed from Low 1–5% · Mid 5–15% · High 15–20% (pr/development-ranges): the old Mid and High swamped even 90% funding. '
+          + 'In a 16-team room, five years, no events, every line at one level (scenarios 1, 6, 16), the 90% team\'s mean combined ratio '
+          + 'was 99–100% at Mid and 109–110% at High, losing 17–47% of its surplus at High, and the 65% team went below zero at High in '
+          + 'two of three; with the new ranges 94–95% and 101–102%, and no team of any type below zero. Still unpriced: no level load.',
       }],
       ['Single player adverse development', {
         value: SOLO_ADVERSE_DEVELOPMENT.enabled ? 'on' : 'off', unit: 'switch',

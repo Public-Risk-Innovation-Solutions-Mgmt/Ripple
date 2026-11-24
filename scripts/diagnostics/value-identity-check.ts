@@ -1623,7 +1623,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   NOTHING ELSE: no premium, rate, charge, expected or incurred loss,
 //   reserve, exposure, cover cost or recovery moves (pricing reads no
 //   investment income), and no field is added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v98.json');
+// v99: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges;
+// ADVERSE_DEVELOPMENT_RANGE Low 0–5%, Mid 3–8%, High 7–15%, from 1–5%, 5–15%,
+// 15–20%). Captured with --write after the control: aws 1fae189 against v98
+// HOLDS. Every harness game plays the default level, Low, and on the same
+// uniform draw u the new Low λ (0.05u) is below the old (0.01 + 0.04u) for
+// every u < 1 — so every development figure falls. Diffed field by field
+// against v98 — 17,902 of 39,600 move, in 79 fields, on all 24 instances
+// (both arms, every line and the pool, Y1–Y5); every row moves:
+//   THE DEVELOPMENT (Y1 on, 300 each): priorYearDevelopment less adverse in
+//     all 300 (new/old 0.57–0.96, median 0.83; +$0.04M to +$0.90M), and with
+//     it netIncurredLoss, netPaidLosses, case and IBNR reserves gross and net,
+//     endingNetReserve (−$0.01M to −$1.03M), expectedNetUnpaidLoss, the
+//     indicated reserve at confidence, ALAE / ULAE / LAE incurred and paid,
+//     the LAE reserve, every actual loss / LAE / combined ratio, underwriting
+//     and net income (+$0.002M to +$0.92M a year), endingSurplus (higher in
+//     every row every year, +$0.08M to +$0.92M in Y1, +$0.28M to +$3.85M by
+//     Y5), surplusFromIncome, total assets and liabilities, endingInvestments,
+//     the funding and capital ratios and gaps, nextYearPaydownRate.
+//   THE NEXT YEAR'S OPENING (Y2 on): the beginning surplus, reserves,
+//     investments and invested assets (240 each), investmentIncome (240, −$0.02M
+//     to +$0.06M — reserves down and surplus up move the invested base either
+//     way), and, where development reached a per-claim cover,
+//     priorYearDevelopmentCeded, caseReservesCeded and ibnrCeded (72 real
+//     moves, all smaller, at most −$0.01M).
+//   THE RATE, THROUGH THE EXPERIENCE (Y3 on, none before — development is
+//     still unpriced): finalRatePer100, firstIndicationPer100, the pure
+//     premiums and new loss cost (108 each), −0.07% to −0.75% by Y5; with them
+//     grossPremium, poolPremium, totalMemberCharge, admin and operating expense
+//     and the expected and expense ratios (180 each), marketShare (13 real
+//     moves, the rate's share of the market), and priorFinalRatePer100 /
+//     priorFirstIndicationPer100 from Y4 (72 each).
+//   FLOAT NOISE (below a millionth of a unit): surplusTieOutDifference (267),
+//     investmentReturnRate (33), expectedLossRatio (87 of its 102), beginningCash
+//     (34 of 154), marketShare (5 of 18), caseReservesCeded / ibnrCeded (18 each).
+//   NOTHING ELSE: in Y1–Y2 no rate, premium, expected cost or cover price
+//   moves; no exposure or member count moves in any year; no field is added
+//   or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v99.json');
 
 function seedOf(id: string) {
   let h = 5381;

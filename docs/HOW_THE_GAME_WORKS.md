@@ -63,7 +63,7 @@ add, reset, disable or delete other admins.
 | First program year | 2027 | |
 | Number of teams | 3 | a label; it limits nothing |
 | Coverage lines | all three | every team writes the room's lines |
-| Adverse development, per line | Low | None, Low (1–5%), Mid (5–15%), High (15–20%) |
+| Adverse development, per line | Low | None, Low (0–5%), Mid (3–8%), High (7–15%) |
 | Adverse development by year | Simple | Simple: the level above, every year. Advanced: a table, a row per year and a column per line, set as in Edit game (a level applies from that year onward); it starts from the simple choices, and going back to Simple warns that the per-year choices are lost |
 | Shock schedule | empty | add events by year, or Randomise (2–4 events, never year 1) |
 | Market competition | Medium | Off, Low, Medium, High (section 5). A room created before the setting reads Off |
@@ -388,6 +388,24 @@ rest to none or zero.
     shows the event's number and an *Events* key above the charts gives each in full with its year.
 - **Adverse development** (hosted and Test player): each open prior year's outstanding grows by a drawn rate
   (plus 2–3 points on a line once Legislation Change or Workers Comp Legislation has fired, above).
+  - **The ranges, drawn evenly each year for each open prior year:** Low 0–5%, Mid 3–8%, High 7–15%. They are the
+    same in every mode that has a level: a hosted room (simple or advanced), Test player and Edit game. Single player
+    has none.
+  - **Unpriced:** no level adds anything to the rate; development reaches the rate only as it shows up in the
+    experience.
+  - **Why narrowed (they were Low 1–5%, Mid 5–15%, High 15–20%):** the old Mid and High swamped even 90% funding.
+    Measured in a 16-team room (the eight player types, two seats each), five years, market Medium, no events,
+    every line at one level, scenarios 1, 6 and 16:
+
+    | Level | 90% team's mean combined ratio, old → new | 90% team's year-5 surplus ÷ opening, old → new |
+    |---|---|---|
+    | None | 88% | ×2.59–3.05 |
+    | Low | 91–92% → 90–91% | ×2.33–2.66 → ×2.38–2.73 |
+    | Mid | 99–100% → 94–95% | ×1.63–1.68 → ×2.09–2.32 |
+    | High | 109–110% → 101–102% | ×0.53–0.83 → ×1.51–1.54 |
+
+    At the old High even the 90% team lost 17–47% of its surplus in five quiet years, and the 65% team went below
+    zero in two of the three scenarios. With the new ranges no team of any type went below zero at any level.
 - **Per-claim covers** pay on large claims; **the aggregate cover** pays on the year's attritional losses (normal
   plus surges) above its attachment. Both are offered in every game.
 - **Risk control** is charged in the rate and booked as an expense; it cuts that year's normal losses by,
