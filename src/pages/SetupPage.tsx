@@ -38,7 +38,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
   const [poolName, setPoolName] = useState('Ripple Public Entity Risk Pool');
   const [gameLength, setGameLength] = useState(5);
   const [startingYear, setStartingYear] = useState(2027);
-  // The scenario, 1 to 20, is the game's only seed (utils/scenarios.ts).
+  // The scenario, 1 to 20 or a named one, is the game's only seed (utils/scenarios.ts); the random default is one of the twenty.
   const [instanceId, setInstanceId] = useState(() => randomScenarioId());
   const [activeLines, setActiveLines] = useState<CoverageLine[]>(['WC']);
   const [showWelcome, setShowWelcome] = useState(false);

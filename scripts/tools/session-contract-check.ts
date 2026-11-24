@@ -73,7 +73,7 @@ import { fileURLToPath } from 'node:url';
 import { LocalSessionTransport, ROOM_KEY_PREFIX } from '../../src/session/localTransport';
 import { HttpSessionTransport } from '../../src/session/httpTransport';
 import type { SessionTransport } from '../../src/session/contract';
-import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
+import { isSessionError, newSessionToken, SessionError, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
 import type { CoverageLine } from '../../src/types/simulation';
 import { decisionsForYear, decisionsToJson, governingYear } from '../../src/session/client/decisions';
 import { buildTeamGame, replayTeamYears } from '../../src/session/client/buildGame';
@@ -297,6 +297,61 @@ const WC: CoverageLine[] = ['WC'];
 const decisionsFor = (year: number, marker: string): JsonValue =>
   ({ yearNumber: year, marker } as JsonValue);
 
+// ---------------------------------------------------------------- seeds
+
+const seedRoom = (t: SessionTransport, seed: string) =>
+  t.createRoom({ hostToken: newSessionToken(), seed, yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [], lines: WC });
+
+/**
+ * THE ROOM SEEDS (pr/named-scenarios). Accepted: "1" and "20", the designed
+ * slots' ends, and the named "21" Staff Retreat and "22" Test Seed — each room
+ * created and carrying its seed. Refused with INVALID_REQUEST: "0" and "23",
+ * just outside 1–22, and the malformed ("07", "7 ", "", an old eight-character
+ * id, the name itself, Staff Retreat's raw seed).
+ */
+async function seedAssertions(t: SessionTransport): Promise<void> {
+  for (const seed of ['1', '20', '21', '22']) {
+    checks++;
+    try {
+      const r = await seedRoom(t, seed);
+      eq(r.room.seed, seed, `a room seeded "${seed}" carries its seed`);
+    } catch (e) {
+      failures.push(`a room seeded "${seed}" (${seed === '21' ? 'Staff Retreat' : seed === '22' ? 'Test Seed' : 'a designed scenario'}) is accepted: refused with ${isSessionError(e) ? e.code : String(e)}`);
+    }
+  }
+  for (const seed of ['0', '23', '07', '7 ', '', 'MAMC6EA4', 'Staff Retreat', '82670']) {
+    await rejects(seedRoom(t, seed), 'INVALID_REQUEST', `a room seeded "${seed}", not a scenario from 1 to 22, is refused`);
+  }
+}
+
+/** Run the seed assertions against a wrong transport; true if they caught it (and their failures are dropped). */
+async function seedAssertionsCatch(wrong: SessionTransport): Promise<boolean> {
+  const at = failures.length, counted = checks;
+  await seedAssertions(wrong);
+  const caught = failures.length > at;
+  failures.length = at;
+  checks = counted; // the control's own assertions are not the contract's: only its verdict counts
+  return caught;
+}
+
+/** `t` with createRoom replaced; every other endpoint is t's own. */
+function withCreate(t: SessionTransport, createRoom: SessionTransport['createRoom']): SessionTransport {
+  return new Proxy(t, { get: (o, k) => (k === 'createRoom' ? createRoom : (o as never)[k as never]) }) as SessionTransport;
+}
+
+async function seedControls(t: SessionTransport): Promise<void> {
+  const create = t.createRoom.bind(t);
+  const refusing = (seed: string) => withCreate(t, req =>
+    req.seed === seed ? Promise.reject(new SessionError('INVALID_REQUEST', 'The seed must be a scenario from 1 to 20.')) : create(req));
+  // CONTROL A: the old gate — 21 refused, as "1 to 20" refused it.
+  ok(await seedAssertionsCatch(refusing('21')), 'CONTROL: a transport refusing "21" (Staff Retreat) fails the seed assertions');
+  // CONTROL B: 22 refused.
+  ok(await seedAssertionsCatch(refusing('22')), 'CONTROL: a transport refusing "22" (Test Seed) fails the seed assertions');
+  // CONTROL C: 23 accepted (opened as a real room, so the call resolves).
+  ok(await seedAssertionsCatch(withCreate(t, req => create(req.seed === '23' ? { ...req, seed: '1' } : req))),
+     'CONTROL: a transport accepting "23" fails the seed assertions');
+}
+
 // ---------------------------------------------------------------- run
 
 async function main(): Promise<void> {
@@ -335,14 +390,18 @@ async function main(): Promise<void> {
       t.createRoom({ hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 0, shocks: [], lines: WC }),
       'INVALID_REQUEST', 'a room expecting no teams is refused',
     );
-    // ⚠ THE SEED IS THE SCENARIO, "1" TO "20" (stable-scenarios commit 9):
-    // every other seed is refused, by the handler as by the local transport.
-    for (const seed of ['0', '21', '07', '7 ', '', 'MAMC6EA4']) {
-      await rejects(
-        t.createRoom({ hostToken: newSessionToken(), seed, yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [], lines: WC }),
-        'INVALID_REQUEST', `a room seeded "${seed}", not a scenario from 1 to 20, is refused`,
-      );
-    }
+    // ⚠ THE SEED IS THE SCENARIO: "1" TO "20", AND THE NAMED "21" (STAFF
+    // RETREAT) AND "22" (TEST SEED) (pr/named-scenarios; contract's ROOM_SEEDS).
+    // Every other seed is refused, by the handler as by the local transport.
+    await seedAssertions(t);
+    // ⚠ AND THE ASSERTIONS ARE SHOWN TO BITE: three controls run the same
+    // assertions against this transport wrapped to behave wrongly, and each
+    // must FAIL them. Their failures are counted and then removed, so only a
+    // control that PASSES (an assertion that would not notice) is a failure.
+    // And RUN against the real gate (ROOM_SEEDS), not only the wrappers:
+    // aws's "1" to "20" fails 2 per pass ("21" and "22" refused, INVALID_REQUEST);
+    // a ROOM_SEEDS admitting "23" fails 1 per pass (it resolved).
+    await seedControls(t);
     await rejects(t.read({ code: 'ZZZZZZ' }), 'ROOM_NOT_FOUND', 'an unknown code is not found');
   }
 

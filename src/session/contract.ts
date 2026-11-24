@@ -1237,7 +1237,7 @@ export interface StoredMarketYear {
 // another; a server author reading it would have built the wrong thing.
 // The table shape for the index is in src/session/server/keys.ts.
 export interface CreateRoomRequest {
-  /** One of ROOM_SEEDS, "1" to "20": the scenario. Any other is refused. */
+  /** One of ROOM_SEEDS, "1" to "20" or the named "21" and "22": the scenario. Any other is refused. */
   seed: string;
   yearCount: number;
   startingYear: number;
