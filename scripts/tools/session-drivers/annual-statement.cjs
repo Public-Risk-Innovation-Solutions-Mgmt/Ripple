@@ -111,6 +111,31 @@ async function openStatement(page, view = 'Pool') {
 }
 
 /**
+ * THE UNDERWRITING SECTION'S HISTORY COLUMNS (pr/statement-history-underwriting):
+ * on the Pool view of a pool writing Property beside WC or GL, the rows go line
+ * by line (Written Exposures … % Change Over Prior under each line's name), and
+ * every history column (program years before `start`) shows a figure — never
+ * "—". Returns the problems, and the WC Written Exposures cells for the record.
+ */
+async function underwritingHistory(page, lines, start) {
+  return page.evaluate(([ls, st]) => {
+    const out = [];
+    const head = [...document.querySelectorAll('[data-testid="statement-underwriting"] tr')].find(tr => /Program Year/.test(tr.textContent || ''));
+    const years = head ? [...head.children].slice(2, 7).map(c => Number((c.textContent || '').trim())) : [];
+    if (years.length !== 5) out.push(`no Underwriting header (${years.join(',')})`);
+    let wc = '';
+    for (const l of ls) for (const k of ['exposure', 'newBusiness', 'renewal', 'retained', 'rate']) {
+      const tr = document.querySelector(`tr[data-row-key="${k}@${l}"]`);
+      if (!tr) { out.push(`no ${k}@${l} row`); continue; }
+      const cells = [...tr.children].slice(2, 7).map(c => (c.textContent || '').trim());
+      cells.forEach((c, j) => { if (years[j] < st && (c === '—' || c === '')) out.push(`${k}@${l} ${years[j]}: "${c}"`); });
+      if (l === 'WC' && k === 'exposure') wc = cells.join(' | ');
+    }
+    return { out, wc };
+  }, [lines, start]);
+}
+
+/**
  * Move a line's Non-Renewal `steps` steps right (the Decisions tab must be open).
  * ⚠ FROM THE RESET EVERY YEAR (pr/decision-reset): each year opens at 0%, so year
  * N moves it N steps to lock a different value each year — it used to move one
@@ -214,6 +239,10 @@ async function soloGame(browser, testPlayer, errs) {
   const t0 = await screenTable(page);
   ok(tableDiffs(t0, Object.keys(FULL), true, () => null).filter(d => d !== 'no played year compared').length === 0 && t0.years.every(y => Number(y) < 2027),
     `${tag}, at the start: Decisions shows the history years, the prior board's decisions in every cell`, t0?.years.join(', '));
+  {
+    const uw = await underwritingHistory(page, ['WC', 'GL', 'Property'], 2027);
+    ok(uw.out.length === 0, `${tag}, at the start: the Pool view's Underwriting goes line by line, every history column a figure (WC written ${uw.wc})`, uw.out.slice(0, 3).join(' · '));
+  }
 
   await lockSolo(page, 2);
   await lockSolo(page, 3);
@@ -229,6 +258,10 @@ async function soloGame(browser, testPlayer, errs) {
   const tp = await screenTable(page);
   const dp = tableDiffs(tp, save.setup.activeLines, true, record);
   ok(dp.length === 0, `${tag}, Pool view after two years: the asset mix and each line's decisions are the save's record, year by year`, dp.slice(0, 3).join(' · ') || tp.years.join(', '));
+  {
+    const uw = await underwritingHistory(page, save.setup.activeLines, start);
+    ok(uw.out.length === 0, `${tag}, Pool view after two years: the Underwriting history columns still show their figures (WC written ${uw.wc})`, uw.out.slice(0, 3).join(' · '));
+  }
   ok(JSON.stringify(tp.headings) === JSON.stringify(['Pool-Wide: Asset Mix', ...save.setup.activeLines.map(l => FULL[l])]), `${tag}, Pool view: the asset mix, then each line by name`, tp.headings.join(' | '));
   await openStatement(page, FULL.GL);
   const tl = await screenTable(page);
@@ -325,6 +358,10 @@ async function soloGame(browser, testPlayer, errs) {
     const tt = await screenTable(team);
     const d = tableDiffs(tt, t.lines, true, record);
     ok(d.length === 0, `hosted team, Pool view after two years: every played year's decisions are the room's stored decisions (${t.lines.join(', ')})`, d.slice(0, 3).join(' · ') || tt.years.join(', '));
+    if (t.lines.includes('Property') && t.lines.length > 1) {
+      const uw = await underwritingHistory(team, t.lines, room.startingYear);
+      ok(uw.out.length === 0, `hosted team, Pool view after two years: the Underwriting history columns show their figures, line by line (WC written ${uw.wc})`, uw.out.slice(0, 3).join(' · '));
+    }
     await indexChecks(team, 'hosted team, desktop');
     await browser.close();
   }

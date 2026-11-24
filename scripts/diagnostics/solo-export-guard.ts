@@ -1428,7 +1428,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // text; with the key normalised all 48 are identical to the control. The
 // statement workbooks are byte-identical. New-only is hosted room creation; no
 // single-player or Test player figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v151.json');
+// v153: THE MIXED POOL'S UNDERWRITING BY LINE (pr/statement-history-underwriting),
+// on aws 6e602f8, which reproduces v151 here 48 of 48. Text-diffed
+// (GUARD_TEXT_DIR both sides): 6 workbooks move, the statement workbooks of the
+// three-line games (stmt-{def,sqz}-{6KA6WGLJ,MAMC6EA4,ZZTEST99}-tri), and in each
+// only the Pool sheet. Its seven Underwriting rows (Written Exposures, Change from
+// Prior, New Business, Renewal Business, Retained %, Current Rate, % Change Over
+// Prior), all "—" before, are replaced by one block per line, headed Workers'
+// Compensation / General Liability / Property, with the history and played
+// years' figures (30 shown rows, 31 raw, none "—"). The Pool sheet's border map
+// adds one box per line's block and shifts every cell below it down 23 rows,
+// unchanged otherwise (0 mismatches after the shift). The other 42 workbooks
+// (the Results workbooks and every line-only or one-line statement) are
+// byte-identical. No other row, sheet or figure moves.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v153.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

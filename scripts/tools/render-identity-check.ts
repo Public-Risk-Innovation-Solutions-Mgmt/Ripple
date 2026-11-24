@@ -2035,7 +2035,17 @@ const BASELINE = process.env.RENDER_BASELINE
 // normalised all 26 are identical to the control. The host's setup and Game
 // Setup screens that changed are not in this baseline (it plays single-player
 // configurations); market-new-version.cjs checks them. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v152.json');
+// v154: THE MIXED POOL'S UNDERWRITING BY LINE (pr/statement-history-underwriting),
+// on aws 6e602f8, which reproduces v152 here 174 of 174. Word-diffed
+// (RENDER_TEXT_DIR both sides), 2 move — the three-line configuration's Annual
+// Statement, Pool view, at y0 and y2 (WC+GL+PR|Annual Statement|Pool). On each
+// the only words removed are the 33 "—" of the seven Underwriting rows; added
+// are the headings Workers' Compensation / General Liability / Property, the
+// seven row labels for the two further lines, and each line's figures for the
+// history and played years (WC's history 809.7, 826.2, 831.8, 883.7 written,
+// renewals at 100.0%). Every line view and every one- or two-line pool's
+// screens match. 172 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v154.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
