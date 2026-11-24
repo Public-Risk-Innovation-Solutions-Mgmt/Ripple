@@ -212,6 +212,13 @@ each attributed; the full checks as recorded in the pull request.
 
 ## Decisions carry into the next year in single player — wip/carry-decisions
 
+> **⚠ SUPERSEDED by pr/decision-reset:** every decision now RESETS at the start of
+> each new round, in single player, Test player and hosted rooms (funding at
+> Expected, no cover, 0% sliders, no dividend or assessment, the default asset
+> mix); `carryDecisions` is gone and `carry-decisions-check` is restated as
+> `decision-reset-check`. See docs/HOW_THE_GAME_WORKS.md section 6. The entry
+> below is the history of what it replaced.
+
 Single player and Test player now start each year from the decisions the year
 before was played on, as a hosted team always has: funding, the underwriting
 sliders, the reinsurance cover, the aggregate cover, the asset mix, risk

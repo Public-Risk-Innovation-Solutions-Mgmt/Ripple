@@ -9,7 +9,8 @@ pull request.
 **Single player** (`/solo`). One person runs a risk pool alone. Setup: pool name, length (3–10 years, default 5),
 first program year (default 2027), scenario (1–20, random, or a named scenario — Staff Retreat or Test Seed), and the lines (Workers' Compensation, General
 Liability, Property). Events ("shocks") are drawn automatically; there is no adverse reserve development.
-Locking a year plays it at once. Decisions carry into the next year; the game saves in the browser. There is no
+Locking a year plays it at once. Every decision resets at the start of the next year (section 6), so the player sets
+them again each year; the game saves in the browser, including the year's unsaved changes. There is no
 market competition (section 5): New Members and Non-Renewal work as the formula in section 5 says.
 
 **Test player** (also on `/solo`). Single player on the host's setup form: the person sets the shock schedule and
@@ -123,8 +124,8 @@ Teams can join until the host's first advance; after that only rejoins and viewe
    team: the team's form reopens on what it sent, and it may lock again with different decisions.
 3. **Only the host's "Advance to year N" button moves the room on.** It does not wait for locks: the host can
    advance with teams unlocked, or with none. There is no timer, deadline or automatic advance. A team that was
-   unlocked and did not lock again has that year's set dropped at the advance, so it plays its previous locked
-   decisions. With market competition on, the advance also runs the year's **market step** once, on the server,
+   unlocked and did not lock again has that year's set dropped at the advance, so it plays the year's reset
+   decisions (below). With market competition on, the advance also runs the year's **market step** once, on the server,
    and stores each team's result with the room (section 5).
 4. After the advance each team's browser notices within seconds, plays the year, and posts a results summary.
    The opening position (year 0) is posted when a team first loads.
@@ -137,11 +138,13 @@ stand and the year plays on the new settings. Every team gets the same change. T
 change shows only in their results, and a shock through the news banner in its year, as any shock does. The room
 records each change (who, what, which year, when), shown to the host only.
 
-**A team that never locks** is still played, on its most recent locked decisions (or the defaults if it never
-locked). The market counts it at its last locked rate and decisions, on its book carried forward, and the host's
-Teams tab flags it ("counted at its YYYY lock"); a team that never locked stays out of the market ("not in the
-market"). It posts only while its browser is open; until then its row reads "[year] not reported yet". Loans are
-always declined in hosted games.
+**A team that does not lock a year** is still played, on the reset decisions (section 6), never on an earlier lock. With market competition on, the market counts it at the rate those decisions
+give: when each team's browser posts the year before's results, it also sends its rate, book and market decisions
+at the reset, and the server uses them if the team does not lock. A team whose browser has posted nothing for the
+round stays out of the market that year. The host's "Waiting on …" line says this before an advance. A team posts
+only while its browser is open; until then its row reads "[year] not reported yet". Loans are always declined in
+hosted games. (A room created before the reset keeps the old rule: an unlocked team plays, and the market counts
+it at, its last lock.)
 
 **The end.** The advance past the last year completes the room ("Session complete"); the event leaves the lobby.
 Rooms are kept 7 days.
@@ -359,7 +362,7 @@ value, its reason and the measurements are in `pricingParameters.ts` ("MARKET VE
 - **Pure premium:** the last five complete accident years, a year behind (2027 uses 2021–2025), developed to
   ultimate, shock dollars removed, trended (WC 4%, GL 8%, Property 5% a year), plus ALAE (11% / 15% / 3.5%) and
   ULAE (5%). Before history exists, the expected loss cost.
-- **Funding factor:** 1.00 at "Expected", otherwise from a table by funding level (30–90%; the default is 65%). Each
+- **Funding factor:** 1.00 at "Expected", otherwise from a table by funding level (30–90%; the prior board funds at 65%, and every year opens at Expected). Each
   line's table is stretched about 1.00 so its 95% stop is WC 1.30, GL 1.25, Property 1.25; in year 1 that puts 30%
   funding about 8–10% below Expected's rate and 90% about 19–23% above. Required capital reads the same table.
 - **Reinsurance** is added at its price, outside the divisor.
@@ -368,9 +371,17 @@ value, its reason and the measurements are in `pricingParameters.ts` ("MARKET VE
 **Decisions, per line:** funding; non-renewal and new members; dividend or assessment (−$15M to +$15M); risk
 control (0–5% of the rate before reinsurance); a per-claim cover (None or one of eight layers, e.g. $9M xs $1M);
 an aggregate cover (none, 110/50, 125/50, 150/50); loan repayment while a loan is open. Pool-wide: the asset mix
-(default 20% cash, 75% bonds, 5% equities — the prior board's, in every mode). Funding defaults to 65% and the covers
-to the prior board's ($19M xs $1M, aggregate 125/50), so year 1 continues the history and 2027 has no rate drop; the
-rest to none or zero.
+(default 20% cash, 75% bonds, 5% equities — the prior board's, in every mode). The pre-game history is played on the
+prior board's decisions (funding at 65%, covers $19M xs $1M and aggregate 125/50), so the opening position is theirs.
+
+**Every decision resets at the start of each round, year 1 included** — single player, Test player and hosted teams —
+so the team sets them again each year. Every year opens on the **reset**: funding at Expected; no cover (per-claim
+None, aggregate none); New Members, Non-Renewal and risk control 0%; no dividend or assessment; the default asset mix
+(20% cash, 75% bonds, 5% equities). **Year-1 rates drop from 2026's:** year 1 opens at Expected with no cover where
+the prior board funded at 65% and bought covers, so a team that locks year 1 untouched pays less than the history's
+last year unless it sets funding and covers back up. Within a year, changes not yet locked are kept as now (a reload
+restores the year's draft, not last year's). A hosted team that does not lock a year plays the reset for it (section
+2). The Annual Statement's Decisions section records what was actually played each year.
 
 **Where the rest comes in:**
 
@@ -466,7 +477,6 @@ rest to none or zero.
   in a five-year game).
 - **Comments and one on-screen line say teams pick their lines;** the host sets them.
 - **Member risk scores exist** in the loss draw, though several comments say there are none.
-- **The memo calls the sliders "for this year only";** decisions now carry forward until changed.
 - **Stale comments** call the rate stack off (it prices every rate), say "ten worlds" (100), single-player
   shocks off (on), routine large losses on (off), risk control unread (live), and the default cover "the middle
   option" (None).

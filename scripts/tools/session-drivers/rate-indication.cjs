@@ -37,10 +37,10 @@
 //   section 2         no investment income line; admin 20% on every line and
 //                     every year, risk control the year's choice (restated at
 //                     wip/risk-control-divisor: year 2 is played at 2% on every
-//                     line, and the coming year carries that 2% forward — a
-//                     hosted team's always did, a single player's does since
-//                     wip/carry-decisions; THE CONTROL there is the reset to
-//                     0% it replaced, which must fail), the
+//                     line, and the coming year RESETS to 0% — every decision
+//                     does at the start of each round since pr/decision-reset;
+//                     THE CONTROL there is carry-forward's 2%, which must
+//                     fail), the
 //                     total expense ratio admin + risk control and the
 //                     permissible loss ratio 1 - that (80% at 0%, 78% at 2%),
 //                     with no profit & contingency, fixed or per-exposure admin
@@ -229,7 +229,8 @@ function screen(page, mode) {
   // SECTION 1 of one indication: its labels follow the priced year, and its
   // figures chain to pricing's projected pure premium.
   let controlled = false;
-  function sectionOne(ind, name, rc = 0, resetControl = false) {
+  /** `refuseRc`: a risk control the year must NOT read (the decision reset's control: the carried 2%). */
+  function sectionOne(ind, name, rc = 0, refuseRc = null) {
     const P = ind.calendar, level = P - 1;
     for (const [l] of LINES) {
       const x = ind[l];
@@ -253,10 +254,10 @@ function screen(page, mode) {
         ok(!expenseOk(l, { ...x, permissible: (1 - ADMIN[l]) / (1 + rc), totalExpense: 1 - (1 - ADMIN[l]) / (1 + rc) }, rc),
           `${mode}, ${name}, ${P}, ${l}: control — the multiplier's permissible loss ratio, (1 - admin) / (1 + risk control), is refused`);
       }
-      // THE CARRY-FORWARD CONTROL (wip/carry-decisions): the block a reset to
-      // defaults would show, risk control 0%, is refused for a carried year.
-      if (resetControl) ok(!expenseOk(l, x, 0),
-        `${mode}, ${name}, ${P}, ${l}: control — the reset to defaults (risk control 0%) is refused; the year carried ${(rc * 100).toFixed(0)}%`);
+      // THE DECISION RESET'S CONTROL (pr/decision-reset): the block carry-forward
+      // would show — the year before's risk control — is refused for a reset year.
+      if (refuseRc !== null) ok(!expenseOk(l, x, refuseRc),
+        `${mode}, ${name}, ${P}, ${l}: control — carry-forward (risk control ${(refuseRc * 100).toFixed(0)}%, the year before's) is refused; the year reset to ${(rc * 100).toFixed(0)}%`);
       // 2021, the first year, has no rate before it to change from.
       if (P > 2021) ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,
@@ -311,10 +312,10 @@ function screen(page, mode) {
     }
   }
 
-  async function comingYear(name, programYear, shocksOn = true, rc = 0, resetControl = false) {
+  async function comingYear(name, programYear, shocksOn = true, rc = 0, refuseRc = null) {
     const ind = await readIndication();
     likelihoods(ind, name, shocksOn, programYear === 2027);
-    sectionOne(ind, name, rc, resetControl);
+    sectionOne(ind, name, rc, refuseRc);
     sectionThree(ind, name);
     ok(ind.calendar === programYear, `${mode}, ${name}: the coming year is Program Year ${programYear}`, String(ind.calendar));
     const opts = await options();
@@ -539,11 +540,11 @@ async function solo(browser) {
     if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
     await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
   }
-  // SINGLE PLAYER CARRIES THE YEAR'S CHOICES FORWARD (wip/carry-decisions,
-  // utils/carryDecisions.ts), as a hosted team's do (session/client/
-  // decisions.ts): the coming year opens on year 2's 2%. THE CONTROL: the
-  // reset to defaults this replaced — 0% — must not read as the coming year.
-  await s.comingYear('after two played years', 2029, true, 0.02, true);
+  // EVERY DECISION RESETS AT THE START OF EACH NEW ROUND (pr/decision-reset;
+  // decisionDefaults resetDecisionSet), as a hosted team's do: the coming year
+  // opens at 0% risk control, not year 2's 2%. THE CONTROL: carry-forward —
+  // year 2's 2% — must not read as the coming year.
+  await s.comingYear('after two played years', 2029, true, 0, 0.02);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'solo: no page errors', errors[0] ?? '');
 }
@@ -583,8 +584,9 @@ async function hosted(browser) {
     await page.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
     await page.waitForTimeout(1000);
   }
-  // Hosted: year 2's 2% carries forward to the coming year — the last submitted set.
-  await s.comingYear('after two played years', 2029, false, 0.02);
+  // Hosted: the coming year opens on the reset, 0% risk control — year 2's 2% does
+  // not carry (pr/decision-reset). THE CONTROL: carry-forward's 2% is refused.
+  await s.comingYear('after two played years', 2029, false, 0, 0.02);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
 }

@@ -15,8 +15,9 @@
 // team's screens (no note on Decisions or the Market Survey; the server stores
 // the results and the team's game plays them, but only the host sees them); the
 // Market Survey, with no market columns, its shares moved; a rejoin on a second
-// device whose Annual Statement — the moves played — is exactly the first's; and a team that skips a year flagged to the
-// host as counted at its last lock.
+// device whose Annual Statement — the moves played — is exactly the first's; and a team that skips a year counted at
+// the decision reset (pr/decision-reset: the rate the reset strikes, 0% New Members and Non-Renewal), never at its
+// last lock — the host's "Waiting on…" line says so before the advance.
 // ============================================================================
 const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const { spawn, execFileSync } = require('node:child_process');
@@ -292,13 +293,22 @@ const num = t => Number(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForSelector('[data-testid="locked-Elm"]', { timeout: 30000 });
   ok((await host.textContent('[data-testid="outstanding"]')).trim().includes('Dogwood'), 'year 2: the host sees Dogwood has not locked');
+  const note = (await host.textContent('[data-testid="outstanding-note"]')).replace(/\s+/g, ' ');
+  ok(/plays the reset decisions/.test(note) && /market counts it at the rate they give/.test(note) && !/last lock/.test(note),
+    'year 2: the host is told an unlocked team plays the reset, and the market counts it at that rate', note);
   await host.click('[data-testid="advance"]');
   await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '3', null, { timeout: 30000 });
   for (const name of Object.keys(pages)) await posted(pages[name], 2);
-  // Dogwood did not lock year 2: the stored market step counted it at its year-1 lock (the host's flag went with the column).
+  // Dogwood did not lock year 2: the stored market step counted it at the reset (pr/decision-reset) —
+  // the round-start input its client posted, 0% New Members and Non-Renewal — never at its year-1 lock.
   const year2 = await storedMarket(host, API, code, 2);
   const dog = year2?.inputs?.Dogwood;
-  ok(!!dog && dog.stale === true && dog.fromYear === 1, 'still stored: the market counted Dogwood at its 2027 lock', JSON.stringify(dog));
+  ok(!!dog && dog.reset === true && dog.stale === false && dog.fromYear === 2
+    && Object.values(dog.byLine ?? {}).every(l => l.newMembers === 0 && l.nonRenewal === 0),
+    'still stored: the market counted Dogwood at the reset — its round-start rate, 0% New Members and Non-Renewal', JSON.stringify(dog));
+  const dog1 = year1?.inputs?.Dogwood;
+  ok(!!dog1 && Object.entries(dog.byLine ?? {}).some(([l, x]) => x.newMembers !== dog1.byLine[l]?.newMembers || x.rate !== dog1.byLine[l]?.rate),
+    'control: not at its 2027 lock (carry-forward would count that)', JSON.stringify(dog1?.byLine?.WC ?? null));
   ok(!!year2?.result?.Elm?.WC && typeof year2.result.Elm.WC.bookRisk === 'number', 'still stored: year 2\'s book risk, for every replay');
   await host.click('[data-testid="host-tab-charts"]');
   await host.waitForSelector('[data-testid^="chart-"]', { timeout: 30000 });

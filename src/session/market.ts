@@ -72,16 +72,24 @@ export function validMarketLockInput(x: unknown, lines: readonly CoverageLine[])
 export interface MarketRosterEntry {
   name: string;
   teamNumber: number;
-  /** The team's latest lock's market input at or before the year, and that lock's year. */
-  latest?: { year: number; input: MarketLockInput };
+  /**
+   * The team's market input for the year, and the year that supplied it: its
+   * lock of the year, or — not locked — the round-start input its client posted
+   * (`reset`). (Rooms before the decision reset passed an earlier lock here,
+   * which counts `stale`.)
+   */
+  latest?: { year: number; input: MarketLockInput; reset?: boolean };
 }
 
 /**
  * THE YEAR'S MARKET STEP, FROM THE ROOM'S STATE — what advance stores. A team
- * that locked the year counts at its own figures. One that did not counts at its
- * LAST locked rate and decisions (it plays them too), on its book carried
- * forward from last year's step (the book after the moves, less the engine's
- * drop), and is flagged `stale`. One that never locked is left out (`missing`):
+ * that locked the year counts at its own figures. One that did not plays the
+ * round's starting values — the reset, every round — and counts at the rate
+ * they strike, from the round-start input its client posted, flagged `reset`.
+ * (In a room from before the decision reset, an earlier lock was passed instead
+ * and counted at its rate on the book carried forward from last year's step,
+ * flagged `stale`; that path stays for those rooms' replays.) One with neither
+ * is left out (`missing`):
  * its game plays without a market result, as a team outside the market would.
  */
 export function marketYearForAdvance(a: {
@@ -113,7 +121,7 @@ export function marketYearForAdvance(a: {
       const book = stale && prev ? prev.bookAfter * (1 - prev.engineNonRenewal) : l.book;
       byLine[line] = { ...l, book };
     }
-    inputs[t.name] = { teamNumber: t.teamNumber, fromYear: t.latest.year, stale, byLine };
+    inputs[t.name] = { teamNumber: t.teamNumber, fromYear: t.latest.year, stale, ...(t.latest.reset ? { reset: true as const } : {}), byLine };
     teams.push({
       key: keyOf(t.teamNumber),
       lines: Object.fromEntries(Object.entries(byLine).map(([line, l]) => [line, {
