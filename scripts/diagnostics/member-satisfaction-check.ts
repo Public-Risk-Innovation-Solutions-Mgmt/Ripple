@@ -130,6 +130,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { SATISFACTION, satisfactionReaction } from '../../src/utils/memberSatisfaction';
 import { MARKET_CYCLE, marketCycleLoadFactor } from '../../src/utils/marketConditions';
 import { OPENING_SATISFACTION } from '../../src/data/memberCatalog';
+import { FUNDING_SLIDER_RANGE, PLAY_DEFAULTS } from '../../src/data/pricingParameters';
 import type {
   CoverageLine, DecisionSet, GameState, Member, SatisfactionMove,
 } from '../../src/types/simulation';
@@ -398,8 +399,20 @@ const DENOM_GAMES = Math.min(8, GAMES);
 /** The priced-up arm: fundingAtExpected off, confidence climbing to the cap. */
 const RAMP_START = 0.60;
 const RAMP_STEP = 0.035;
-/** ONE STOP on the funding slider from where the game ships (Expected). */
-const ONE_STOP = 0.65;
+/**
+ * ONE STOP on the funding slider from where the game ships: the play default
+ * (PLAY_DEFAULTS.fundingLevel, 65% on the line's own table) plus one slider
+ * step (FUNDING_SLIDER_RANGE.step, 5 points) — 70%.
+ *
+ * ⚠ RESTATED (pr/member-satisfaction-check-fix). It was the literal 0.65,
+ * written as "one stop from where the game ships (Expected)" while the game
+ * shipped at Expected. The play default became 65% (pr/pregame-65, 7c28374),
+ * so 0.65 WAS the default: the decision arm played exactly the baseline, and
+ * section 6 read a footprint of 0.000 and failed two assertions on a decision
+ * that was never taken. Derived from the default now, so it cannot fall onto
+ * it again.
+ */
+const ONE_STOP = PLAY_DEFAULTS.fundingLevel + FUNDING_SLIDER_RANGE.step;
 const DECISION_YEAR = 3;
 
 /**
@@ -1159,6 +1172,13 @@ console.log('  still not the pool\'s doing; how much you mind the pool\'s doing 
 
 // --- 6. one member, one decision --------------------------------------------
 console.log(`\n--- 6. one blameless member, one stop on the funding slider in year ${DECISION_YEAR} ---`);
+// ⚠ THE ARM MUST BE A DECISION. It fell onto the play default once (0.65 when the
+// default became 65%) and the section failed on a decision never taken.
+{
+  const taken = Math.abs(ONE_STOP - PLAY_DEFAULTS.fundingLevel) > 1e-9;
+  console.log(`  the decision arm funds at ${(100 * ONE_STOP).toFixed(0)}% against the play default's ${(100 * PLAY_DEFAULTS.fundingLevel).toFixed(0)}%: ${taken ? 'OK' : 'FAIL'}`);
+  if (!taken) failures.push('section 6\'s decision arm funds at the play default — no decision is taken, so its footprint reads zero.');
+}
 {
   const decided = Array.from({ length: GAMES }, (_, g) => playDecision(g, DECISION_YEAR));
   const through = DECISION_YEAR + 5;
