@@ -26,7 +26,7 @@
 // ============================================================================
 import type { Borders, Worksheet } from 'exceljs';
 import {
-  ALL_YEARS_LABEL, allYearsCell, cellBorders, DOLLARS_PER_UNIT, isBlockName, showsPrior, shownFigure, statementsForView, TEMPLATE_ROWS,
+  ALL_YEARS_LABEL, allYearsCell, cellBorders, DOLLARS_PER_UNIT, isBlockName, showsPrior, shownFigure, statementsForView,
   type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
 import type { GameState, LineView } from '../types/simulation';
@@ -61,20 +61,22 @@ function borderOf(sides: string): Partial<Borders> {
   };
 }
 
-/** Fill one sheet with a statement, row for row as TEMPLATE_ROWS. */
+/** Fill one sheet with a statement, row for row as its rows (TEMPLATE_ROWS, or ADMIN_SPLIT_ROWS in a New-version market room). */
 function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
-  TEMPLATE_ROWS.forEach((row, i) => {
+  ts.rows.forEach((row, i) => {
     const r = i + 1;
     // Every cell's border first, blank rows included — the template draws its
     // vertical lines down the blank rows and closes sections on them.
-    for (let c = 1; c <= STATEMENT_COLUMNS; c++) { const sides = cellBorders(i, c); if (sides) ws.getCell(r, c).border = borderOf(sides); }
+    for (let c = 1; c <= STATEMENT_COLUMNS; c++) { const sides = cellBorders(i, c, ts.rows); if (sides) ws.getCell(r, c).border = borderOf(sides); }
     if (row.kind === 'blank') return;
     if (row.label !== '') ws.getCell(r, 2).value = row.label;
+    // The admin split's note: its words in B, in italics, running across the row.
+    if (row.kind === 'note') { ws.getCell(r, 2).font = { italic: true }; return; }
     // The Reinsurance blocks' names — Gross, Ceded, Net — head their blocks in bold, in the label column.
     if (row.kind === 'header' && isBlockName(row.label)) ws.getCell(r, 2).font = { bold: true };
     if (row.kind === 'header') {
       // Prior only where the section shows it; the first three sections leave C blank.
-      if (showsPrior(i)) ws.getCell(r, 3).value = 'Prior';
+      if (showsPrior(i, ts.rows)) ws.getCell(r, 3).value = 'Prior';
       ts.years.forEach((y, k) => {
         const cell = ws.getCell(r, 4 + k);
         // A real date: 12/31 of the year, as the template's mm-dd-yy cells.
@@ -244,7 +246,7 @@ export async function buildAnnualStatementXlsx(
   for (const ts of statementsForView(gs, view, asOfYear)) {
     const ws = wb.addWorksheet(SHEET_NAME(ts));
     fillSheet(ws, ts);
-    const surveyEnd = fillMarketSurvey(ws, buildMarketSurveyTable(gs, ts, standings), TEMPLATE_ROWS.length);
+    const surveyEnd = fillMarketSurvey(ws, buildMarketSurveyTable(gs, ts, standings), ts.rows.length);
     fillDecisions(ws, buildDecisionsTable(gs, ts), surveyEnd);
   }
   // Copied into its own buffer of exactly the file's length: in Node, writeBuffer

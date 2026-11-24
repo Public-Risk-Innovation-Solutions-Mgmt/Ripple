@@ -47,19 +47,27 @@ const DECISIONS_ID = 'statement-decisions';
 const MARKET_SURVEY_ID = 'statement-market-survey';
 const BLOCK_ID: Record<string, string> = { Gross: 'statement-gross', Ceded: 'statement-ceded', Net: 'statement-net' };
 
-/** A statement row and its index in TEMPLATE_ROWS — the index is its row in the file, and its borders. */
+/** A statement row and its index in the statement's rows (ts.rows) — the index is its row in the file, and its borders. */
 interface At { row: TemplateRow; i: number }
 
-/** The template's rows, cut at each title: [title, rows under it]. Row 1, above the first title, carries no line. */
-function sections(): { title: string; rows: At[] }[] {
+/**
+ * The statement's rows (TEMPLATE_ROWS, or ADMIN_SPLIT_ROWS in a New-version
+ * market room), cut at each title: [title, rows under it]. Row 1, above the
+ * first title, carries no line.
+ */
+function sections(rows: readonly TemplateRow[]): { title: string; rows: At[] }[] {
   const out: { title: string; rows: At[] }[] = [];
-  TEMPLATE_ROWS.forEach((row, i) => {
+  rows.forEach((row, i) => {
     if (row.kind === 'title') out.push({ title: row.label.trim(), rows: [] });
     else if (out.length > 0) out[out.length - 1].rows.push({ row, i });
   });
   return out;
 }
-const SECTIONS = sections();
+const SECTIONS_OF = new Map<readonly TemplateRow[], ReturnType<typeof sections>>();
+const sectionsOf = (rows: readonly TemplateRow[]) => {
+  if (!SECTIONS_OF.has(rows)) SECTIONS_OF.set(rows, sections(rows));
+  return SECTIONS_OF.get(rows)!;
+};
 
 const yearEnd = (calendarYear: number) => `12/31/${String(calendarYear % 100).padStart(2, '0')}`;
 /** The template indents a sub-item by leading spaces; the screen indents it. */
@@ -71,8 +79,8 @@ const indented = (label: string) => /^\s/.test(label);
  * line two neighbours both carry is one line, as in Excel.
  */
 const LINE = '1px solid #000';
-function edges(i: number, c: number): CSSProperties {
-  const s = cellBorders(i, c + 1);
+function edges(i: number, c: number, rows: readonly TemplateRow[]): CSSProperties {
+  const s = cellBorders(i, c + 1, rows);
   return {
     ...(s.includes('L') ? { borderLeft: LINE } : {}),
     ...(s.includes('R') ? { borderRight: LINE } : {}),
@@ -93,33 +101,40 @@ function Row({ at: { row, i }, ts }: { at: At; ts: TemplateStatement }) {
     case 'blank': case 'title':
       return (
         <tr data-row-kind="blank" aria-hidden="true" {...data}>
-          {Array.from({ length: 1 + cols }, (_, c) => <td key={c} className="h-5" style={edges(i, c + 1)} />)}
+          {Array.from({ length: 1 + cols }, (_, c) => <td key={c} className="h-5" style={edges(i, c + 1, ts.rows)} />)}
         </tr>
       );
     case 'header':
       return (
         <tr data-row-kind="header" {...data}>
           {/* The Reinsurance blocks' names — Gross, Ceded, Net — sit on the left, in bold. */}
-          <th className={`px-3 py-1 ${isBlockName(row.label) ? 'text-left font-bold' : 'text-right font-semibold'} text-black whitespace-pre`} style={edges(i, 1)}>{row.label.trim()}</th>
+          <th className={`px-3 py-1 ${isBlockName(row.label) ? 'text-left font-bold' : 'text-right font-semibold'} text-black whitespace-pre`} style={edges(i, 1, ts.rows)}>{row.label.trim()}</th>
           {ts.columns.map((c, k) => (
-            <th key={c} className="px-3 py-1 text-center font-semibold text-black whitespace-nowrap" style={edges(i, k + 2)}>
-              {k === 0 ? (showsPrior(i) ? c : '') : row.dates ? yearEnd(ts.years[k - 1]) : c}
+            <th key={c} className="px-3 py-1 text-center font-semibold text-black whitespace-nowrap" style={edges(i, k + 2, ts.rows)}>
+              {k === 0 ? (showsPrior(i, ts.rows) ? c : '') : row.dates ? yearEnd(ts.years[k - 1]) : c}
             </th>
           ))}
-          <th className="px-3 py-1 text-center font-semibold text-black whitespace-nowrap" style={edges(i, ay)}>{row.allYears ? ALL_YEARS_LABEL : ''}</th>
+          <th className="px-3 py-1 text-center font-semibold text-black whitespace-nowrap" style={edges(i, ay, ts.rows)}>{row.allYears ? ALL_YEARS_LABEL : ''}</th>
+        </tr>
+      );
+    case 'note':
+      // The admin split's note (ADMIN_SPLIT_ROWS): its words across the row, no lines.
+      return (
+        <tr data-row-kind="note" data-testid="fixed-admin-note" {...data}>
+          <td colSpan={1 + cols} className="px-3 py-1 text-black italic whitespace-nowrap">{row.label}</td>
         </tr>
       );
     case 'heading':
       return (
         <tr data-row-kind="heading" {...data}>
-          <td className="px-3 py-1 text-black whitespace-nowrap" style={edges(i, 1)}>{row.label.trim()}</td>
-          {Array.from({ length: cols }, (_, k) => <td key={k} style={edges(i, k + 2)} />)}
+          <td className="px-3 py-1 text-black whitespace-nowrap" style={edges(i, 1, ts.rows)}>{row.label.trim()}</td>
+          {Array.from({ length: cols }, (_, k) => <td key={k} style={edges(i, k + 2, ts.rows)} />)}
         </tr>
       );
     case 'figure': {
       return (
         <tr data-row-label={row.label.trim()} data-row-key={row.key} {...data}>
-          <td className={`px-3 py-1 text-black ${indented(row.label) ? 'pl-10' : ''}`} style={edges(i, 1)}>{row.label.trim()}</td>
+          <td className={`px-3 py-1 text-black ${indented(row.label) ? 'pl-10' : ''}`} style={edges(i, 1, ts.rows)}>{row.label.trim()}</td>
           {ts.figures[row.key].map((_, k) => {
             // Blank where the statement shows nothing (shownFigure): Prior in the
             // first three sections, the first year's change in Underwriting.
@@ -127,12 +142,12 @@ function Row({ at: { row, i }, ts }: { at: At; ts: TemplateStatement }) {
             // Red by the figure AS SHOWN: a few cents below zero shows 0, in black.
             const text = x === undefined ? '' : figureText(x, row.format);
             return (
-              <td key={k} className={`px-3 py-1 text-right tabular-nums whitespace-nowrap ${text.startsWith('−') ? 'text-red-600' : 'text-black'}`} style={edges(i, k + 2)}>
+              <td key={k} className={`px-3 py-1 text-right tabular-nums whitespace-nowrap ${text.startsWith('−') ? 'text-red-600' : 'text-black'}`} style={edges(i, k + 2, ts.rows)}>
                 {text}
               </td>
             );
           })}
-          <AllYearsCell row={row} i={i} ts={ts} style={edges(i, ay)} />
+          <AllYearsCell row={row} i={i} ts={ts} style={edges(i, ay, ts.rows)} />
         </tr>
       );
     }
@@ -310,7 +325,7 @@ function MarketSurveySection({ table }: { table: MarketSurveyTable }) {
 
 /** The index's entries: every section of the statement, in order, then the Market Survey and Decisions. */
 const INDEX: { id: string; title: string }[] = [
-  ...SECTIONS.map(s => ({ id: SECTION_ID[s.title], title: s.title })),
+  ...sectionsOf(TEMPLATE_ROWS).map(s => ({ id: SECTION_ID[s.title], title: s.title })),
   { id: MARKET_SURVEY_ID, title: MARKET_SURVEY_TITLE },
   { id: DECISIONS_ID, title: DECISIONS_TITLE },
 ];
@@ -490,7 +505,7 @@ export default function ResultsStatementPage({ gameState, lineView, standings }:
             </button>
           </div>
         </div>
-        {SECTIONS.map(s => <SectionTable key={s.title} title={s.title} rows={s.rows} ts={ts} />)}
+        {sectionsOf(ts.rows).map(s => <SectionTable key={s.title} title={s.title} rows={s.rows} ts={ts} />)}
         <MarketSurveySection table={survey} />
         <DecisionsSection table={decisions} />
       </div>

@@ -29,6 +29,20 @@ and dividend / (assessment) per line, and on the Pool view the asset mix and eac
 recorded decision; the history years before play show the prior board's. A sticky index links each section and
 marks the one in view. The Excel and PDF downloads carry the Market Survey and Decisions sections too.
 
+**Admin, split into Fixed and Variable** (New-version market rooms with the market on only): in place of the single
+General Admin Expense line, the Net Income Statement shows **General Admin Expense — Fixed**, **General Admin
+Expense — Variable** and **Total General Admin Expense** (today's figure, its % of Premium under it as before), for
+the Pool and each line, in every year column, Prior and All Years included. Fixed is the fixed admin as booked
+(below, under the New market): 25% of the line's year-1 admin dollars, growing 3% a year, in each year the line has
+a market result; the Pool's is the lines' sum. Variable is the rest of the admin booked — this year's 75% share of
+premium and the year's overrun on the whole — so Fixed + Variable is the Total exactly. History years, and any year
+a team has no market result (it never locked), are all Variable. Under the table a note reads "Fixed admin doesn't
+shrink when your book does." Every other figure, the Total and every ratio are unchanged. The Excel and PDF
+downloads show the same rows and note. Current rooms, New rooms with the market Off (no admin is fixed there),
+Single player and Test player keep the single General Admin Expense line. Fixed is worked out from the results (the
+year-1 admin and the stored market results), not stored, so a New room created before this, and one from before
+the level rescale (no scale stamp), splits the same way.
+
 **Hosted.** A host runs an event for teams on their own devices; viewers watch a team.
 
 - **Host** (`/host`, admin sign-in). Tabs: Game Setup · Teams · Charts · Decisions. Creates the room, follows the
@@ -320,7 +334,8 @@ High setting, compares the same whole rates (cover included), and changes four v
   25% of its year-1 admin dollars on that line, growing 3% a year, plus 75% of this year's admin as a share of
   premium; the year's admin overrun then applies as before. The member charge is unchanged — the rate still prices
   admin at 20% of premium — so a book lost to price leaves its fixed part behind. Current rooms, rooms with the market
-  Off, Single player and Test player book admin as before. The share was 50%; it is 25% to ease a shrinking team's
+  Off, Single player and Test player book admin as before. The Annual Statement shows the fixed part on its own
+  line (General Admin Expense — Fixed, above). The share was 50%; it is 25% to ease a shrinking team's
   admin. In a five-team room at 45 / 55 / 65 / 75 / 85% funding (WC only, scenario 4, no events, eight room codes)
   the 85% team's 2031 admin falls from 30.0% to 25.1% and its combined ratio from 146.6% to 141.8%; it still loses
   61% of its book (the share moves cost, not members). Accepted with it: moderate overpricing (about 75–80% funding)
