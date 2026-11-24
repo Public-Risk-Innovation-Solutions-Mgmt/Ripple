@@ -63,6 +63,12 @@
 // COVER_PRICE_FACTOR.factor = 1 at runtime (restored after) must fail 2 and 3
 // (3 on a game replayed); the gate's own expectation doubling the pre-game too
 // must fail 2.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 2 wants
+// aggregateCoverQuote's price = 2 x the method in pre-game years 0 and -2 as in
+// played years 1, 3 and 6. The control on the pre-game is turned round: the
+// factor in played years only — the pre-game at the table's price, as before —
+// must fail 2. The factor at 1 still must fail 2 and 3.)
 //
 // ⚠ THE BRIEF IS WRITTEN OUT HERE — options, loads, odds, surge ranges, the
 // ordinary-year CVs' inputs and the 2027 prices — not read from
@@ -109,11 +115,12 @@ const control = (label: string, breakIt: () => () => void, section: () => string
     `${problems.length} problem(s) when broken`);
 };
 const near = (a: number, b: number, rel = 1e-9, abs = 1e-6) => Math.abs(a - b) <= Math.max(abs, rel * Math.abs(b));
-// wip/cover-price-double: a played year's cover costs the method x 2.0; the prior
-// board's years the method. Written out, not read from COVER_PRICE_FACTOR.
+// wip/cover-price-double: a cover costs the method x 2.0 in every year, the prior
+// board's history included. Written out, not read from COVER_PRICE_FACTOR.
 const CP_FACTOR = 2.0;
-const PAID = { factorFor: (y: number) => (y >= 1 ? CP_FACTOR : 1) };
-const doubledPreGame = () => { const o = PAID.factorFor; PAID.factorFor = () => CP_FACTOR; return () => { PAID.factorFor = o; }; };
+const PAID = { factorFor: ((() => CP_FACTOR) as (y: number) => number) };
+/** The control's broken expectation: the old rule — the factor in played years only, the pre-game at the table's price. */
+const playedOnly = () => { const o = PAID.factorFor; PAID.factorFor = (y: number) => (y >= 1 ? CP_FACTOR : 1); return () => { PAID.factorFor = o; }; };
 const factorOne = () => { const o = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1; return () => { COVER_PRICE_FACTOR.factor = o; }; };
 /** The base (the method): a quote's expected recovery x its option's load in src, before the cover price factor. */
 const basePrice = (q: { optionId: string; expectedRecovery: number }) => q.expectedRecovery * (AGGREGATE_COVER_OPTIONS.find(o => o.id === q.optionId)?.load ?? 0);
@@ -239,7 +246,7 @@ function sectionPrice(basis: 'maximum' | 'midpoint', withTable: boolean): string
         const q = aggregateCoverQuote(l, id, exposure, y, basis);
         const b = briefQuote(l, id, en, basis);
         if (!near(q.expectedNormal, en)) p.push(`${l} y${y} ${id}: expected normal ${q.expectedNormal} vs ${en}`);
-        // The base (expected recovery x load) is the method; the price is it x 2 in a played year, x 1 in the pre-game.
+        // The base (expected recovery x load) is the method; the price is it x 2 in every year, the pre-game included.
         if (!near(basePrice(q), b.price, 1e-7, 0.01)) p.push(`${l} y${y} ${id} ${basis}: expected recovery x load ${basePrice(q).toFixed(2)} vs the method ${b.price.toFixed(2)}`);
         if (!near(q.price, PAID.factorFor(y) * b.price, 1e-7, 0.01)) p.push(`${l} y${y} ${id} ${basis}: price ${q.price.toFixed(2)} vs ${PAID.factorFor(y)} x ${b.price.toFixed(2)}`);
         if (!near(q.attachment, b.attachment) || !near(q.limit, b.limit)) p.push(`${l} y${y} ${id}: terms ${q.attachment}/${q.limit} vs ${b.attachment}/${b.limit}`);
@@ -305,11 +312,11 @@ book2027 = Object.fromEntries(LINES.map(l => {
 
 const basis = AGGREGATE_COVER_SURGE_BASIS.basis;
 check(basis === 'maximum' ? [] : [`switch at ${basis}`], 'the surge basis is the maximum (the workbook\'s)');
-check(sectionPrice('maximum', true), 'prices at the maximum: the method (expected recovery x load), and the 2027 table to the dollar; the price 2 x the method in played years, the method in the pre-game',
+check(sectionPrice('maximum', true), 'prices at the maximum: the method (expected recovery x load), and the 2027 table to the dollar; the price 2 x the method in played years and in the pre-game',
   `2027 base: ${LINES.map(l => `${l} ${BRIEF_OPTIONS.slice(1).map(([id]) => `$${Math.round(basePrice(aggregateCoverQuote(l, id, book2027[l], 1))).toLocaleString('en-US')}`).join(' / ')}`).join('; ')}`);
 check(sectionPrice('midpoint', false), 'prices at the midpoint: the switch moves the cases and the terms together');
-control('COVER_PRICE_FACTOR at 1 (the method charged in played years)', factorOne, () => sectionPrice('maximum', true));
-control('the factor applied in the pre-game too (the gate\'s expectation doubles years 0 and -2)', doubledPreGame, () => sectionPrice('maximum', false));
+control('COVER_PRICE_FACTOR at 1 (the method charged in every year)', factorOne, () => sectionPrice('maximum', true));
+control('the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change)', playedOnly, () => sectionPrice('maximum', false));
 // Runtime controls: each changes the thing in place and requires the section to fail.
 control('the 110/50 load at 1.1', () => {
   const o = AGGREGATE_COVER_OPTIONS[1] as { load: number }; const was = o.load; o.load = 1.1;

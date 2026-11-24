@@ -98,6 +98,12 @@
 // The Event Likelihoods are unchanged. New controls: COVER_PRICE_FACTOR.factor
 // = 1 at runtime (restored after) must fail 2 and 5 (5 replays its games); the
 // gate's own expectation doubling the pre-game too must fail 2.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 2 wants optionPrice
+// at factor 1 twice the table in pre-game year 0 as in played year 1. The
+// control on the pre-game is turned round: the factor in played years only —
+// the pre-game at the table's price, as before — must fail 2. The factor at 1
+// still must fail 2 and 5.)
 //
 // ⚠ EACH SECTION HAS CONTROLS that break the thing it guards at runtime,
 // require the section to FAIL, and restore it.
@@ -137,11 +143,12 @@ const control = (label: string, breakIt: () => () => void, section: () => string
     `${problems.length} problem(s) when broken`);
 };
 const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
-// wip/cover-price-double: a played year's cover costs the method x 2.0; the prior
-// board's years the method. Written out, not read from COVER_PRICE_FACTOR.
+// wip/cover-price-double: a cover costs the method x 2.0 in every year, the prior
+// board's history included. Written out, not read from COVER_PRICE_FACTOR.
 const CP_FACTOR = 2.0;
-const PAID = { factorFor: (y: number) => (y >= 1 ? CP_FACTOR : 1) };
-const doubledPreGame = () => { const o = PAID.factorFor; PAID.factorFor = () => CP_FACTOR; return () => { PAID.factorFor = o; }; };
+const PAID = { factorFor: ((() => CP_FACTOR) as (y: number) => number) };
+/** The control's broken expectation: the old rule — the factor in played years only, the pre-game at the table's price. */
+const playedOnly = () => { const o = PAID.factorFor; PAID.factorFor = (y: number) => (y >= 1 ? CP_FACTOR : 1); return () => { PAID.factorFor = o; }; };
 const factorOne = () => { const o = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1; return () => { COVER_PRICE_FACTOR.factor = o; }; };
 
 // ---- THE BRIEF ------------------------------------------------------------------
@@ -231,7 +238,7 @@ function sectionOdds(price: PriceFn = (l, id, g) => tCoverPrice(l, id, g)): stri
     // src's price at factor 1, to the cent, and to the table.
     const src = price(l, id, 1);
     if (Math.abs(src - mine) > 0.005) out.push(`${l} ${id} 2027: tCoverPrice $${src.toFixed(2)}, the method's $${mine.toFixed(2)}`);
-    // What a team is shown (wip/cover-price-double): the table in pre-game year 0, 2 x it in played year 1.
+    // What a team is shown (wip/cover-price-double): 2 x the table in pre-game year 0 and in played year 1.
     for (const y of [0, 1]) {
       const shown = optionPrice(l, id, 1, y), want = PAID.factorFor(y) * src;
       if (Math.abs(shown - want) > 0.005) out.push(`${l} ${id} year ${y} at growth 1: optionPrice $${shown.toFixed(2)}, ${PAID.factorFor(y)} x tCoverPrice = $${want.toFixed(2)}`);
@@ -503,10 +510,10 @@ control('R_MODEL.tShock\'s values swapped in (Highs to $15M / $12M / $25M)', () 
   return () => { LINES.forEach((l, i) => Object.assign(SHOCK_T_CLAIM_RANGE[l] as object, saved[i])); };
 }, sectionRanges);
 
-check(sectionOdds(), '2. the pricing odds: T_COVER_FREQUENCY 7.5 / 5.25 / 2.25%; every 2027 price, by the method recomputed here, the brief\'s table to $0.1K, tCoverPrice that table, optionPrice the table in pre-game year 0 and 2 x it in played year 1',
+check(sectionOdds(), '2. the pricing odds: T_COVER_FREQUENCY 7.5 / 5.25 / 2.25%; every 2027 price, by the method recomputed here, the brief\'s table to $0.1K, tCoverPrice that table, optionPrice 2 x it in pre-game year 0 and in played year 1',
   LINES.map(l => `${l} 9xs1 $${(tCoverPrice(l, '$9M xs $1M', 1) / 1000).toFixed(1)}K`).join(', '));
-control('COVER_PRICE_FACTOR at 1 (the table shown in a played year)', factorOne, () => sectionOdds());
-control('the factor applied in the pre-game too (the gate\'s expectation doubles year 0)', doubledPreGame, () => sectionOdds());
+control('COVER_PRICE_FACTOR at 1 (the table shown in every year)', factorOne, () => sectionOdds());
+control('the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change)', playedOnly, () => sectionOdds());
 control('the 30M multiplier at 1.3 (the price\'s 30M layers rescaled)', () => () => {},
   () => sectionOdds((l, id, g) => tCoverPrice(l, id, g) * (/\$(29M xs \$1M|28M xs \$2M)/.test(id) ? 1.3 / 1.25 : 1)));
 control('the gate\'s own 30M multiplier at 1.3 (the method moved, src not)', () => { MULT.m30 = 1.3; return () => { MULT.m30 = 1.25; }; }, () => sectionOdds());

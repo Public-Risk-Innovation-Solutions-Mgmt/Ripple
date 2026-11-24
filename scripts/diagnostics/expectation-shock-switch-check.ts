@@ -92,6 +92,12 @@
 // controls: COVER_PRICE_FACTOR.factor = 1 at runtime (restored after) must fail
 // 4b (the solo game replayed) and 6; the gate's own expectation doubling the
 // pre-game too must fail 6.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 6 wants each
+// offered option shown at 2 x the method in pre-game year 0 as in played year
+// 1. The control on the pre-game is turned round: the factor in played years
+// only — the pre-game at the table's price, as before — must fail 6. The factor
+// at 1 still must fail 4b and 6.)
 // ============================================================================
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { marketSeedOf } from '../../src/utils/bookUnits';
@@ -118,10 +124,10 @@ const check = (ok: boolean, label: string, detail = '') => {
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 const near = (a: number, b: number, rel = 1e-9) => Math.abs(a - b) <= rel * Math.max(1, Math.abs(a), Math.abs(b));
-// wip/cover-price-double: a played year's cover costs the method x 2.0; the prior
-// board's years the method. Written out, not read from COVER_PRICE_FACTOR.
+// wip/cover-price-double: a cover costs the method x 2.0 in every year, the prior
+// board's history included. Written out, not read from COVER_PRICE_FACTOR.
 const CP_FACTOR = 2.0;
-const PAID = { factorFor: (y: number) => (y >= 1 ? CP_FACTOR : 1) };
+const PAID = { factorFor: ((() => CP_FACTOR) as (y: number) => number) };
 const withFactorOne = <T>(run: () => T): T => {
   const was = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1;
   try { return run(); } finally { COVER_PRICE_FACTOR.factor = was; }
@@ -309,13 +315,13 @@ function gradeOffer(ids: typeof reinsuranceOptionIds, dflt: (shocks: boolean) =>
   const nine = 'none,$9M xs $1M,$19M xs $1M,$29M xs $1M,$39M xs $1M,$8M xs $2M,$18M xs $2M,$28M xs $2M,$38M xs $2M';
   // COVERS_IN_EVERY_GAME: the same nine with the shocks off, at the same prices (the method).
   // An id that is not a T cover (the retired stop's 'working') cannot be priced: not priced.
-  // wip/cover-price-double: shown at 2 x the method in a played year (1), the method in the pre-game (0).
+  // wip/cover-price-double: shown at 2 x the method in a played year (1) and in the pre-game (0) alike.
   const pricedAt = (l: 'WC' | 'GL' | 'Property', id: string, g: number, y: number) => { try { return near(optionPrice(l, id, g, y), PAID.factorFor(y) * methodPrice(l, id, g), 1e-12); } catch { return false; } };
   const priced = (['WC', 'GL', 'Property'] as const).every(l => ids(l, false).every(id => [1, 1.3].every(g => [1, 0].every(y => pricedAt(l, id, g, y)))));
   const ok = off.every(x => x === nine) && on.every(x => x === nine) && priced
     && dflt(false) === '$19M xs $1M' && dflt(true) === '$19M xs $1M'
     && (['WC', 'GL', 'Property'] as const).every(l => decOff.byLine[l].reinsuranceOption === dflt(false) && decOn.byLine[l].reinsuranceOption === dflt(true));
-  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered, at 2 x the method's prices in a played year (the method in the pre-game); the prior board's $19M xs $1M the default either way`,
+  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered, at 2 x the method's prices in a played year and in the pre-game; the prior board's $19M xs $1M the default either way`,
     `off ${off[0]} / ${dflt(false)}; on ${on[0]} / ${dflt(true)}`);
 }
 gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), '');
@@ -422,8 +428,8 @@ controlFails('a T cover default with the shocks on', () => gradeOffer(reinsuranc
 controlFails('the retired stop\'s offer (the Working cover with the shocks off)', () => gradeOffer((l, sh) => (sh ? reinsuranceOptionIds(l, true) : ['none', 'working']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
 controlFails('COVER_PRICE_FACTOR at 1 (the offered options shown at the method)',
   () => withFactorOne(() => gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), '')), '6.');
-controlFails('the factor applied in the pre-game too (the gate\'s expectation doubles year 0)', () => {
-  const o = PAID.factorFor; PAID.factorFor = () => CP_FACTOR;
+controlFails('the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change)', () => {
+  const o = PAID.factorFor; PAID.factorFor = (y: number) => (y >= 1 ? CP_FACTOR : 1);
   try { gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), ''); } finally { PAID.factorFor = o; }
 }, '6.');
 controlFails('a solo prior board on a T cover', () => gradeBoard(['$8M xs $2M'], roomBoard, ''), '7.');

@@ -1395,7 +1395,33 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and its raw text. The 24 statement workbooks are byte-identical. Every arm
 // sets every decision every year (defaultDecisionSet), so the reset moves no
 // figure here.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v149.json');
+// v150: COVER COSTS TWICE ITS TABLE PRICE IN EVERY YEAR, THE PRIOR BOARD'S
+// HISTORY INCLUDED (wip/cover-price-double; COVER_PRICE_FACTOR x2.0; save key
+// v64 -> v65), on aws cb0ac7e, which reproduces v149 here 48 of 48. All 48 move.
+// Attributed exactly, text-diffed (GUARD_TEXT_DIR on every side): with
+// COVER_PRICE_FACTOR.factor set to 1 at run time this branch's 48 files match the
+// control's but for the 24 Results files' Version row (48 rows, shown and raw,
+// riskpool_gamestate_v64 -> v65) — so every other move, 32,086 rows, is the price
+// of cover. Results (30,316): Reinsurance Cost each year exactly twice (first
+// file's GL 2026 $975,522 -> $1,951,044), the Gross Premium & Admin Expense and
+// its rate per $100 it is added to (GL 2026 $5.41 -> $5.57), the expected and
+// actual loss, expense and combined ratios on that premium, Investment Income and
+// Return Rate, Net Income, cash, investments, assets, surplus and excess capital
+// (120 rows each, the rate 72, the return rate 60) — Beginning Surplus in 2026
+// too (GL $18,026,634 -> $18,002,808), the prior board's history having paid the
+// doubled price; on the Year Walkthrough sheet the steps Pricing (3,480 of 47,040),
+// Premium billed (5,880), Reinsurance (2,040, its price line), Investment income
+// (3,000), Dividends and assessments (2,040), Surplus (7,384), Capital (2,760) and
+// the Year code (600) that hashes them. Statements (1,770): Written Premium (196),
+// with the prior years' column's reinsurance exactly twice (first file's $2,763K
+// -> $5,526K), Current Rate and its change (72 each), the loss, combined and
+// operating ratios, investment and operating income, assets, net worth, paid-in
+// and earned surplus, premium and reserve to surplus, and the index's rate
+// labels (GL $7.45 -> $7.65). NO LOSS, RESERVE, RECOVERY, DEVELOPMENT, LAE,
+// EXPOSURE, MEMBER OR DECISION ROW MOVES (Losses, Reserves by accident year,
+// Development on older years, Draws, Book movement and Decisions on the
+// walkthrough: 0 of each). No file or row added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v150.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -384,12 +384,12 @@ restores the year's draft, not last year's). A hosted team that does not lock a 
 2). The Annual Statement's Decisions section records what was actually played each year.
 
 **Cover costs twice its table price** (`COVER_PRICE_FACTOR`, ×2.0, in the parameters file) — the per-claim layers
-and the aggregate covers alike, in every scenario and mode, from year 1. The prior board's history keeps the table's
-prices, so every opening position is unchanged; recoveries, attachments and limits are unchanged too. The prices on
-the Decisions page, the Rate Indication and the statements are the doubled ones, which the engine charges. Why:
-with GL and Property large claims, cover was too clear a choice at the table's price; doubling makes it cost more in
-quiet years. A team keeping the prior board's covers therefore pays about twice the history's reinsurance in 2027,
-which shows as a rise in its 2027 rate.
+and the aggregate covers alike, in every scenario and mode, and in every year: the prior board's pre-game history pays
+the doubled price too, so each scenario's opening surplus and premium-to-surplus reflect it (the scenario seeds are
+unchanged; the opening bars were restated to what they now achieve). Recoveries, attachments and limits are unchanged.
+The prices on the Decisions page, the Rate Indication and the statements are the doubled ones, which the engine
+charges. Why: with GL and Property large claims, cover was too clear a choice at the table's price; doubling makes it
+cost more in quiet years.
 
 **Where the rest comes in:**
 

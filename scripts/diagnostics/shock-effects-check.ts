@@ -57,6 +57,13 @@
 // New controls: COVER_PRICE_FACTOR.factor = 1 at runtime (restored after) must
 // fail 4a, 4b (its games replayed) and 4c; the gate's own expectation doubling
 // the pre-game too must fail 4a and 4c.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 4a wants
+// optionPrice at growth 1 = 2 x BRIEF_PRICE in pre-game year 0 as in played
+// year 1, and 4c's rate panel wants reinsurance = 2 x the method at the 2027
+// table in pre-game year 0. The control on the pre-game is turned round: the
+// factor in played years only — the pre-game at the table's price, as before —
+// must fail 4a and 4c. The factor at 1 still must fail 4a, 4b and 4c.)
 // ============================================================================
 
 import {
@@ -149,11 +156,12 @@ const TOP = BRIEF_COVERS.findIndex(c => c[0] === '$38M xs $2M');
 const BRIEF_INVEST = { cash: 0, bonds: -0.05, equities: -0.20 };
 
 const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
-// wip/cover-price-double: a played year's cover costs the method x 2.0; the prior
-// board's years the method. Written out, not read from COVER_PRICE_FACTOR.
+// wip/cover-price-double: a cover costs the method x 2.0 in every year, the prior
+// board's history included. Written out, not read from COVER_PRICE_FACTOR.
 const CP_FACTOR = 2.0;
-const PAID = { factorFor: (y: number) => (y >= 1 ? CP_FACTOR : 1) };
-const doubledPreGame = () => { const o = PAID.factorFor; PAID.factorFor = () => CP_FACTOR; return () => { PAID.factorFor = o; }; };
+const PAID = { factorFor: ((() => CP_FACTOR) as (y: number) => number) };
+/** The control's broken expectation: the old rule — the factor in played years only, the pre-game at the table's price. */
+const playedOnly = () => { const o = PAID.factorFor; PAID.factorFor = (y: number) => (y >= 1 ? CP_FACTOR : 1); return () => { PAID.factorFor = o; }; };
 const factorOne = () => { const o = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1; return () => { COVER_PRICE_FACTOR.factor = o; }; };
 const instanceWith = (id: string, schedule: ScheduledShock[]) => generateGameInstance(id, seedFromInstanceId(id), schedule);
 
@@ -270,7 +278,7 @@ function sectionCoverTerms(): string[] {
     }
     const offeredOff = reinsuranceOptionIds(l, false);
     BRIEF_COVERS.forEach(([id, att, lim], k) => {
-      // Shown in played year 1 at 2 x the method; in pre-game year 0 at the method.
+      // Shown at 2 x the method in played year 1 and in pre-game year 0 alike.
       for (const y of [1, 0]) {
         const want = PAID.factorFor(y) * BRIEF_PRICE[l][k];
         if (!near(optionPrice(l, id, 1, y), want, 1e-12)) out.push(`${l} ${id} year ${y}: price ${optionPrice(l, id, 1, y)}, ${PAID.factorFor(y)} x the method = ${want}`);
@@ -377,7 +385,7 @@ function sectionCoverInGame(): string[] {
 // fifth row until wip/pricing-rework retired it.)
 function sectionRatePanel(): string[] {
   const out: string[] = [];
-  // Played year 3, and pre-game year 0 (wip/cover-price-double: the factor in played years only).
+  // Played year 3, and pre-game year 0 (wip/cover-price-double: the factor in every year).
   for (const l of LINES) for (const clf of [1, 1.35]) for (const year of [3, 0]) {
     const exposure = 2000;
     const q = (opt: string) => quoteNewRateStack({
@@ -393,7 +401,7 @@ function sectionRatePanel(): string[] {
       if (!near(c.adminRatePer100, none.adminRatePer100, 1e-12)) out.push(`${l} ${id}: the cover moved admin`);
       // Year 3 with no year-1 base on the book: the method on claims grown by the trend for two years,
       // x 2 (a played year); year 0: the method at the 2027 table (the cover's trend
-      // starts at year 1; the prior board is priced on the table), x 1 (the pre-game).
+      // starts at year 1; the prior board is priced on the table), x 2 too (the pre-game).
       const want = PAID.factorFor(year) * briefPriceAt(l, k, Math.pow(1 + BRIEF_TREND[l], Math.max(0, year - 1)));
       if (!near(c.reinsuranceCost, want, 1e-9)) out.push(`${l} ${id} CLF ${clf} year ${year}: reinsurance ${c.reinsuranceCost}, price ${want}`);
       const sum = rows.reduce((x, y) => x + y, 0);
@@ -581,20 +589,20 @@ control('a map row changed', () => {
   const map = GAME_SHOCK_MAP as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
-check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off, $19M xs $1M the default), shown at 2 x the method in a played year and the method in the pre-game, ceding min(max(x - att, 0), limit)');
+check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off, $19M xs $1M the default), shown at 2 x the method in a played year and in the pre-game, ceding min(max(x - att, 0), limit)');
 control('COVERS_IN_EVERY_GAME switched off (None alone with shocks off)', () => { COVERS_IN_EVERY_GAME.enabled = false; return () => { COVERS_IN_EVERY_GAME.enabled = true; }; }, sectionCoverTerms);
 control('None put back as GL\'s default (the board before pr/pregame-65)', () => { const d = REINSURANCE_DEFAULT_OPTION as Record<string, string>; const o = d.GL; d.GL = 'none'; return () => { d.GL = o; }; }, sectionCoverTerms);
-control('COVER_PRICE_FACTOR at 1 (the method shown in a played year)', factorOne, sectionCoverTerms);
-control('the factor applied in the pre-game too (the gate\'s expectation doubles year 0)', doubledPreGame, sectionCoverTerms);
+control('COVER_PRICE_FACTOR at 1 (the method shown in every year)', factorOne, sectionCoverTerms);
+control('the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change)', playedOnly, sectionCoverTerms);
 control('a frequency changed', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06; return () => { f.Mid = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
 check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');
 control('COVER_PRICE_FACTOR at 1, the games replayed (the method charged)', factorOne, sectionCoverInGame);
 control('the trend changed', () => { const t = SHOCK_COST_TREND as Record<string, number>; const o = t.Property; t.Property = 0.07; return () => { t.Property = o; }; }, sectionCoverInGame);
 control('the $2M layer moved', () => { const L = REINSURANCE_TOWER.Property[1]; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = 2e6; L.limit = 8e6; }; }, sectionCoverInGame);
-check(sectionRatePanel(), '4c. rate panel: pure premium = expected x CLF whatever the cover, reinsurance = the price (2 x the method in year 3, the method in pre-game year 0), rows add to the rate');
+check(sectionRatePanel(), '4c. rate panel: pure premium = expected x CLF whatever the cover, reinsurance = the price (2 x the method in year 3, and at the 2027 table in pre-game year 0), rows add to the rate');
 control('COVER_PRICE_FACTOR at 1, on the panel', factorOne, sectionRatePanel);
-control('the factor applied in the pre-game too (the gate\'s expectation doubles year 0), on the panel', doubledPreGame, sectionRatePanel);
+control('the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change), on the panel', playedOnly, sectionRatePanel);
 control('a frequency changed, on the panel', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Low; f.Low = 0.08; return () => { f.Low = o; }; }, sectionRatePanel);
 check(sectionInvestCalc(), '5a. Investment Loss: cash 0, bonds -5, equities -20, through the blend');
 control('cash hit', () => { const o = INVESTMENT_LOSS_BY_ASSET.cash; (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = -0.02; return () => { (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = o; }; }, sectionInvestCalc);

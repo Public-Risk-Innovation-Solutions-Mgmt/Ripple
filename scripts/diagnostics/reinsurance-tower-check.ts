@@ -31,6 +31,11 @@
 // The additive-rule control still compares against the base table. New
 // controls: COVER_PRICE_FACTOR.factor = 1 at runtime (restored after) must
 // fail 3; the gate's own expectation doubling year 0 too must fail 3.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 3 wants 2 x the
+// option's price in pre-game year 0 as in years 1 and 5. The control on the
+// pre-game is turned round: the factor in played years only — the pre-game at
+// the table's price, as before — must fail 3. The factor at 1 still must fail 3.)
 //
 // ⚠ RESTATED FOR pr/pregame-65. The play defaults now carry the prior board's
 // covers — $19M xs $1M per claim and the 125/50 aggregate cover on attritional
@@ -154,10 +159,10 @@ const towerCutAsBriefed = () => LINES.every(l => cutAt(l).join('|') === CUT.join
   && REINSURANCE_TOWER[l as 'WC'].every((x, i) => x.attachment + x.limit === CUT[i + 1]));
 // An option's charge is ITS price (tCoverPrice at the year's growth factor), > 0.
 const chargedAsOption = (premium: number, price: number) => price > 0 && Math.abs(premium - price) <= 1e-9 * price;
-// wip/cover-price-double: a played year's charge is the option price x 2.0; the
-// prior board's years the option price. Written out, not read from COVER_PRICE_FACTOR.
+// wip/cover-price-double: a charge is the option price x 2.0 in every year, the
+// prior board's history included. Written out, not read from COVER_PRICE_FACTOR.
 const CP_FACTOR = 2.0;
-const paidFactor = (y: number) => (y >= 1 ? CP_FACTOR : 1);
+const paidFactor: (y: number) => number = () => CP_FACTOR;
 /** 39 xs 1 and 38 xs 2 on every line, in pre-game year 0 and played years 1 and 5: placed on the top layer and charged `paid(y)` x the option's price. */
 function topLayerCharged(paid: (y: number) => number = paidFactor): { ok: boolean; shown: string[] } {
   const top = (l: CoverageLine) => REINSURANCE_TOWER[l as 'WC'].length - 1;
@@ -233,7 +238,7 @@ const multsOf = (line: 'WC' | 'GL') => REINSURANCE_TOWER[line].map((_l, i) => 1 
   // The top layer charged when placed — through the real options that place it.
   const top = (l: CoverageLine) => REINSURANCE_TOWER[l as 'WC'].length - 1;
   const { ok: topOk, shown } = topLayerCharged();
-  check(topOk, '3. the top layer is charged when placed: 39 xs 1 and 38 xs 2, every line, at exactly 2 x the option\'s price in years 1 and 5, and the option\'s price in pre-game year 0',
+  check(topOk, '3. the top layer is charged when placed: 39 xs 1 and 38 xs 2, every line, at exactly 2 x the option\'s price in years 1 and 5 and in pre-game year 0',
     `GL $38M xs $2M ${shown.join(', ')}`);
   const loneTop = REINSURANCE_TOWER.GL.map((_l, i) => i === top('GL'));
   check(refused(() => occurrenceProgramCost('GL', loneTop, book(290), REF_YEAR)),
@@ -362,9 +367,9 @@ check(!unplacedLayerSilent(byLayerOf(lows, 'GL'), 0) || !unplacedLayerSilent(byL
   const was = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1;
   let r: ReturnType<typeof topLayerCharged>;
   try { r = topLayerCharged(); } finally { COVER_PRICE_FACTOR.factor = was; }
-  check(!r.ok, 'control: COVER_PRICE_FACTOR at 1 at runtime (the option price charged in played years) is caught by 3', r.shown.join(', '));
+  check(!r.ok, 'control: COVER_PRICE_FACTOR at 1 at runtime (the option price charged in every year) is caught by 3', r.shown.join(', '));
 }
-check(!topLayerCharged(() => CP_FACTOR).ok, 'control: the factor applied in the pre-game too (the gate\'s expectation doubles year 0) is caught by 3');
+check(!topLayerCharged(y => (y >= 1 ? CP_FACTOR : 1)).ok, 'control: the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change) is caught by 3');
 check(!refused(() => 0),
   'control: a placement that is not an option PRICED instead of refused is caught by 3');
 check(worstCededGap(lows, 2e6, 38e6) >= 1, 'control: the $9M xs $1M games, read as if $38M xs $2M were bought, are caught by 6',

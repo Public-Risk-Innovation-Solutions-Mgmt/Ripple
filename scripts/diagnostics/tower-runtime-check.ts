@@ -91,6 +91,11 @@
 // beside 1/4/9/15. New controls: COVER_PRICE_FACTOR.factor = 1 at runtime
 // (restored after) must fail the seam; the gate's own expectation doubling the
 // pre-game too must fail it. 2-6 are unchanged.
+// (Restated 2026-11-24, wip/cover-price-double, pre-game too: the factor is now
+// 2 in every year, the prior board's history included, so 1's seam wants
+// x 2 in pre-game years -2 and 0 as in 1/4/9/15. The control on the pre-game is
+// turned round: the factor in played years only — the pre-game at the table's
+// price, as before — must fail the seam. The factor at 1 still must fail it.)
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — every assertion is a predicate, and THE
 // CONTROLS feed each one what it guards against.
@@ -159,10 +164,12 @@ const truePrice: Price = (line, optionId, exposure, year) =>
   occurrenceProgramCost(line, placementFor(line, optionId), { exposure, shockBase: MARKET[line] }, year).premium;
 // The growth factor the T claims use, on that book.
 const factorOf = (line: TowerLine, exposure: number, year: number) => shockCostFactor(line, year, exposure, MARKET[line]);
-// wip/cover-price-double: a played year's charge is the table x 2.0; the prior
-// board's years the table. Written out, not read from COVER_PRICE_FACTOR.
+// wip/cover-price-double: a charge is the table x 2.0 in every year, the prior
+// board's history included. Written out, not read from COVER_PRICE_FACTOR.
 const CP_FACTOR = 2.0;
-const paidFactor = (y: number) => (y >= 1 ? CP_FACTOR : 1);
+const paidFactor: (y: number) => number = () => CP_FACTOR;
+/** The control's broken expectation: the old rule — the factor in played years only, the pre-game at the table's price. */
+const playedOnlyFactor = (y: number) => (y >= 1 ? CP_FACTOR : 1);
 /** Worst relative gap, over every option, year (pre-game -2 and 0, played 1/4/9/15) and two book sizes, between `price` and tCoverPrice at the factor x the cover price factor. */
 function seamOfPrice(price: Price, factor: typeof factorOf = factorOf, paid: (y: number) => number = paidFactor): number {
   let worst = 0;
@@ -241,7 +248,7 @@ console.log('\n--- 1. PURITY: the memo key\'s successor ---');
   check(p.yearsDistinct, '1. every year gives a distinct price on every option');
   check(p.sizesDistinct, '1. a larger book gives a different price (the exposure reaches it)');
   const seam = seamOfPrice(truePrice);
-  check(seam < 1e-12, '1. the charge IS the option\'s price (tCoverPrice) at the T claims\' growth factor, x 2 in played years 1/4/9/15 and x 1 in pre-game years -2/0, every option, two book sizes',
+  check(seam < 1e-12, '1. the charge IS the option\'s price (tCoverPrice) at the T claims\' growth factor, x 2 in played years 1/4/9/15 and in pre-game years -2/0, every option, two book sizes',
     `worst relative ${seam.toExponential(2)}`);
 }
 
@@ -358,9 +365,9 @@ console.log('\nCONTROLS — each must be caught');
     const was = COVER_PRICE_FACTOR.factor; COVER_PRICE_FACTOR.factor = 1;
     let seam1: number;
     try { seam1 = seamOfPrice(truePrice); } finally { COVER_PRICE_FACTOR.factor = was; }
-    check(seam1 > 1e-12, 'control: COVER_PRICE_FACTOR at 1 at runtime (the table charged in played years) is caught by 1', `worst relative ${seam1.toExponential(2)}`);
+    check(seam1 > 1e-12, 'control: COVER_PRICE_FACTOR at 1 at runtime (the table charged in every year) is caught by 1', `worst relative ${seam1.toExponential(2)}`);
   }
-  check(seamOfPrice(truePrice, factorOf, () => CP_FACTOR) > 1e-12, 'control: the factor applied in the pre-game too (the gate\'s expectation doubles years -2 and 0) is caught by 1');
+  check(seamOfPrice(truePrice, factorOf, playedOnlyFactor) > 1e-12, 'control: the factor in played years only — the pre-game at the table\'s price, as before (wip/cover-price-double before the pre-game change) is caught by 1');
   check(seamGap(1, 1) > 0, 'control: a tower\'s moments read a year late are caught by 2');
   const diversifying = SIZES.map(f => 4 / Math.sqrt(f));
   const fl = floorHolds(diversifying);
