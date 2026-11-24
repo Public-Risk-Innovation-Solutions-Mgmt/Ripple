@@ -30,16 +30,22 @@
 //    full — the cheapest, a middle one and the one that lost its book — and two
 //    in the market-Off room: the arithmetic is the same for every team.)
 //
+// INTAKE AT AVERAGE QUALITY (pr/market-new-intake): in the recompute, the
+// members a New team takes in — leavers and outside members — count at 1.00,
+// while the leavers leave their team at their drawn quality; every stored New
+// intake must read 1.00 and losing teams must still lose better members.
+//
 // CONTROLS, each of which must fail: a recompute on Current's values; on
 // Current's buckets alone; on Current's cap alone; on Current's fade alone; a
 // parameters table with one k changed; the fixed admin recomputed with no trend,
-// with this year's admin as the base, and with no fixed part.
+// with this year's admin as the base, and with no fixed part; a recompute with
+// inherited quality back; a stored New result with leavers taken in at 0.85.
 // ============================================================================
 
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_NEW,
-  MARKET_NEW_FIXED_ADMIN, MARKET_OUTSIDE_SUPPLY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, MARKET_VERSION_DEFAULT,
+  MARKET_NEW_FIXED_ADMIN, MARKET_NEW_INTAKE_QUALITY, MARKET_OUTSIDE_SUPPLY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, MARKET_VERSION_DEFAULT,
   type MarketLevel,
 } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
@@ -81,6 +87,8 @@ const BRIEF = {
   high: { k: { WC: 3.600, GL: 3.708, Property: 3.702 }, mean: 0.55, cap: 0.30, fade: 0.20, power: 2.25 },
 } as const;
 const BRIEF_FIXED = { share: 0.50, trend: 0.03 };
+/** pr/market-new-intake: in New, the members a team takes in arrive at average quality (1.00). */
+const BRIEF_INTAKE = 'average';
 
 // ============================================================================
 // THE SECOND IMPLEMENTATION — from the brief, not from marketStep.ts.
@@ -136,13 +144,14 @@ const taperWeight = (rate: number, avgRate: number) => {
 };
 
 /** What the recompute plays on: the brief's New values, or (controls) one of Current's swapped in. */
-interface P { k: Record<CoverageLine, number>; mean: number; cap: number; fade: number; risks: number[] }
-const briefP = (level: Level): P => ({ k: { ...BRIEF[level].k }, mean: BRIEF[level].mean, cap: BRIEF[level].cap, fade: BRIEF[level].fade, risks: widened(BRIEF[level].power) });
+// inherit: the members a team takes in carry the quality they were drawn at (Current); false: 1.00 (New, the brief).
+interface P { k: Record<CoverageLine, number>; mean: number; cap: number; fade: number; risks: number[]; inherit: boolean }
+const briefP = (level: Level): P => ({ k: { ...BRIEF[level].k }, mean: BRIEF[level].mean, cap: BRIEF[level].cap, fade: BRIEF[level].fade, risks: widened(BRIEF[level].power), inherit: BRIEF_INTAKE !== 'average' });
 const CURRENT_BRIEF = { k: { WC: 0.600, GL: 0.618, Property: 0.617 }, mean: { low: 0.90, medium: 0.80, high: 0.70 }, cap: 0.15, fade: 0.50 };
 const currentP = (level: Level): P => {
   const m = level === 'low' ? 0.5 : level === 'high' ? 2 : 1;
   return { k: { WC: CURRENT_BRIEF.k.WC * m, GL: CURRENT_BRIEF.k.GL * m, Property: CURRENT_BRIEF.k.Property * m },
-    mean: CURRENT_BRIEF.mean[level], cap: CURRENT_BRIEF.cap, fade: CURRENT_BRIEF.fade, risks: widened(1) };
+    mean: CURRENT_BRIEF.mean[level], cap: CURRENT_BRIEF.cap, fade: CURRENT_BRIEF.fade, risks: widened(1), inherit: true };
 };
 
 interface LineIn { rate: number; book: number; bookRisk: number; newMembers: number; nonRenewal: number }
@@ -191,7 +200,7 @@ function recomputeLine(p: P, seed: string, year: number, line: CoverageLine, tea
     for (const j of cheapestFirst) for (const m of asking[j].sort((a, b) => a.risk - b.risk)) moved = take(j, m) || moved;
     if (!moved) break;
   }
-  for (const m of leavers) if (m.to >= 0) { out[m.from] += m.e; outRisk[m.from] += m.e * m.risk; good[m.to] += m.e; goodRisk[m.to] += m.e * m.risk; }
+  for (const m of leavers) if (m.to >= 0) { out[m.from] += m.e; outRisk[m.from] += m.e * m.risk; good[m.to] += m.e; goodRisk[m.to] += m.e * (p.inherit ? m.risk : 1); }
   const roomBook = book.reduce((a, b) => a + b, 0);
   const avgRate = rate.reduce((a, b) => a + b, 0) / N;
   const supply = 0.02 * roomBook + Math.max(0, untakenLast);
@@ -214,7 +223,7 @@ function recomputeLine(p: P, seed: string, year: number, line: CoverageLine, tea
       for (const j of over) filled.add(j);
     }
     for (const j of filled) intake[j] = room[j];
-    for (let j = 0; j < N; j++) { outside[j] += intake[j]; outsideRisk[j] += intake[j] * mix; room[j] -= intake[j]; }
+    for (let j = 0; j < N; j++) { outside[j] += intake[j]; outsideRisk[j] += intake[j] * (p.inherit ? mix : 1); room[j] -= intake[j]; }
   }
   const dropped = z();
   let untaken = 0;
@@ -256,6 +265,20 @@ function recomputeYear(p: P, code: string, seed: string, s: StoredMarketYear, pr
   return { result, untaken };
 }
 
+/** New rooms: every team's intake — leavers and outside members — at 1.00; how many losing team-line-years lost better members. */
+function intakeProblems(years: Record<string, StoredMarketYear>) {
+  const problems: string[] = [];
+  let intakes = 0, betterLeft = 0;
+  for (const [y, s] of Object.entries(years)) for (const [n, r] of Object.entries(s.result)) for (const l of LINES) {
+    const x = r[l];
+    if (!x) continue;
+    if (x.qualityGood !== null) { intakes++; if (Math.abs(x.qualityGood - 1) > 1e-12) problems.push(`y${y} ${n} ${l}: leavers taken in at ${x.qualityGood}`); }
+    if (x.qualityOutside !== null) { intakes++; if (Math.abs(x.qualityOutside - 1) > 1e-12) problems.push(`y${y} ${n} ${l}: outside members at ${x.qualityOutside}`); }
+    if (x.qualityLeft !== null && x.qualityLeft < 1 - 1e-9) betterLeft++;
+  }
+  return { problems, intakes, betterLeft };
+}
+
 function differences(a: StoredMarketYear['result'], b: StoredMarketYear['result'], ua?: Partial<Record<CoverageLine, number>>, ub?: Partial<Record<CoverageLine, number>>): string[] {
   const out: string[] = [];
   const same = (x: unknown, y: unknown) => (x === null || y === null || x === undefined || y === undefined)
@@ -291,6 +314,8 @@ async function main() {
   ok(MARKET_NEW_FIXED_ADMIN.share === BRIEF_FIXED.share && MARKET_NEW_FIXED_ADMIN.trend === BRIEF_FIXED.trend,
     'the fixed admin is 50% of the year-1 admin dollars, growing 3% a year');
   ok(MARKET_VERSION_DEFAULT === 'current', 'the default version is Current');
+  ok(MARKET_NEW_INTAKE_QUALITY === BRIEF_INTAKE && LEVELS.every(l => marketParams(l, 'new').intakeAtAverage && !marketParams(l, 'current').intakeAtAverage),
+    'New takes members in at average quality (1.00) at every level; Current keeps inherited quality');
   ok(LEVELS.every(l => Math.abs(BRIEF[l].mean - (1 - BRIEF[l].power * 0.20)) < 1e-12),
     'the average leaver at a 10%+ gap is 1 − power × 0.20 at every level (the measured widening)');
   ok(LINES.every(line => MARKET_K.medium[line] === CURRENT_BRIEF.k[line]) && MARKET_LEAVER_CAP === 0.15 && MARKET_BOOK_RISK_FADE === 0.50
@@ -387,6 +412,23 @@ async function main() {
     ok(diffs.length === 0, `${level}: every stored result, four years × three lines × six teams, matches the recompute on the brief's New values`, diffs.slice(0, 5).join('; '));
     ok(capHit > 0 && moved > 0, `${level}: members moved (${moved} team-years lost members); Elm, 40%+ dearer, sat at the ${BRIEF[level].cap * 100}% cap in ${capHit} year(s)`);
     ok(years['3']?.inputs.Dogwood?.stale === true && years['1']?.missing.includes('Fir'), `${level}: a stale team counts at its last lock; a team that never locked is left out`);
+    const q = intakeProblems(years);
+    ok(q.intakes > 0 && q.problems.length === 0 && q.betterLeft > 0,
+      `${level}: every intake (${q.intakes} team-line-years, leavers and outside members) arrives at 1.00, while ${q.betterLeft} losing team-line-years `
+      + 'lost better-than-their-book members (quality left below 1)', q.problems.slice(0, 3).join('; '));
+  }
+  {
+    // CONTROL: inherited quality back — the recompute with leavers taken in at their drawn quality, and the outside at the draw's mix.
+    let inherited = 0;
+    for (const level of LEVELS) for (let y = 1; y <= 4; y++) {
+      const { code, seed, years } = rooms[level];
+      inherited += differences(years[String(y)].result, recomputeYear({ ...briefP(level), inherit: true }, code, seed, years[String(y)], years[String(y - 1)]).result).length;
+    }
+    control('a recompute with inherited quality back (leavers taken in at their drawn quality) disagrees with the New room', inherited);
+    const planted: Record<string, StoredMarketYear> = JSON.parse(JSON.stringify(rooms.medium.years));
+    const hit = Object.values(planted).flatMap(s => Object.values(s.result).flatMap(r => LINES.map(l => r[l]).filter(x => x && x.inGood > 0)))[0] as { qualityGood: number } | undefined;
+    if (hit) hit.qualityGood = 0.85;
+    control('a stored New result with a team taking leavers in at 0.85 is refused', hit ? intakeProblems(planted).problems.length : 0);
   }
 
   // ---- controls on the recompute: Current's values, all at once and one at a time ----
