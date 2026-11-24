@@ -316,7 +316,8 @@ async function main() {
   const { marketByYearForEngine } = await import('../../src/session/market');
   const { buildTeamGame, replayTeamYears } = await import('../../src/session/client/buildGame');
   const { marketLockInputFor } = await import('../../src/session/client/marketLock');
-  const { decisionsForYear, decisionsToJson } = await import('../../src/session/client/decisions');
+  const { decisionsToJson } = await import('../../src/session/client/decisions');
+  const { defaultDecisionSet } = await import('../../src/utils/decisionDefaults');
   const { MARKET_BUCKETS, leaverMix, marketParams, widenedBuckets } = await import('../../src/utils/market/marketStep');
 
   // ==========================================================================
@@ -370,9 +371,9 @@ async function main() {
     { name: 'Alder', f: 0.92, nm: 0.10, nr: 0.00 },
     { name: 'Birch', f: 0.97, nm: 0.08, nr: 0.03 },
     { name: 'Cedar', f: 1.00, nm: 0.06, nr: 0.05 },
-    { name: 'Dogwood', f: 1.06, nm: 0.04, nr: 0.02 },   // skips year 3
+    { name: 'Dogwood', f: 1.06, nm: 0.04, nr: 0.02 },   // skips year 3: counts at its round-start input (the reset)
     { name: 'Elm', f: 1.40, nm: 0.00, nr: 0.10 },       // far dearer: at the leaver cap
-    { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00 },       // never locks
+    { name: 'Fir', f: 1.00, nm: 0.05, nr: 0.00 },       // never locks and never posts: left out
     { name: 'Gum', f: 0.99, nm: 0.07, nr: 0.01 },
   ];
   type Played = { code: string; seed: string; room: Awaited<ReturnType<typeof t.read>>['room']; years: Record<string, StoredMarketYear>;
@@ -397,25 +398,35 @@ async function main() {
     // book its last stored result left it (after the engine's drop) — what its game would post. Section 3 plays
     // real games on the stored results.
     const room0 = (await t.read({ code: made.code, token: host })).room;
-    const base = level !== 'off' ? marketLockInputFor(buildTeamGame(room0, LINES).gameState, decisionsForYear(1, undefined, false), 1)! : null;
+    const base = level !== 'off' ? marketLockInputFor(buildTeamGame(room0, LINES).gameState, defaultDecisionSet(1, false), 1)! : null;
+    // A team's posted input for `year`: the opening rate × its factor, the book its last stored result left it.
+    const inputFor = (p: typeof plan[number], me: Awaited<ReturnType<typeof t.read>>, year: number, nm: (j: number) => number, nr: number): MarketLockInput => {
+      const last = Object.keys(me.you?.marketByYear ?? {}).map(Number).sort((a, b) => b - a)[0];
+      const m: MarketLockInput = { byLine: {} };
+      for (const [j, line] of LINES.entries()) {
+        const r = last !== undefined ? me.you!.marketByYear![String(last)][line] : undefined;
+        m.byLine[line] = { rate: base!.byLine[line]!.rate * (1 + (p.f - 1) * (1 + 0.1 * year)),
+          book: r ? r.bookAfter * (1 - r.engineNonRenewal) : base!.byLine[line]!.book, newMembers: nm(j), nonRenewal: nr };
+      }
+      return m;
+    };
+    const figs = { endingSurplus: 1, actualLossRatioPricingBasis: 0.8, poolPremium: 1, activeExposure: 1, selectedFundingConfidenceLevel: 0.6, netUltimateLoss: 1 };
+    const summary = (y: number) => ({ yearNumber: y, calendarYear: 2026 + y, pool: figs, byLine: Object.fromEntries(LINES.map(l => [l, figs])) }) as never;
     for (let year = 1; year <= 4; year++) {
+      // THE DECISION RESET: each team's client posts the year before's result with the
+      // round's start — its input at the reset (0% New Members and Non-Renewal). Fir posts nothing.
+      if (base) for (let i = 0; i < plan.length; i++) {
+        if (plan[i].name === 'Fir') continue;
+        const me = await t.read({ code: made.code, token: joined[i].teamToken });
+        await t.submit({ code: made.code, token: joined[i].teamToken, yearNumber: year - 1, result: summary(year - 1), market: inputFor(plan[i], me, year, () => 0, 0) });
+      }
       for (let i = 0; i < plan.length; i++) {
         const p = plan[i];
         if (p.name === 'Fir' || (p.name === 'Dogwood' && year === 3)) continue;
         const me = await t.read({ code: made.code, token: joined[i].teamToken });
-        const d = decisionsForYear(year, undefined, false);
+        const d = defaultDecisionSet(year, false);
         for (const [j, line] of LINES.entries()) d.byLine[line] = { ...d.byLine[line], newMembers: Math.max(0, p.nm - 0.01 * j), nonRenewal: p.nr };
-        let m: MarketLockInput | null = null;
-        if (base) {
-          const last = Object.keys(me.you?.marketByYear ?? {}).map(Number).sort((a, b) => b - a)[0];
-          m = { byLine: {} };
-          for (const line of LINES) {
-            const r = last !== undefined ? me.you!.marketByYear![String(last)][line] : undefined;
-            m.byLine[line] = { rate: base.byLine[line]!.rate * (1 + (p.f - 1) * (1 + 0.1 * year)),
-              book: r ? r.bookAfter * (1 - r.engineNonRenewal) : base.byLine[line]!.book,
-              newMembers: d.byLine[line].newMembers ?? 0, nonRenewal: d.byLine[line].nonRenewal ?? 0 };
-          }
-        }
+        const m: MarketLockInput | null = base ? inputFor(p, me, year, j => d.byLine[LINES[j]].newMembers ?? 0, p.nr) : null;
         await t.submit({ code: made.code, token: joined[i].teamToken, yearNumber: year, decisions: decisionsToJson(d), ...(m ? { market: m } : {}) });
         (decisions[p.name] ??= {})[String(year)] = decisionsToJson(d);
       }
@@ -443,7 +454,9 @@ async function main() {
       `${level}: the room reads New on the rescaled levels (scale 2), and every stored year carries version 'new' and scale 2`);
     ok(diffs.length === 0, `${level}: every stored result, four years × three lines × six teams, matches the recompute on the brief's New values`, diffs.slice(0, 5).join('; '));
     ok(capHit > 0 && moved > 0, `${level}: members moved (${moved} team-years lost members); Elm, 40%+ dearer, sat at the ${BRIEF[level].cap * 100}% cap in ${capHit} year(s)`);
-    ok(years['3']?.inputs.Dogwood?.stale === true && years['1']?.missing.includes('Fir'), `${level}: a stale team counts at its last lock; a team that never locked is left out`);
+    ok(years['3']?.inputs.Dogwood?.reset === true && years['3']?.inputs.Dogwood?.stale === false
+      && years['3']?.inputs.Dogwood?.byLine.WC?.newMembers === 0 && years['1']?.missing.includes('Fir'),
+      `${level}: a team that skips a year counts at its round-start input — the reset, 0% New Members — not its last lock; a team that never locked or posted is left out`);
     const q = intakeProblems(years);
     ok(q.intakes > 0 && q.problems.length === 0 && q.betterLeft > 0,
       `${level}: every intake (${q.intakes} team-line-years, leavers and outside members) arrives at 0.95, while ${q.betterLeft} losing team-line-years `

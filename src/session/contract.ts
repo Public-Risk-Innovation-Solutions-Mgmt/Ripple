@@ -24,6 +24,12 @@
 // old handler reads no number and shows "Team undefined" on every host screen.
 // Handler first, as above.
 //
+// THE DECISION RESET (RoomView.decisionReset) GOES THE OTHER WAY: front end
+// first, or both together. An old handler stamps no flag, so a new front end
+// keeps the old carry-forward rule in its rooms; an old front end against a new
+// handler would carry a team's last lock in a room whose market step counts the
+// team at the reset. See docs/handoff/AWS_HANDLER_HANDOFF.md.
+//
 // NOTHING ON `multiplayer` IS DEPLOYED TODAY, so there is no live break to fix;
 // this is recorded for whoever first takes this branch to an environment.
 // See docs/handoff/AWS_HANDLER_HANDOFF.md, which carries the same warning.
@@ -1073,6 +1079,16 @@ export interface RoomView {
    */
   marketScale?: 2;
   /**
+   * THE DECISION RESET: true on every room created from the reset on — each
+   * round opens on the reset values, and a team that does not lock a year plays
+   * them (session/client/decisions.ts decisionsForYear; StoredMarketTeamInput
+   * .reset). ABSENT on every room created before it, which keeps carrying a
+   * team's last lock into a year it did not lock, so its replays and stored
+   * market years stay what they were. Stamped by the server at creation; never
+   * sent by a client.
+   */
+  decisionReset?: true;
+  /**
    * EVERY YEAR'S STORED MARKET STEP — HOST ONLY (the Teams columns, the Charts
    * line, the stale-rate flags): year (a string) -> the inputs used and every
    * team's result. A player or viewer reads only its own team's, on
@@ -1213,10 +1229,20 @@ export interface StoredMarketTeamInput {
   /** The year whose lock supplied the figures. */
   fromYear: number;
   /**
-   * ⚠ STALE: the team had not locked this year, so it counts at its last locked
-   * rate and decisions, on its book carried forward — flagged to the host.
+   * ⚠ STALE: the team had not locked this year and counted at its last locked
+   * rate and decisions, on its book carried forward. ROOMS BEFORE THE DECISION
+   * RESET ONLY: a team that does not lock now plays the reset (`reset` below),
+   * so a year stored from then on is never stale.
    */
   stale: boolean;
+  /**
+   * THE RESET: the team did not lock this year, so it played the round's
+   * starting values (decisionDefaults roundStartDecisions — the reset, every
+   * round) and counts at the rate they strike, from the round-start input its
+   * client posted with the year before's result (SubmitRequest.market).
+   * Absent on a year the team locked.
+   */
+  reset?: true;
   byLine: Partial<Record<CoverageLine, MarketLockLine>>;
 }
 
@@ -1556,9 +1582,18 @@ export interface SubmitRequest {
   decisions?: JsonValue;
   result?: TeamYearSummary;
   /**
-   * WITH A LOCK (`decisions`) IN A ROOM WITH THE MARKET ON: the year's rate,
-   * book and market decisions per line (MarketLockInput). Ignored without
-   * `decisions`, and in a room with the market off.
+   * IN A ROOM WITH THE MARKET ON (MarketLockInput: rate, book and market
+   * decisions per line). Ignored in a room with the market off.
+   *
+   * WITH A LOCK (`decisions`): the locked year's own.
+   *
+   * WITH A RESULT AND NO LOCK: THE NEXT ROUND'S START — the input at the round's
+   * starting values (decisionDefaults roundStartDecisions; the reset, every
+   * round) for year `yearNumber + 1`, struck on the team's game as it stands after
+   * `yearNumber`. Kept, and used by the market step if the team does not lock
+   * that year (StoredMarketTeamInput.reset); a lock replaces it. A team that
+   * neither locks nor ever posts one is left out of the year's market
+   * (`missing`); nothing carries from an earlier lock.
    */
   market?: MarketLockInput;
 }

@@ -365,6 +365,12 @@ interface TeamRecord {
    * Absent on a team that never locked with the market on.
    */
   marketInputByYear?: Record<string, MarketLockInput>;
+  /**
+   * THE DECISION RESET: each round's START input (contract SubmitRequest.market
+   * with a result), by the round's year — what the market step counts the team
+   * at if it does not lock that round. Absent before the team has posted one.
+   */
+  roundStartMarketByYear?: Record<string, MarketLockInput>;
 }
 
 interface ViewerRecord {
@@ -410,6 +416,8 @@ interface RoomRecord {
   marketVersion?: 'new';
   /** The New version's level table: only 2 is stored; absent (a room created before the rescale) reads 1. */
   marketScale?: 2;
+  /** The decision reset (RoomView.decisionReset): stamped at creation; absent on a room from before it. */
+  decisionReset?: true;
   /** Every year's market step, stored once by advance (StoredMarketYear). */
   marketByYear?: Record<string, StoredMarketYear>;
   createdAt: number;
@@ -609,6 +617,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     market: marketLevelOf(room.market),
     ...(marketVersionOf(room.marketVersion) === 'new' ? { marketVersion: 'new' as const } : {}),
     ...(marketScaleOf(room.marketScale) === 2 ? { marketScale: 2 as const } : {}),
+    ...(room.decisionReset ? { decisionReset: true as const } : {}),
     ...(role === 'host' && room.marketByYear ? { marketByYear: JSON.parse(JSON.stringify(room.marketByYear)) } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
@@ -709,6 +718,20 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
 // ---------------------------------------------------------------- market competition
 
 /** The team's latest locked market input at or before `year` (the market counts a team that did not lock at its last lock). */
+/**
+ * THE DECISION RESET (RoomView.decisionReset): the team's input for `year` — its
+ * lock's, or not locked, the round-start input its client posted (`reset`), or
+ * none (left out of the market, `missing`). Never an earlier lock.
+ */
+function marketInputForYear(t: TeamRecord, year: number): { year: number; input: MarketLockInput; reset?: boolean } | undefined {
+  const k = String(year);
+  const locked = t.lockedYears ? t.lockedYears[k] === true : t.decisionsByYear[k] !== undefined;
+  if (locked && t.marketInputByYear?.[k]) return { year, input: t.marketInputByYear[k] };
+  const start = t.roundStartMarketByYear?.[k];
+  return start ? { year, input: start, reset: true } : undefined;
+}
+
+/** A room from before the decision reset: the latest lock at or before the year (counted `stale` if earlier). */
 function latestMarketInput(t: TeamRecord, year: number): { year: number; input: MarketLockInput } | undefined {
   for (let y = year; y >= 1; y--) {
     const k = String(y);
@@ -900,6 +923,8 @@ export class LocalSessionTransport implements SessionTransport {
         ...(marketVersion === 'new' ? { marketVersion } : {}),
         // The New version's level table it was created on (pr/market-level-rescale); a room from before has none.
         ...(marketVersion === 'new' && MARKET_NEW_SCALE_CURRENT === 2 ? { marketScale: 2 as const } : {}),
+        // Every room from the decision reset on (RoomView.decisionReset).
+        decisionReset: true,
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
@@ -1332,6 +1357,16 @@ export class LocalSessionTransport implements SessionTransport {
         // reloaded tab does) replaces that year and leaves every other alone.
         team.resultsByYear[String(req.yearNumber)] = req.result;
         storeSharesIfComplete(room, req.yearNumber);
+        // THE NEXT ROUND'S START (SubmitRequest.market with a result, no lock), in
+        // a room with the reset and the market on: kept for the round it opens —
+        // only while that round is the room's current one — and used if the team
+        // does not lock it.
+        if (req.decisions === undefined && req.market !== undefined && room.decisionReset
+          && marketLevelOf(room.market) !== 'off' && req.yearNumber + 1 === room.currentYear) {
+          const start = validMarketLockInput(req.market, room.lines ?? LINE_ORDER);
+          if (!start) throw new SessionError('INVALID_REQUEST', 'A round-start market input needs its rates and book.');
+          team.roundStartMarketByYear = { ...(team.roundStartMarketByYear ?? {}), [String(room.currentYear)]: start };
+        }
       }
 
       saveRoom(room);
@@ -1587,10 +1622,12 @@ export class LocalSessionTransport implements SessionTransport {
         );
       }
 
-      // ⚠ A TEAM UNLOCKED AND NOT RE-LOCKED PLAYS ITS PREVIOUS LOCKED DECISIONS
-      // (real locking). undoLock keeps the set it had sent so its form reopens on
-      // it; if the team never locks it again, it never counted — drop it, so the
-      // replay (decisionsForYear) and the market both read the last lock.
+      // ⚠ A TEAM UNLOCKED AND NOT RE-LOCKED DID NOT LOCK THE YEAR (real locking).
+      // undoLock keeps the set it had sent so its form reopens on it; if the team
+      // never locks it again, it never counted — drop it, so the replay
+      // (decisionsForYear) and the market both treat the year as not locked: the
+      // round's start (the reset), or in a room from before the reset, the last
+      // lock.
       const y = String(room.currentYear);
       for (const t of room.teams) {
         if (t.lockedYears?.[y] === false) {
@@ -1606,7 +1643,8 @@ export class LocalSessionTransport implements SessionTransport {
           scale: marketScaleOf(room.marketScale),
           lines: room.lines ?? LINE_ORDER, year: room.currentYear,
           roster: room.teams.filter(t => t.joined).map(t => ({
-            name: t.name, teamNumber: t.teamNumber ?? 0, latest: latestMarketInput(t, room.currentYear),
+            name: t.name, teamNumber: t.teamNumber ?? 0,
+            latest: room.decisionReset ? marketInputForYear(t, room.currentYear) : latestMarketInput(t, room.currentYear),
           })),
           previous: room.marketByYear?.[String(room.currentYear - 1)],
         });

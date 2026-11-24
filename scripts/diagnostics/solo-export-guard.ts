@@ -1387,20 +1387,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Strong on WC); Ending Cash and Uninvested (5, a few hundred dollars in a
 // late year); and the Version row (24, save key v62 -> v63). No premium, rate,
 // loss or reserve row moves; no row is added or removed.
-// v148: COVER COSTS TWICE ITS TABLE PRICE IN PLAYED YEARS (wip/cover-price-double;
-// COVER_PRICE_FACTOR x2.0), on aws e885e77, which reproduces v147 here 48 of 48.
-// All 48 move. Attributed exactly: with COVER_PRICE_FACTOR.factor set to 1 at run
-// time, this branch's 48 files match the control's but for the Version row
-// (riskpool_gamestate_v63 -> v64, this landing's save key) — so every other move
-// is the price of cover. As built (both sides' text, GUARD_TEXT_DIR): the Results
-// files' Reinsurance Cost, each year exactly twice (first file's GL 2026 $975,522
-// -> $1,951,044), the rate it is added to ("+ reinsurance $0.1586 = $5.4095" ->
-// "$0.3173 = $5.5681" per $100) and the premium, ratios, investment income,
-// surplus and capital that follow, on the Results sheets and the Year Walkthrough
-// sheet; the 24 statements' written premium, current rate, ratios, income and
-// net worth with them. No loss, reserve, recovery or exposure row moves, and the
-// opening (the prior board's history) is unchanged. No file added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v148.json');
+// v149: THE SAVE KEY v63 -> v64 (pr/decision-reset: every decision resets at the
+// start of each round, year 1 included; v148 is aws's render baseline), on aws
+// e885e77, which reproduces v147 here 48 of 48. Text-diffed (GUARD_TEXT_DIR both
+// sides): the 24 Results workbooks move and nothing else — 48 rows, each file's
+// Version row ("riskpool_gamestate_v63" -> "riskpool_gamestate_v64") in its shown
+// and its raw text. The 24 statement workbooks are byte-identical. Every arm
+// sets every decision every year (defaultDecisionSet), so the reset moves no
+// figure here.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v149.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

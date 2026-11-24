@@ -660,6 +660,8 @@ export class DynamoSessionTransport implements SessionTransport {
           ...(marketVersion === 'new' ? { marketVersion } : {}),
           // The New version's level table it was created on (pr/market-level-rescale); a room from before has none.
           ...(marketVersion === 'new' && MARKET_NEW_SCALE_CURRENT === 2 ? { marketScale: 2 as const } : {}),
+          // Every room from the decision reset on (RoomView.decisionReset).
+          decisionReset: true,
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
@@ -1429,11 +1431,23 @@ export class DynamoSessionTransport implements SessionTransport {
           sets.push('roster.#tid.posted.#y = :true');
           names['#y'] = String(y);
           values[':true'] = true;
+          // THE NEXT ROUND'S START (SubmitRequest.market with a result, no lock),
+          // in a room with the reset and the market on, while that round is the
+          // room's current one: kept on this result item, and read by the advance
+          // past the round if the team does not lock it (advanceExtras).
+          let roundStart: MarketLockInput | undefined;
+          if (req.decisions === undefined && req.market !== undefined && header.decisionReset
+            && marketLevelOf(header.market) !== 'off' && y + 1 === header.currentYear) {
+            const v = validMarketLockInput(req.market, header.lines ?? LINE_ORDER);
+            if (!v) throw new SessionError('INVALID_REQUEST', 'A round-start market input needs its rates and book.');
+            roundStart = v;
+          }
           items.push({ Put: {
             TableName: this.db.table,
             Item: {
               pk, sk: resultSk(teamId, y), teamId, year: y,
               body: JSON.stringify(req.result), expiresAtSec: header.expiresAtSec,
+              ...(roundStart ? { roundStartMarket: JSON.stringify(roundStart) } : {}),
             },
           } });
         }
@@ -2021,11 +2035,27 @@ export class DynamoSessionTransport implements SessionTransport {
       }
       return entry.lockedYear !== null && entry.lockedYear <= y ? entry.lockedYear : null;
     };
-    const wanted = roster.filter(([, e]) => e.joined).map(([teamId, e]) => ({ teamId, e, year: latestYear(e) }));
+    // ⚠ THE DECISION RESET (RoomView.decisionReset): only a lock OF THIS YEAR
+    // counts as a lock; a team without one counts at the round-start input its
+    // client posted on its year-before result item (`reset`), or is `missing`.
+    // A room from before the reset keeps its latest lock at or before the year.
+    const reset = header.decisionReset === true;
+    const wanted = roster.filter(([, e]) => e.joined).map(([teamId, e]) => {
+      const year = latestYear(e);
+      return { teamId, e, year: reset ? (year === y ? y : null) : year };
+    });
     const got = await this.getItems(wanted.filter(w => w.year !== null).map(w => ({ pk, sk: decisionSk(w.teamId, w.year!) })));
     const inputOf = new Map<string, MarketLockInput>();
     for (const it of got as Array<{ teamId?: string; market?: string }>) {
       if (it.teamId && it.market) inputOf.set(it.teamId, JSON.parse(it.market) as MarketLockInput);
+    }
+    const startOf = new Map<string, MarketLockInput>();
+    if (reset) {
+      const unlocked = wanted.filter(w => !inputOf.has(w.teamId));
+      const starts = await this.getItems(unlocked.map(w => ({ pk, sk: resultSk(w.teamId, y - 1) })));
+      for (const it of starts as Array<{ teamId?: string; roundStartMarket?: string }>) {
+        if (it.teamId && it.roundStartMarket) startOf.set(it.teamId, JSON.parse(it.roundStartMarket) as MarketLockInput);
+      }
     }
     const prevItem = y > 1 ? (await this.db.doc.send(new GetCommand({
       TableName: this.db.table, Key: { pk, sk: marketYearSk(y - 1) }, ConsistentRead: true,
@@ -2037,7 +2067,8 @@ export class DynamoSessionTransport implements SessionTransport {
       lines: header.lines ?? LINE_ORDER, year: y,
       roster: wanted.map(w => ({
         name: w.e.name, teamNumber: byTeam.get(w.teamId) ?? w.e.teamNumber ?? 0,
-        latest: w.year !== null && inputOf.has(w.teamId) ? { year: w.year, input: inputOf.get(w.teamId)! } : undefined,
+        latest: w.year !== null && inputOf.has(w.teamId) ? { year: w.year, input: inputOf.get(w.teamId)! }
+          : startOf.has(w.teamId) ? { year: y, input: startOf.get(w.teamId)!, reset: true } : undefined,
       })),
       previous: prevItem?.body ? JSON.parse(prevItem.body) as StoredMarketYear : undefined,
     });

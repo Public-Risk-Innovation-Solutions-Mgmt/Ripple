@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v64';
+export const SAVE_KEY = 'riskpool_gamestate_v65';
 
 /**
  * ⚠ v58 (pr/named-scenarios): SCENARIO 20 PLAYS A NEW SEED. A game saved on
@@ -402,11 +402,16 @@ export const SAVE_KEY = 'riskpool_gamestate_v64';
 // v61 are retired.
 // ⚠ v63: THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital; see
 // SAVE_KEY). v62 is retired.
-// ⚠ v64 SINCE COVER COSTS TWICE ITS TABLE PRICE IN PLAYED YEARS
-// (wip/cover-price-double; COVER_PRICE_FACTOR). A v63 replay would charge the
+// ⚠ v64: EVERY DECISION RESETS AT THE START OF EACH ROUND, YEAR 1 INCLUDED
+// (pr/decision-reset; decisionDefaults resetDecisionSet). A save's current
+// decisions used to be the year before's carried forward (and year 1's the prior
+// board's 65% with its covers); a v63 save would reopen a round on those, so it
+// is retired. Taken past aws's v63 (pr/round-paid-in-capital).
+// ⚠ v65 SINCE COVER COSTS TWICE ITS TABLE PRICE
+// (wip/cover-price-double; COVER_PRICE_FACTOR). A v64 replay would charge the
 // per-occurrence and aggregate covers at the table's price from year 1, and so
 // strike every covered team's rate and surplus differently. Cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58', 'riskpool_gamestate_v59', 'riskpool_gamestate_v60', 'riskpool_gamestate_v61', 'riskpool_gamestate_v62', 'riskpool_gamestate_v63'];
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58', 'riskpool_gamestate_v59', 'riskpool_gamestate_v60', 'riskpool_gamestate_v61', 'riskpool_gamestate_v62', 'riskpool_gamestate_v63', 'riskpool_gamestate_v64'];
 
 /**
  * Fields dropped on the way out.

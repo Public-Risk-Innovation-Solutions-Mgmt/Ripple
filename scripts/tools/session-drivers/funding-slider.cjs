@@ -4,17 +4,19 @@
 // and, on each line's Decisions page, walks the Funding Confidence Level
 // slider from its minimum to its maximum by the keyboard, one step at a time:
 //
-//   - the slider opens on the play default, 65%, labelled "(65%)";
+//   - the slider opens on Expected, labelled "Expected (~X%)" — the decision
+//     reset, every year including year 1 — and not on the prior board's 65%;
 //   - it steps 30%, 35% … 90% — thirteen positions, 5% apart;
 //   - each position reads "(N%)" and nothing else (no "Above Average");
 //   - "Reset to Expected (~X%)" puts it on Expected, labelled "Expected (~X%)"
 //     at the X its button named.
 //
-// ⚠ RESTATED FOR pr/pregame-65: the play default is now 65% (PLAY_DEFAULTS),
-// not Expected, so the slider opens on "(65%)" and "Reset to Expected" is
-// offered from the start. The reset check reads X from the button's own label
-// rather than from an Expected opening that no longer exists. Against the aws
-// build (opens on Expected) the opening check fails, as it must.
+// ⚠ RESTATED FOR pr/decision-reset: every year opens on the reset, year 1
+// included, so the slider opens on Expected again (it opened on the prior
+// board's "(65%)" since pr/pregame-65), and "Reset to Expected" is offered once
+// it is moved off. THE CONTROL: the 65% opening is refused — against the aws
+// build (opens on "(65%)") the opening check fails, as it must. The reset
+// check reads X from the button's own label and from the opening, and they agree.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/funding-slider.cjs
@@ -57,7 +59,10 @@ const ok = (cond, label, detail = '') => {
     const shown = async () => ((await box.locator('span.font-bold').first().innerText()) || '').trim();
 
     const opening = await shown();
-    ok(opening === '(65%)', `${line}: opens on the play default, labelled "(65%)"`, opening);
+    const openX = (opening.match(/^Expected \(~(\d+)%\)$/) ?? [])[1];
+    ok(openX !== undefined, `${line}: opens on the reset, at Expected, labelled "Expected (~X%)"`, opening);
+    ok(opening !== '(65%)', `${line}: control — not on the prior board's 65% (the opening before the reset)`, opening);
+    ok(await page.getByRole('button', { name: /^Reset to Expected/ }).count() === 0, `${line}: on Expected, "Reset to Expected" is not offered`);
     const attrs = await input.evaluate(el => ({ min: el.min, max: el.max, step: el.step }));
     ok(attrs.min === '0.3' && attrs.max === '0.9' && attrs.step === '0.05', `${line}: the slider runs 30% to 90% in 5% steps`, JSON.stringify(attrs));
 
@@ -82,7 +87,7 @@ const ok = (cond, label, detail = '') => {
       await reset.click();
       await page.waitForTimeout(300);
       const back = await shown();
-      ok(named !== null && back === `Expected (~${named[1]}%)`, `${line}: Reset puts it on Expected, at the position its button named`, `${named ? named[0] : 'no (~X%) on the button'} -> ${back}`);
+      ok(named !== null && back === `Expected (~${named[1]}%)` && named[1] === openX, `${line}: Reset puts it back on Expected, at the position its button named — where it opened`, `${named ? named[0] : 'no (~X%) on the button'} -> ${back}; opened ~${openX}%`);
       ok(await page.getByRole('button', { name: /^Reset to Expected/ }).count() === 0, `${line}: and on Expected the reset is no longer offered`);
     }
   }

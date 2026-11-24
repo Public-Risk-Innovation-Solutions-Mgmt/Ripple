@@ -138,6 +138,8 @@ export interface RoomHeader {
   marketVersion?: 'new';
   /** The New version's level table. ⚠ Only 2 is stored; absent (a room created before the rescale) reads 1. */
   marketScale?: 2;
+  /** The decision reset (RoomView.decisionReset). ⚠ Absent on a header from before it. */
+  decisionReset?: true;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -284,6 +286,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     market: marketLevelOf(header.market),
     ...(marketVersionOf(header.marketVersion) === 'new' ? { marketVersion: 'new' as const } : {}),
     ...(marketScaleOf(header.marketScale) === 2 ? { marketScale: 2 as const } : {}),
+    ...(header.decisionReset ? { decisionReset: true as const } : {}),
     ...(role === 'host' && fetched.marketYears && Object.keys(fetched.marketYears).length > 0 ? { marketByYear: fetched.marketYears } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,

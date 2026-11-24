@@ -247,44 +247,38 @@ const roomRecord = (page, code) => page.evaluate(c =>
        `year ${year}: host table shows all three reported (${reported.join(' | ')})`);
   }
 
-  // ---- CARRY-FORWARD, AT THE DATA LAYER -----------------------------------
-  // ⚠ SAME CLAIM AS BEFORE, READ OUT OF A HISTORY INSTEAD OF A SLOT, and it now
-  // says MORE rather than the same. The old form asserted that the single slot
-  // still held 0.03 after the skipped year — true, but it could not distinguish
-  // "carried forward" from "never had anything else". Per year it can: year 1
-  // holds the moved value, year 2 holds NOTHING because it was skipped, and
-  // year 3 holds the value the team carried into the year it did lock.
+  // ---- THE DECISION RESET, AT THE DATA LAYER ------------------------------
+  // ⚠ RESTATED FROM CARRY-FORWARD (pr/decision-reset). Every decision resets at
+  // the start of each new round, so the skipper's year-1 funding choice must NOT
+  // survive: year 2 holds nothing (skipped, so it played the reset), and year 3
+  // holds what the team's form opened on and locked — the reset, funding at
+  // Expected on every line. Each assertion below fails if carry-forward comes
+  // back: the moved value would reappear in year 3, and year 2 would be governed
+  // by year 1's lock.
   {
     const rec = await roomRecord(host, code);
     const skipper = rec.teams.find(t => t.name === TEAMS[SKIPPER]);
     const other = rec.teams.find(t => t.name === TEAMS[0]);
     const hist = skipper.decisionsByYear || {};
     const years = Object.keys(hist).map(Number).sort((a, b) => a - b);
+    ok(rec.decisionReset === true, 'the room carries the decision reset');
 
-    ok(!years.includes(SKIP_YEAR), `carry-forward: year ${SKIP_YEAR} has NO stored set — it was skipped (${years.join(',')})`);
-    // ⚠ REPOINTED WITH THE NUDGE ABOVE, AND THIS IS THE SECOND SITE — the first
-    // fix (the nudge) left these three reads on riskControlPct, where every team
-    // now reads the pinned 0, so `rc1 !== rcOther` compared 0 against 0 and went
-    // red. A carry-forward assertion has to read the field the deliberate choice
-    // actually moved.
-    //
-    // THE SIGNATURE IS PER-LINE AND NOT A SINGLE FIELD, because funding
-    // confidence lives at byLine[line].fundingConfidenceLevel and the nudge
-    // clicks whichever line tab the session happens to carry. Comparing the whole
-    // map is robust to that; naming a line here would make the driver depend on
-    // a setup it does not control.
+    ok(!years.includes(SKIP_YEAR), `reset: year ${SKIP_YEAR} has NO stored set — it was skipped (${years.join(',')})`);
+    // THE SIGNATURE IS PER-LINE (funding lives at byLine[line]), so the whole map
+    // is compared rather than one line named.
     const fcSig = d => JSON.stringify(Object.entries(d?.byLine || {})
       .map(([l, v]) => [l, v.fundingConfidenceLevel, v.fundingAtExpected]).sort());
+    const atExpected = d => Object.values(d?.byLine || {}).length > 0 && Object.values(d.byLine).every(v => v.fundingAtExpected === true
+      && v.reinsuranceOption === 'none' && (v.aggregateCover ?? 'none') === 'none');
     const fc1 = fcSig(hist['1']);
     const fc3 = fcSig(hist[String(YEARS)]);
     const fcOther = fcSig((other.decisionsByYear || {})['1']);
-    ok(fc1 !== fcOther, `carry-forward: ${TEAMS[SKIPPER]} kept its own funding choice in year 1 vs a default team`);
-    ok(fc3 === fc1, `carry-forward: the value survived the skipped year into year ${YEARS}`);
-
-    // And the governing year for the skipped one is the lock BEFORE it, which is
-    // what the replay will read.
-    const governing = Math.max(...years.filter(y => y <= SKIP_YEAR));
-    ok(governing === 1, `carry-forward: year ${SKIP_YEAR} is governed by year ${governing} — the last lock before it`);
+    ok(fc1 !== fcOther, `reset setup: ${TEAMS[SKIPPER]} made its own funding choice in year 1, unlike a default team`);
+    ok(fc3 !== fc1, `reset: the year-1 choice did NOT survive into year ${YEARS} (carry-forward would keep it)`);
+    ok(atExpected(hist[String(YEARS)]), `reset: year ${YEARS} was locked on the reset — funding at Expected, no cover, on every line`);
+    ok(atExpected((other.decisionsByYear || {})['2']), 'reset: a team that locked year 2 untouched locked the reset too');
+    // The skipped year is governed by no lock: it played the reset, which is what the replay reads.
+    ok(!years.some(y => y === SKIP_YEAR), `reset: no lock governs year ${SKIP_YEAR}; the last lock before it (year 1) does not carry`);
   }
 
   // ---- the results pages render another year's real output ----------------

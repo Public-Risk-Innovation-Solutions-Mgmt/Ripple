@@ -110,8 +110,13 @@ async function openStatement(page, view = 'Pool') {
   await page.waitForTimeout(600);
 }
 
-/** Move a line's Non-Renewal one step right (the Decisions tab must be open). */
-async function bumpNonRenewal(page) {
+/**
+ * Move a line's Non-Renewal `steps` steps right (the Decisions tab must be open).
+ * ⚠ FROM THE RESET EVERY YEAR (pr/decision-reset): each year opens at 0%, so year
+ * N moves it N steps to lock a different value each year — it used to move one
+ * step and lean on carry-forward to climb.
+ */
+async function bumpNonRenewal(page, steps = 1) {
   // Non-Renewal is a line's decision: on the first line's view.
   const first = page.getByRole('button', { name: /^(Workers' Compensation|General Liability|Property)$/ }).first();
   await first.click();
@@ -119,7 +124,7 @@ async function bumpNonRenewal(page) {
   const slider = page.locator('span', { hasText: /^Non-Renewal$/ }).first()
     .locator('xpath=ancestor::div[contains(@class,"flex-col")][1]').locator('input[type="range"]');
   await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < steps; i++) await page.keyboard.press('ArrowRight');
   await page.waitForTimeout(200);
 }
 
@@ -171,7 +176,8 @@ async function readSave(page) {
 }
 async function lockSolo(page, next) {
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
-  await bumpNonRenewal(page);
+  // `next` is the year the game then stands in, so this year is next - 1: that many steps.
+  await bumpNonRenewal(page, next - 1);
   await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
@@ -299,7 +305,7 @@ async function soloGame(browser, testPlayer, errs) {
     await team.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
     for (const y of [1, 2]) {
       await team.getByRole('button', { name: 'Decisions', exact: true }).first().click();
-      await bumpNonRenewal(team);
+      await bumpNonRenewal(team, y);
       await lockAndConfirm(team);
       await team.waitForSelector('[data-testid="session-strip"][data-lock="locked"]', { timeout: 30000 });
       await host.click('[data-testid="host-tab-setup"]');

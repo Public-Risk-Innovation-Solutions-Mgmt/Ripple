@@ -7,7 +7,7 @@ import AllocationBar from '../components/AllocationBar';
 // card it rendered is gone from the Pool tab — see the note where it stood.
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
 import { formatCurrency } from '../utils/formatters';
-import { defaultLineDecisionSet } from '../utils/decisionDefaults';
+import { roundStartDecisions } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis, dividendPaid } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
@@ -90,15 +90,20 @@ const fundingStopLabel = (v: number) => `(${(v * 100).toFixed(0)}%)`;
 
 // Reset only the given line to defaults (Model A strict per-line: resetting on
 // one line's tab must not clobber the other lines' choices).
+// ⚠ BACK TO WHAT THE ROUND OPENED ON (decisionDefaults roundStartDecisions): the
+// reset, every round, year 1 included — the values every decision starts at.
 function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks: boolean): DecisionSet {
   return {
     ...decisions,
     byLine: {
       ...decisions.byLine,
-      [line]: defaultLineDecisionSet(line, shocks),
+      [line]: roundStartDecisions(decisions.yearNumber, shocks).byLine[line],
     },
   };
 }
+
+/** Every round, year 1 included, opens at the reset (decisionDefaults resetDecisionSet). */
+const RESET_NOTE = 'Every decision starts each year at the reset — funding at Expected, no cover, 0% sliders, no dividend or assessment, the default asset mix — so set them again before you lock.';
 
 export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
@@ -171,6 +176,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
         <div>
           <h2 className="text-xl font-bold text-gray-900">Decisions for Program Year {programYear} — {lineDisplayName(lineView)}</h2>
           <p className="text-gray-500 text-sm">Configure this line's strategy for the year</p>
+          <p data-testid="decisions-reset-note" className="text-gray-500 text-xs mt-0.5">{RESET_NOTE}</p>
         </div>
         {!disabled && (
           <button onClick={() => onChange(resetLineToDefaults(decisions, selectedLine, shocks))} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">
@@ -345,6 +351,7 @@ function PoolDecisionsView({ decisions, onChange, programYear, disabled }: {
         <div>
           <h2 className="text-xl font-bold text-gray-900">Decisions for Program Year {programYear} — Pool</h2>
           <p className="text-gray-500 text-sm">Pool-wide policies applied by every line to its own base</p>
+          <p data-testid="decisions-reset-note" className="text-gray-500 text-xs mt-0.5">{RESET_NOTE}</p>
         </div>
         {!disabled && (
           <button onClick={resetPool} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">

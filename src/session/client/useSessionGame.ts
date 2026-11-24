@@ -31,6 +31,23 @@ import { sessionTransport, teamDisplayName, type CallerView, type RoomView } fro
 import { summarize } from './results';
 import { buildTeamGame, replayTeamYears } from './buildGame';
 import { marketByYearForEngine } from '../market';
+import { marketLockInputFor } from './marketLock';
+import { roundStartDecisions } from '../../utils/decisionDefaults';
+import { gameShocksOn } from '../../utils/shockLosses';
+
+/**
+ * THE NEXT ROUND'S START, FOR THE MARKET (contract SubmitRequest.market with a
+ * result): the team's input at the round's starting values — the reset from
+ * year 2 on — struck on `gs`, the game as it stands at the start of that round.
+ * The market step counts the team at it if the team does not lock the round.
+ * Undefined with the market off, and in a room from before the reset (which
+ * still carries a team's last lock).
+ */
+function roundStartMarket(room: RoomView, gs: GameState) {
+  if (room.market === 'off' || room.decisionReset !== true || gs.isComplete) return undefined;
+  const d = roundStartDecisions(gs.currentYearNumber, gameShocksOn(gs.setup, gs.instance));
+  return marketLockInputFor(gs, d, gs.currentYearNumber) ?? undefined;
+}
 
 export type GamePhase = 'idle' | 'building' | 'ready' | 'processing' | 'failed';
 
@@ -166,7 +183,7 @@ export function useSessionGame(
         // re-posts the identical entry over itself.
         if (built && token && you?.role === 'player') {
           void sessionTransport()
-            .submit({ code, token, yearNumber: 0, result: summarize(built.result, built.gameState) })
+            .submit({ code, token, yearNumber: 0, result: summarize(built.result, built.gameState), market: roundStartMarket(room, built.gameState) })
             .catch(() => { /* the opening point is missing until the next build; the game is not */ });
         }
       } catch (e) {
@@ -221,7 +238,7 @@ export function useSessionGame(
           await new Promise<void>(resolve => window.setTimeout(resolve, 0));
           // MARKET COMPETITION: the team's stored market results ride on the setup; the
           // year's own is in the same read that moved the room's year (written atomically).
-          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear, marketByYearForEngine(you.marketByYear));
+          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear, marketByYearForEngine(you.marketByYear), room.decisionReset === true);
           state = step.state;
           produced.push(...step.produced);
         }
@@ -254,6 +271,7 @@ export function useSessionGame(
               await sessionTransport().submit({
                 code, token, yearNumber: 0,
                 result: summarize(opening.current.result, opening.current.gameState),
+                market: roundStartMarket(room, opening.current.gameState),
               });
             }
             // Posting is best-effort: the years are played and held locally
@@ -266,6 +284,8 @@ export function useSessionGame(
                 token,
                 yearNumber: p.result.yearNumber,
                 result: summarize(p.result, p.gameState, p.surplusRange),
+                // The next round's start, for the market if the team does not lock it.
+                market: roundStartMarket(room, p.gameState),
               });
             }
           }

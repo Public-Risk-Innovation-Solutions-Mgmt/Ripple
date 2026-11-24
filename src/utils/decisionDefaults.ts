@@ -78,3 +78,52 @@ export function atExpectedDecisionSet(yearNumber: number, shocks = true): Decisi
   }
   return d;
 }
+
+/**
+ * THE RESET: what every decision returns to at the start of each new round —
+ * single player, Test player and hosted teams alike — so a team sets them again
+ * each year rather than carrying the last year's into it. Funding at Expected;
+ * no cover (per-occurrence none, aggregate none); New Members 0%, Non-Renewal
+ * 0%, risk control 0%, no dividend or assessment, no risk-control program; the
+ * default asset mix (20% cash / 75% bonds / 5% equities); loan repayment at its
+ * default.
+ *
+ * ⚠ YEAR 1 TOO: the first round opens on the reset as well, not on
+ * defaultDecisionSet (the prior board's 65% and covers, PLAY_DEFAULTS), which
+ * now only the pre-game plays — so the opening position is unchanged, and the
+ * year-1 rate drops from 2026's (at Expected with no cover, against the prior
+ * board's 65% with its covers).
+ *
+ * ⚠ A HOSTED TEAM THAT DOES NOT LOCK A YEAR PLAYS THE RESET FOR IT
+ * (session/client/decisions.ts decisionsForYear), and the market counts it at
+ * the rate the reset strikes. Its last locked set no longer carries.
+ *
+ * Spelled out field by field rather than derived from atExpectedDecisionSet:
+ * that is the scenarios' opening measure, and a change to it must not move the
+ * reset.
+ */
+export function resetDecisionSet(yearNumber: number, shocks = true): DecisionSet {
+  const d = defaultDecisionSet(yearNumber, shocks);
+  for (const line of Object.keys(d.byLine) as CoverageLine[]) {
+    const l = d.byLine[line];
+    l.fundingAtExpected = true;
+    l.reinsuranceOption = 'none';
+    l.aggregateCover = 'none';
+    l.nonRenewal = 0;
+    l.newMembers = 0;
+    l.riskControlPct = 0;
+    l.riskControlIncentivePct = 0;
+    l.dividendAmount = 0;
+    l.assessmentAmount = 0;
+    l.assetAllocation = { cashPct: 20, bondsPct: 75, equitiesPct: 5 };
+  }
+  d.assetAllocation = { cashPct: 20, bondsPct: 75, equitiesPct: 5 };
+  d.riskControlPct = 0;
+  d.riskControlProgramIds = [];
+  return d;
+}
+
+/** What round `yearNumber` opens on: the reset, every round, year 1 included. */
+export function roundStartDecisions(yearNumber: number, shocks = true): DecisionSet {
+  return resetDecisionSet(yearNumber, shocks);
+}
