@@ -443,6 +443,10 @@ export default function HostRoomScreen({ code }: Props) {
                     {' '}· <span data-testid="market-version-shown" className="font-medium text-slate-700">{room!.marketVersion === 'new' ? 'New' : 'Current'} version</span>.
                     Advancing moves members between teams on the rates they locked.
                     {room!.marketVersion === 'new' ? ` ${MARKET_NEW_FIXED_ADMIN.share * 100}% of each team's admin is fixed at its year-1 dollars, growing ${MARKET_NEW_FIXED_ADMIN.trend * 100}% a year.` : ''}
+                    {/* pr/market-level-rescale: a New room created before the levels were rescaled keeps its own. */}
+                    {room!.marketVersion === 'new' && room!.marketScale !== 2 && (
+                      <span data-testid="market-scale-note"> This room plays the market levels it was created with, from before the levels were rescaled.</span>
+                    )}
                   </p>
                 )}
                 {(room?.market ?? 'off') === 'off' && room?.marketVersion === 'new' && (

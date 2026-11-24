@@ -42,7 +42,9 @@
 //
 // MARKET VERSION (pr/market-new-version): the host's Current / New. Current (and
 // every input without a version) runs exactly the values named above. New reads
-// MARKET_NEW[level] instead — its own k, leaver cap and fade, and the buckets
+// MARKET_NEW_BY_SCALE[scale][level] instead (scale 2 = MARKET_NEW for rooms
+// created from pr/market-level-rescale on; 1 = the table rooms created before
+// it keep) — its own k, leaver cap and fade, and the buckets
 // widened in log space (widenedBuckets), which carry the leavers' tilt and the
 // outside supply's draw — and the members a team TAKES IN (price leavers and
 // outside members) arrive at a fixed quality, 0.95 — slightly better than
@@ -54,7 +56,7 @@
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
   MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_OUTSIDE_SUPPLY,
-  MARKET_NEW, MARKET_NEW_INTAKE_QUALITY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel, type MarketVersion,
+  MARKET_NEW_BY_SCALE, MARKET_NEW_INTAKE_QUALITY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, NON_RENEWAL_LOSS_RELIEF, type MarketLevel, type MarketNewScale, type MarketVersion,
   type PerLine,
 } from '../../data/pricingParameters';
 import type { CoverageLine } from '../../types/simulation';
@@ -70,7 +72,7 @@ const BASE: readonly number[] = MARKET_BUCKET_BASE_MIX;
 
 /**
  * THE NEW VERSION'S BUCKETS: widened in log space, each (raw ÷ 1.02)^m, renormalised so the even mix still
- * averages exactly 1.00 (m = MARKET_NEW[level].bucketPower). The Current version keeps MARKET_BUCKETS.
+ * averages exactly 1.00 (m = the level's bucketPower in MARKET_NEW_BY_SCALE). The Current version keeps MARKET_BUCKETS.
  */
 export function widenedBuckets(m: number): readonly number[] {
   const pow = MARKET_BUCKETS_RAW.map(r => Math.pow(r / RAW_MEAN, m));
@@ -91,17 +93,22 @@ export interface MarketParams {
    */
   readonly intakeQuality: number | null;
 }
-const NEW_BUCKETS = {
-  low: widenedBuckets(MARKET_NEW.low.bucketPower),
-  medium: widenedBuckets(MARKET_NEW.medium.bucketPower),
-  high: widenedBuckets(MARKET_NEW.high.bucketPower),
-} as const;
-/** The step's values for a level and version ('current' is the market as it was before the option). */
-export function marketParams(level: Exclude<MarketLevel, 'off'>, version: MarketVersion = 'current'): MarketParams {
+// One fixed array per bucket power, so the θ cache (keyed by the array) is shared across levels and scales.
+const NEW_BUCKETS = new Map<number, readonly number[]>();
+const newBuckets = (m: number) => {
+  let b = NEW_BUCKETS.get(m);
+  if (b === undefined) { b = widenedBuckets(m); NEW_BUCKETS.set(m, b); }
+  return b;
+};
+/**
+ * The step's values for a level, version and New-version scale ('current' is the market as it was before the
+ * option; scale 1 is the New table a room created before the rescale plays, scale 2 MARKET_NEW).
+ */
+export function marketParams(level: Exclude<MarketLevel, 'off'>, version: MarketVersion = 'current', scale: MarketNewScale = 1): MarketParams {
   if (version === 'new') {
-    const n = MARKET_NEW[level];
+    const n = MARKET_NEW_BY_SCALE[scale][level];
     return {
-      k: n.k, buckets: NEW_BUCKETS[level], fullSkewMean: n.fullSkewMean, leaverCap: n.leaverCap, bookRiskFade: n.bookRiskFade,
+      k: n.k, buckets: newBuckets(n.bucketPower), fullSkewMean: n.fullSkewMean, leaverCap: n.leaverCap, bookRiskFade: n.bookRiskFade,
       intakeQuality: MARKET_NEW_INTAKE_QUALITY,
     };
   }
@@ -144,8 +151,8 @@ const thetaFor = (target: number, buckets: readonly number[]) => {
   return t;
 };
 /** Price-leavers' mix at a pair gap: none of the tilt at 1%, the level's full skew at 10%+. */
-export function leaverMix(level: Exclude<MarketLevel, 'off'>, gap: number, version: MarketVersion = 'current'): number[] {
-  const p = marketParams(level, version);
+export function leaverMix(level: Exclude<MarketLevel, 'off'>, gap: number, version: MarketVersion = 'current', scale: MarketNewScale = 1): number[] {
+  const p = marketParams(level, version, scale);
   const share = Math.min(1, Math.max(0, (gap - MARKET_MIN_GAP) / (MARKET_FULL_SKEW_GAP - MARKET_MIN_GAP)));
   return tilt(thetaFor(p.fullSkewMean, p.buckets) * share, p.buckets);
 }
@@ -220,6 +227,11 @@ export interface MarketStepInput {
   readonly level: Exclude<MarketLevel, 'off'>;
   /** The host's market version; absent (an older room, or Current) plays Current. */
   readonly version?: MarketVersion;
+  /**
+   * The New version's level table (pr/market-level-rescale): 2 for a room created from the rescale on; absent —
+   * every room created before it — plays scale 1, the table it started with.
+   */
+  readonly scale?: MarketNewScale;
   /** The room's seed key (the server uses the room's code and scenario). */
   readonly seed: string;
   readonly year: number;
@@ -293,7 +305,8 @@ function runLine(input: MarketStepInput, line: CoverageLine,
   ts: { key: string; x: MarketTeamLineInput }[]): { teams: Record<string, MarketTeamLineResult>; untaken: number } {
   const { level, seed, year } = input;
   const version: MarketVersion = input.version ?? 'current';
-  const P = marketParams(level, version);
+  const scale: MarketNewScale = input.scale ?? 1;
+  const P = marketParams(level, version, scale);
   const BUCKETS = P.buckets;
   const N = ts.length;
   const k = P.k[line];
@@ -333,7 +346,7 @@ function runLine(input: MarketStepInput, line: CoverageLine,
       const cnt = apportion(n, fl, rnd);
       fl.forEach((_, j) => {
         for (let m = 0; m < cnt[j]; m++) {
-          pool.push({ src: i, e, risk: B[i] * BUCKETS[pick(leaverMix(level, r[i] / r[j] - 1, version), rnd())], to: -1 });
+          pool.push({ src: i, e, risk: B[i] * BUCKETS[pick(leaverMix(level, r[i] / r[j] - 1, version, scale), rnd())], to: -1 });
         }
       });
       willing[i] = frac;

@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v60';
+export const SAVE_KEY = 'riskpool_gamestate_v62';
 
 /**
  * ⚠ v58 (pr/named-scenarios): SCENARIO 20 PLAYS A NEW SEED. A game saved on
@@ -162,12 +162,13 @@ export const SAVE_KEY = 'riskpool_gamestate_v60';
  * "22"), so an old save would replay on the wrong game. Past every key on any
  * branch (v57 is aws's).
  *
- * ⚠ v60 (pr/development-ranges): THE ADVERSE DEVELOPMENT RANGES NARROWED —
+ * ⚠ v62 (pr/development-ranges): THE ADVERSE DEVELOPMENT RANGES NARROWED —
  * Low 0–5%, Mid 3–8%, High 7–15% (were 1–5%, 5–15%, 15–20%). A hosted or Test
- * player game replays its years with the λ each level now draws, so a v59 save
- * would reload with different results from the ones it was played on. v59
- * (aws's, pr/market-fixed-admin-25, merged above v58) is retired; no branch
- * uses v60.
+ * player game replays its years with the λ each level now draws, so a v61 save
+ * would reload with different results from the ones it was played on. Past
+ * aws's v61 (pr/market-level-rescale, merged above v59); v60, which that
+ * branch skipped for this one, was never shipped. v60 and v61 are retired; no
+ * branch uses v62.
  */
 
 /**
@@ -383,9 +384,17 @@ export const SAVE_KEY = 'riskpool_gamestate_v60';
 // not 50%, so its results — which a reload replays — differ from a v58 save's.
 // Single player, Test player and Current rooms play as before. v58 (aws's,
 // pr/named-scenarios, merged above v57) is retired, and v57 with it.
-// ⚠ v60: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges; see
-// SAVE_KEY). v59 is retired.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58', 'riskpool_gamestate_v59'];
+// ⚠ v61: THE NEW VERSION'S LEVELS RESCALED (pr/market-level-rescale). A
+// New-version room created from now on is stamped with the rescaled table
+// (marketScale 2) and its Medium and High play different values, so its results
+// differ from a v59 save's. Single player, Test player and Current rooms play as
+// before. v59 is retired. ⚠ v60 IS SKIPPED, NOT RETIRED: it is left for the
+// adverse-development ranges branch, in progress and not yet pushed, so no two
+// pull requests share a key.
+// ⚠ v62: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges; see
+// SAVE_KEY). It took v62, past aws's v61, rather than the skipped v60; v60 and
+// v61 are retired.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39', 'riskpool_gamestate_v40', 'riskpool_gamestate_v41', 'riskpool_gamestate_v42', 'riskpool_gamestate_v43', 'riskpool_gamestate_v44', 'riskpool_gamestate_v45', 'riskpool_gamestate_v46', 'riskpool_gamestate_v47', 'riskpool_gamestate_v48', 'riskpool_gamestate_v49', 'riskpool_gamestate_v50', 'riskpool_gamestate_v51', 'riskpool_gamestate_v52', 'riskpool_gamestate_v53', 'riskpool_gamestate_v54', 'riskpool_gamestate_v55', 'riskpool_gamestate_v56', 'riskpool_gamestate_v57', 'riskpool_gamestate_v58', 'riskpool_gamestate_v59', 'riskpool_gamestate_v60', 'riskpool_gamestate_v61'];
 
 /**
  * Fields dropped on the way out.

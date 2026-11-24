@@ -1626,8 +1626,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v99: THE ADVERSE DEVELOPMENT RANGES NARROWED (pr/development-ranges;
 // ADVERSE_DEVELOPMENT_RANGE Low 0–5%, Mid 3–8%, High 7–15%, from 1–5%, 5–15%,
 // 15–20%). Captured with --write after the control: aws 1fae189 against v98
-// HOLDS; after merging aws a7f4131 (pr/market-fixed-admin-25, New-version
-// market rooms only) that head still holds v98 and the merged branch v99. Every harness game plays the default level, Low, and on the same
+// HOLDS; after merging aws a7f4131 (pr/market-fixed-admin-25) and bdf0ac1
+// (pr/market-level-rescale), both New-version market rooms only, each head
+// still holds v98 and the merged branch v99. Every harness game plays the default level, Low, and on the same
 // uniform draw u the new Low λ (0.05u) is below the old (0.01 + 0.04u) for
 // every u < 1 — so every development figure falls. Diffed field by field
 // against v98 — 17,902 of 39,600 move, in 79 fields, on all 24 instances

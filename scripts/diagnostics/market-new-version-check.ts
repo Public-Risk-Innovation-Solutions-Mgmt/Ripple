@@ -12,6 +12,11 @@
 //    exactly these. The widened buckets are recomputed here ((raw ÷ 1.02)^m,
 //    renormalised) and must be the engine's; the average leaver is 1.00 at a 1%
 //    gap and the brief's at 10% and beyond. Current's values are untouched.
+// THE LEVELS RESCALED (pr/market-level-rescale): the brief below is the table a
+// room created from the rescale on plays (scale 2: Low as before, Medium new,
+// High = the former Medium); BRIEF_SCALE1 is the original, which a room created
+// before it keeps — checked on a High room whose stored scale is taken off.
+//
 // 2. A REAL NEW-VERSION ROOM AT EACH LEVEL. Seven teams lock in a localStorage
 //    room (one far dearer, at the cap; one skipping a year; one never locking),
 //    four years, each posting a struck rate × its factor and the book its last
@@ -47,7 +52,8 @@
 
 import {
   MARKET_BOOK_RISK_FADE, MARKET_BUCKET_BASE_MIX, MARKET_BUCKETS_RAW, MARKET_COUNT_SPREAD, MARKET_FULL_SKEW_GAP,
-  MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_NEW,
+  MARKET_FULL_SKEW_MEAN, MARKET_K, MARKET_LEAVER_CAP, MARKET_MEMBERS_PER_BOOK, MARKET_MIN_GAP, MARKET_NEW, MARKET_NEW_BY_SCALE,
+  MARKET_NEW_SCALE_1, MARKET_NEW_SCALE_CURRENT,
   MARKET_NEW_FIXED_ADMIN, MARKET_NEW_INTAKE_QUALITY, MARKET_OUTSIDE_SUPPLY, MARKET_OUTSIDE_TAPER, MARKET_RIVAL_SCALE, MARKET_VERSION_DEFAULT,
   type MarketLevel,
 } from '../../src/data/pricingParameters';
@@ -84,7 +90,14 @@ const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 // ============================================================================
 // THE BRIEF'S VALUES — literals, not read from the parameters file.
 // ============================================================================
+/** The levels a New room created from pr/market-level-rescale on plays (scale 2): Low as before, Medium new, High = the former Medium. */
 const BRIEF = {
+  low: { k: { WC: 1.200, GL: 1.236, Property: 1.234 }, mean: 0.75, cap: 0.20, fade: 0.35, power: 1.25 },
+  medium: { k: { WC: 1.650, GL: 1.700, Property: 1.697 }, mean: 0.70, cap: 0.225, fade: 0.30, power: 1.5 },
+  high: { k: { WC: 2.100, GL: 2.163, Property: 2.160 }, mean: 0.65, cap: 0.25, fade: 0.25, power: 1.75 },
+} as const;
+/** The levels a New room created BEFORE the rescale keeps (scale 1), the former High included. */
+const BRIEF_SCALE1 = {
   low: { k: { WC: 1.200, GL: 1.236, Property: 1.234 }, mean: 0.75, cap: 0.20, fade: 0.35, power: 1.25 },
   medium: { k: { WC: 2.100, GL: 2.163, Property: 2.160 }, mean: 0.65, cap: 0.25, fade: 0.25, power: 1.75 },
   high: { k: { WC: 3.600, GL: 3.708, Property: 3.702 }, mean: 0.55, cap: 0.30, fade: 0.20, power: 2.25 },
@@ -150,7 +163,7 @@ const taperWeight = (rate: number, avgRate: number) => {
 /** What the recompute plays on: the brief's New values, or (controls) one of Current's swapped in. */
 // intake: the quality the members a team takes in arrive at (New: the brief's 0.95); null: the quality they were drawn at (Current).
 interface P { k: Record<CoverageLine, number>; mean: number; cap: number; fade: number; risks: number[]; intake: number | null }
-const briefP = (level: Level): P => ({ k: { ...BRIEF[level].k }, mean: BRIEF[level].mean, cap: BRIEF[level].cap, fade: BRIEF[level].fade, risks: widened(BRIEF[level].power), intake: BRIEF_INTAKE });
+const briefP = (level: Level, B: typeof BRIEF | typeof BRIEF_SCALE1 = BRIEF): P => ({ k: { ...B[level].k }, mean: B[level].mean, cap: B[level].cap, fade: B[level].fade, risks: widened(B[level].power), intake: BRIEF_INTAKE });
 const CURRENT_BRIEF = { k: { WC: 0.600, GL: 0.618, Property: 0.617 }, mean: { low: 0.90, medium: 0.80, high: 0.70 }, cap: 0.15, fade: 0.50 };
 const currentP = (level: Level): P => {
   const m = level === 'low' ? 0.5 : level === 'high' ? 2 : 1;
@@ -298,7 +311,7 @@ function differences(a: StoredMarketYear['result'], b: StoredMarketYear['result'
 }
 
 async function main() {
-  const { LocalSessionTransport } = await import('../../src/session/localTransport');
+  const { LocalSessionTransport, ROOM_KEY_PREFIX } = await import('../../src/session/localTransport');
   const { newSessionToken } = await import('../../src/session/contract');
   const { marketByYearForEngine } = await import('../../src/session/market');
   const { buildTeamGame, replayTeamYears } = await import('../../src/session/client/buildGame');
@@ -310,32 +323,39 @@ async function main() {
   // 1. THE BRIEF'S VALUES
   // ==========================================================================
   console.log('\n1. The brief\'s values');
-  const tableIsBrief = (T: typeof MARKET_NEW) => LEVELS.every(l => LINES.every(line => T[l].k[line] === BRIEF[l].k[line])
-    && T[l].fullSkewMean === BRIEF[l].mean && T[l].leaverCap === BRIEF[l].cap && T[l].bookRiskFade === BRIEF[l].fade && T[l].bucketPower === BRIEF[l].power);
-  ok(tableIsBrief(MARKET_NEW), 'MARKET_NEW is the brief: k Low 1.200/1.236/1.234, Medium 2.100/2.163/2.160, High 3.600/3.708/3.702; '
-    + 'average leaver 0.75/0.65/0.55; cap 20/25/30%; fade 35/25/20%; bucket power 1.25/1.75/2.25');
-  control('a table with Medium GL k at 2.200 is refused', tableIsBrief({ ...MARKET_NEW, medium: { ...MARKET_NEW.medium, k: { ...MARKET_NEW.medium.k, GL: 2.200 } } }) ? 0 : 1);
+  const tableIs = (T: typeof MARKET_NEW, B: typeof BRIEF | typeof BRIEF_SCALE1) => LEVELS.every(l => LINES.every(line => T[l].k[line] === B[l].k[line])
+    && T[l].fullSkewMean === B[l].mean && T[l].leaverCap === B[l].cap && T[l].bookRiskFade === B[l].fade && T[l].bucketPower === B[l].power);
+  ok(tableIs(MARKET_NEW, BRIEF) && MARKET_NEW_BY_SCALE[2] === MARKET_NEW && MARKET_NEW_SCALE_CURRENT === 2,
+    'MARKET_NEW (scale 2, rooms created from the rescale on) is the brief: k Low 1.200/1.236/1.234, Medium 1.650/1.700/1.697, '
+    + 'High 2.100/2.163/2.160; average leaver 0.75/0.70/0.65; cap 20/22.5/25%; fade 35/30/25%; bucket power 1.25/1.5/1.75');
+  ok(tableIs(MARKET_NEW_SCALE_1, BRIEF_SCALE1) && MARKET_NEW_BY_SCALE[1] === MARKET_NEW_SCALE_1,
+    'MARKET_NEW_SCALE_1 (rooms created before the rescale) is the original table, the former High included: k 3.600/3.708/3.702, 0.55, 30%, 20%');
+  control('a table with Medium GL k at 2.200 is refused', tableIs({ ...MARKET_NEW, medium: { ...MARKET_NEW.medium, k: { ...MARKET_NEW.medium.k, GL: 2.200 } } }, BRIEF) ? 0 : 1);
+  control('the original table in place of the rescaled one is refused', tableIs(MARKET_NEW_SCALE_1, BRIEF) ? 0 : 1);
   ok(MARKET_NEW_FIXED_ADMIN.share === BRIEF_FIXED.share && MARKET_NEW_FIXED_ADMIN.trend === BRIEF_FIXED.trend,
     'the fixed admin is 25% of the year-1 admin dollars, growing 3% a year');
   ok(MARKET_VERSION_DEFAULT === 'current', 'the default version is Current');
-  ok(MARKET_NEW_INTAKE_QUALITY === BRIEF_INTAKE && LEVELS.every(l => marketParams(l, 'new').intakeQuality === BRIEF_INTAKE && marketParams(l, 'current').intakeQuality === null),
+  ok(MARKET_NEW_INTAKE_QUALITY === BRIEF_INTAKE && LEVELS.every(l => marketParams(l, 'new', 2).intakeQuality === BRIEF_INTAKE && marketParams(l, 'new', 1).intakeQuality === BRIEF_INTAKE && marketParams(l, 'current').intakeQuality === null),
     'New takes members in at 0.95 (slightly better than average) at every level; Current keeps inherited quality');
-  ok(LEVELS.every(l => Math.abs(BRIEF[l].mean - (1 - BRIEF[l].power * 0.20)) < 1e-12),
+  ok(LEVELS.every(l => Math.abs(BRIEF[l].mean - (1 - BRIEF[l].power * 0.20)) < 1e-12 && Math.abs(BRIEF_SCALE1[l].mean - (1 - BRIEF_SCALE1[l].power * 0.20)) < 1e-12),
     'the average leaver at a 10%+ gap is 1 − power × 0.20 at every level (the measured widening)');
   ok(LINES.every(line => MARKET_K.medium[line] === CURRENT_BRIEF.k[line]) && MARKET_LEAVER_CAP === 0.15 && MARKET_BOOK_RISK_FADE === 0.50
     && LEVELS.every(l => MARKET_FULL_SKEW_MEAN[l] === CURRENT_BRIEF.mean[l]) && MARKET_FULL_SKEW_GAP === 0.10 && MARKET_MIN_GAP === 0.01
     && MARKET_COUNT_SPREAD === 0.20 && MARKET_RIVAL_SCALE === 4 && MARKET_OUTSIDE_SUPPLY === 0.02 && MARKET_OUTSIDE_TAPER === 0.20
     && MARKET_MEMBERS_PER_BOOK === 100 && MARKET_BUCKETS_RAW.every((r, i) => r === RAW[i]) && MARKET_BUCKET_BASE_MIX.every((m, i) => m === MIX[i]),
     'Current\'s values are untouched (k 0.600/0.618/0.617, cap 15%, fade 50%, leaver 0.90/0.80/0.70) and the shared ones are the brief\'s');
+  for (const [scale, B] of [[2, BRIEF], [1, BRIEF_SCALE1]] as const) for (const level of LEVELS) {
+    const want = widened(B[level].power);
+    const got = marketParams(level, 'new', scale);
+    const at = (g: number) => avgOf(leaverMix(level, g, 'new', scale), want);
+    ok(got.buckets.every((b, i) => Math.abs(b - want[i]) < 1e-12) && widenedBuckets(B[level].power).every((b, i) => Math.abs(b - want[i]) < 1e-12)
+      && LINES.every(line => got.k[line] === B[level].k[line]) && got.leaverCap === B[level].cap && got.bookRiskFade === B[level].fade
+      && Math.abs(avgOf(MIX, want) - 1) < 1e-12 && Math.abs(at(0.01) - 1) < 1e-12 && Math.abs(at(0.10) - B[level].mean) < 1e-6
+      && Math.abs(at(0.30) - B[level].mean) < 1e-6,
+      `scale ${scale} ${level}: the step reads k, cap and fade from the brief; the widened buckets are (raw ÷ 1.02)^${B[level].power} renormalised `
+      + `(${want.map(b => b.toFixed(3)).join(' / ')}); the average leaver is 1.00 at 1% and ${B[level].mean.toFixed(2)} at 10% and beyond`);
+  }
   for (const level of LEVELS) {
-    const want = widened(BRIEF[level].power);
-    const got = marketParams(level, 'new');
-    const at = (g: number) => avgOf(leaverMix(level, g, 'new'), want);
-    ok(got.buckets.every((b, i) => Math.abs(b - want[i]) < 1e-12) && widenedBuckets(BRIEF[level].power).every((b, i) => Math.abs(b - want[i]) < 1e-12)
-      && Math.abs(avgOf(MIX, want) - 1) < 1e-12 && Math.abs(at(0.01) - 1) < 1e-12 && Math.abs(at(0.10) - BRIEF[level].mean) < 1e-6
-      && Math.abs(at(0.30) - BRIEF[level].mean) < 1e-6,
-      `${level}: the widened buckets are (raw ÷ 1.02)^${BRIEF[level].power} renormalised (${want.map(b => b.toFixed(3)).join(' / ')}); `
-      + `the average leaver is 1.00 at 1% and ${BRIEF[level].mean.toFixed(2)} at 10% and beyond`);
     const cur = marketParams(level, 'current');
     ok(cur.buckets === MARKET_BUCKETS && cur.leaverCap === 0.15 && cur.bookRiskFade === 0.50 && cur.fullSkewMean === CURRENT_BRIEF.mean[level]
       && LINES.every(line => cur.k[line] === MARKET_K[level][line]), `${level}: Current reads Current's values`);
@@ -357,10 +377,18 @@ async function main() {
   ];
   type Played = { code: string; seed: string; room: Awaited<ReturnType<typeof t.read>>['room']; years: Record<string, StoredMarketYear>;
     tokens: string[]; decisions: Record<string, Record<string, unknown>> };
-  async function playRoom(level: MarketLevel, version: 'current' | 'new'): Promise<Played> {
+  async function playRoom(level: MarketLevel, version: 'current' | 'new', createdBeforeRescale = false): Promise<Played> {
     const host = newSessionToken();
     const made = await t.createRoom({ hostToken: host, seed: '7', yearCount: 4, startingYear: 2027, eventName: `New ${level} ${version}`,
       expectedTeams: plan.length, lines: LINES, shocks: [], market: level, ...(version === 'new' ? { marketVersion: 'new' as const } : {}) });
+    if (createdBeforeRescale) {
+      // A room created before pr/market-level-rescale: its stored record has no scale (the stamp taken off, as the
+      // contract harness makes older rooms).
+      const key = ROOM_KEY_PREFIX + made.code;
+      const rec = JSON.parse(globalThis.localStorage.getItem(key)!) as { marketScale?: number };
+      delete rec.marketScale;
+      globalThis.localStorage.setItem(key, JSON.stringify(rec));
+    }
     const joined = [];
     for (const p of plan) joined.push(await t.join({ code: made.code, teamName: p.name, role: 'player' }));
     const decisions: Record<string, Record<string, unknown>> = {};
@@ -411,8 +439,8 @@ async function main() {
       if (LINES.some(l => Math.abs((s.result.Elm?.[l]?.willingShare ?? 0) - BRIEF[level].cap) < 1e-12)) capHit++;
       moved += Object.values(s.result).filter(r => LINES.some(l => (r[l]?.outExposure ?? 0) > 0)).length;
     }
-    ok(room.marketVersion === 'new' && [1, 2, 3, 4].every(y => years[String(y)]?.version === 'new'),
-      `${level}: the room reads New, and every stored year carries version 'new'`);
+    ok(room.marketVersion === 'new' && room.marketScale === 2 && [1, 2, 3, 4].every(y => years[String(y)]?.version === 'new' && years[String(y)]?.scale === 2),
+      `${level}: the room reads New on the rescaled levels (scale 2), and every stored year carries version 'new' and scale 2`);
     ok(diffs.length === 0, `${level}: every stored result, four years × three lines × six teams, matches the recompute on the brief's New values`, diffs.slice(0, 5).join('; '));
     ok(capHit > 0 && moved > 0, `${level}: members moved (${moved} team-years lost members); Elm, 40%+ dearer, sat at the ${BRIEF[level].cap * 100}% cap in ${capHit} year(s)`);
     ok(years['3']?.inputs.Dogwood?.stale === true && years['1']?.missing.includes('Fir'), `${level}: a stale team counts at its last lock; a team that never locked is left out`);
@@ -458,6 +486,29 @@ async function main() {
     control('a recompute on Current\'s buckets (unwidened) alone disagrees', buckets);
     control('a recompute on Current\'s 15% cap alone disagrees', cap);
     control('a recompute on Current\'s 50% fade alone disagrees', fade);
+  }
+  {
+    // THE RESCALE (pr/market-level-rescale): a New room's Medium and High recomputed on the original table disagree.
+    let orig = 0;
+    for (const level of ['medium', 'high'] as Level[]) for (let y = 1; y <= 4; y++) {
+      const { code, seed, years } = rooms[level];
+      orig += differences(years[String(y)].result, recomputeYear(briefP(level, BRIEF_SCALE1), code, seed, years[String(y)], years[String(y - 1)]).result).length;
+    }
+    control('a new room\'s Medium and High recomputed on the original levels (before the rescale) disagree', orig);
+    // A room created BEFORE the rescale, at the former High: it keeps the original table.
+    const old = await playRoom('high', 'new', true);
+    let diffs: string[] = [], onNew = 0, capHit = 0;
+    for (let y = 1; y <= 4; y++) {
+      const st = old.years[String(y)], prev = old.years[String(y - 1)];
+      diffs = diffs.concat(differences(st.result, recomputeYear(briefP('high', BRIEF_SCALE1), old.code, old.seed, st, prev).result).map(d => `y${y} ${d}`));
+      onNew += differences(st.result, recomputeYear(briefP('high'), old.code, old.seed, st, prev).result).length;
+      if (Math.abs((st.result.Elm?.WC?.willingShare ?? 0) - BRIEF_SCALE1.high.cap) < 1e-12) capHit++;
+    }
+    ok(old.room.marketVersion === 'new' && old.room.marketScale === undefined && [1, 2, 3, 4].every(y => old.years[String(y)]?.scale === undefined)
+      && diffs.length === 0 && capHit > 0,
+      `a New room created before the rescale at High keeps the former High: no scale stored, every year recomputes on k 3.600/3.708/3.702, `
+      + `leaver 0.55, cap 30% (Elm at it in ${capHit} year(s)), fade 20%`, diffs.slice(0, 3).join('; '));
+    control('that older room recomputed on the rescaled High disagrees', onNew);
   }
   const cur = await playRoom('medium', 'current');
   ok(cur.room.marketVersion === undefined && [1, 2, 3, 4].every(y => cur.years[String(y)] && cur.years[String(y)].version === undefined)
