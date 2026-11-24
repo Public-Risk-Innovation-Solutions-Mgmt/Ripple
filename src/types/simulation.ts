@@ -574,7 +574,8 @@ export interface AttritionalCoverRecord {
   expectedAttritional: number;
   attachment: number;
   limit: number;
-  /** What the cover cost: its expected recovery x its load. In reinsuranceCost. */
+  /** What the cover cost: its expected recovery x its load x the cover price factor in a played year
+   *  (COVER_PRICE_FACTOR). In reinsuranceCost. */
   price: number;
   /** The expected recovery at the shock assumptions' odds (the price before load). */
   expectedRecovery: number;

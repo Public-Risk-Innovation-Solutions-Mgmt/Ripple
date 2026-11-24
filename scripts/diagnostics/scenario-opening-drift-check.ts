@@ -90,6 +90,19 @@
 //      scenarios-check's bars restated to that (SCENARIO_OPENING_BARS).
 //      Test Seed is now asserted on its PREMIUM to the bit against v5's
 //      scenario 20 (the capital moved its surplus, not the seed).
+//   v8 (wip/cover-price-double): the cover price factor (COVER_PRICE_FACTOR,
+//      x2.0) applied in the prior board's pre-game history too — every history
+//      year pays twice the table's price for its covers; the seeds KEPT. The
+//      control, aws cb0ac7e, opened exactly on v7, and so does this build with
+//      the factor set to 1. Of the 198 figures, the 66 year-1 premiums do not
+//      move (measured with no cover) and all 132 surplus and ratio figures do,
+//      only through the history's cover cost: opening surplus WC -$0.021M to
+//      -$0.032M, GL -$0.021M to -$0.031M, Property -$0.031M to -$0.047M (WC
+//      -0.110% to -0.202%, GL -0.099% to -0.206%, Property -0.165% to
+//      -0.241%); premium to surplus up by the same shares (+0.0013 to +0.0052).
+//      1 of the twenty within 5% of target on every line (0 on v7: scenario 16
+//      at 5.0%), worst 19.6% (scenario 10's WC); scenarios-check's bars
+//      restated to that (SCENARIO_OPENING_BARS).
 // ============================================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -101,7 +114,7 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v7.json');
+const RECORD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v8.json');
 /** The record before slot 20 was re-picked: Test Seed (53781) must price year 1 exactly where scenario 20 did in it. */
 const RECORD_V5 = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v5.json');
 /** Every scenario the game offers: the twenty, then the named ones (21, 22). */
@@ -184,10 +197,15 @@ controlFails('Test Seed played as the new scenario 20', () => {
   const swapped: Openings = { ...now, '22': now['20'] };
   gradeTestSeed(swapped, 'c ');
 });
-// The openings at aws 61fcf79's capital ($0 / $8.06M / $8.53M) are record v6: graded against v7, they must move.
+// The openings at aws 61fcf79's capital ($0 / $8.06M / $8.53M) are record v6: graded against v8, they must move.
 controlFails('the openings at the capital before (record v6)', () => {
   const v6: Openings = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v6.json'), 'utf8'));
   gradeDrift(v6, recorded, 'c ');
+});
+// The openings at the table's cover price in the pre-game (aws cb0ac7e) are record v7: graded against v8, they must move.
+controlFails('the openings with the pre-game at the table\'s cover price (record v7)', () => {
+  const v7: Openings = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../baselines/SCENARIO_OPENINGS_v7.json'), 'utf8'));
+  gradeDrift(v7, recorded, 'c ');
 });
 controlFails('scenarios 13 and 16 played on each other\'s seeds', () => {
   const swapped = openingsOf(n => String(n === 13 ? 16 : n === 16 ? 13 : n));

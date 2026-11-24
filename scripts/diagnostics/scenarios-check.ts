@@ -66,7 +66,9 @@
 //      seed (76975); neither is a designed slot. (Restated,
 //      pr/round-paid-in-capital: "as scenario 20 did" is seed 53781's opening
 //      on today's capital — 1.9614 / 1.9228 / 1.5635; on aws 61fcf79's capital
-//      it was 2.2715 / 1.9141 / 1.5605, the premium unmoved.)
+//      it was 2.2715 / 1.9141 / 1.5605, the premium unmoved. Restated again,
+//      wip/cover-price-double: with the pre-game paying the doubled cover
+//      price it is 1.9639 / 1.9255 / 1.5663, the premium unmoved.)
 //  10. THE PAID-IN CAPITAL IS ROUND (pr/round-paid-in-capital): STARTING_CAPITAL
 //      is WC $2.0M, GL $8.0M, Property $8.5M — not the solved $0 / $8.06M /
 //      $8.53M before — and section 5 holds every pre-game beginning on it.
@@ -435,7 +437,10 @@ function gradeDefaults(sets: Record<string, AssetAllocation>, mix: AssetAllocati
   // Scenario 20's opening on seed 53781 before pr/named-scenarios (WC, GL, Property), on today's
   // paid-in capital (pr/round-paid-in-capital). On aws 61fcf79's capital ($0 / $8.06M / $8.53M) it was
   // 2.2715124 / 1.91407235 / 1.56049157 (measured on aws 7af0fc6); the year-1 premium is unmoved.
-  const OLD_SLOT_20: Record<CoverageLine, number> = { WC: 1.96137098, GL: 1.92280804, Property: 1.56352989 };
+  // With the pre-game at the doubled cover price (wip/cover-price-double; COVER_PRICE_FACTOR) — the
+  // premium unmoved, the surplus down by the history's cover cost. At the table's price (aws cb0ac7e)
+  // it was 1.96137098 / 1.92280804 / 1.56352989.
+  const OLD_SLOT_20: Record<CoverageLine, number> = { WC: 1.96389748, GL: 1.92550409, Property: 1.56625716 };
   gradeNamed(named, seedOf, SCENARIO_SEEDS[20], OLD_SLOT_20, '');
   gradeCapital(STARTING_CAPITAL, '');
 
