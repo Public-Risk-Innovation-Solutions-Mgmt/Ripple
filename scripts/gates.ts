@@ -858,7 +858,17 @@ const DORMANT_KNOWN_RED: Record<string, { code: number; why: string }> = {
       + 'calibration: SATISFACTION\'s boundaries were solved at the median of default play under the OLD '
       + 'rate, and default play has moved. ⚠ NOT RE-SOLVED HERE ON PURPOSE. The loss engine changes the '
       + 'loss side of every one of these readings, so solving the boundaries against today\'s play means '
-      + 'solving them twice. DEFERRED: awaiting recalibration after the loss engine, with SOLVE=1.',
+      + 'solving them twice. DEFERRED: awaiting recalibration after the loss engine, with SOLVE=1. '
+      + '⚠ RE-MEASURED ON aws cb0ac7e AND f817793, IDENTICAL (pr/member-satisfaction-check-fix): it read 10 reds, two of them a TEST '
+      + 'DEFECT, now fixed — section 6\'s one-stop arm was the literal 0.65, "one stop from where the game ships '
+      + '(Expected)", and the game has shipped at 65% since pr/pregame-65, so the arm played the baseline and read '
+      + 'a 0.000 footprint (the anchor limb and enrolment luck failed on a decision never taken). Derived from '
+      + 'PLAY_DEFAULTS now (70%): footprint -0.080, anchor 2.1:1, both green. The 8 left are this entry\'s '
+      + 'calibration: drift at defaults WC 3yr -1.604, 5yr -2.591; GL 3yr -1.583, 5yr -2.072, 10yr -3.304; '
+      + 'Property 3yr -0.205, 5yr -1.669 (WC and Property 10yr ACCEPTED), and the convex form\'s decision share '
+      + '(a typical year\'s gap, 14.15pp, now past the 7.89pp crossover). The surplus band no longer saturates. '
+      + 'NOT the 65% default either: with the baseline at Expected the drift reads the same (WC 3yr -1.620, GL '
+      + '3yr -1.711, Property 3yr -0.262), so section 3 is left as it is.',
   },
 };
 
