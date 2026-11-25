@@ -644,6 +644,13 @@ export interface RoomStandings {
   teams: StandingTeam[];
   /** The room's shares for the latest known year — the host's own (RoomView.marketShares). */
   marketShares?: RoomMarketShares;
+  /**
+   * EVERY KNOWN YEAR'S SHARES, keyed by year as a string (0 the opening), for
+   * the Market Survey's year selector (pr/market-survey-order) — the host's own
+   * (RoomView.marketSharesByYear). A year whose set is not complete yet is
+   * absent; the table falls back to marketShares for the latest.
+   */
+  marketSharesByYear?: Record<string, RoomMarketShares>;
 }
 
 // ---------------------------------------------------------------- views
@@ -1107,6 +1114,12 @@ export interface RoomView {
   teams: TeamView[];
   /** Every team's room market share — HOST ONLY; absent for every other caller. */
   marketShares?: RoomMarketShares;
+  /**
+   * Every known year's shares (marketShares.sharesByYearShown) — HOST ONLY, for
+   * the Teams tab's year selector (pr/market-survey-order). A player or viewer
+   * gets the same on RoomStandings.marketSharesByYear.
+   */
+  marketSharesByYear?: Record<string, RoomMarketShares>;
   /**
    * EVERY TEAM'S STANDING — PLAYERS AND VIEWERS ONLY (the Market Survey tab):
    * the host's Teams table's figures for every team and the room's shares, read

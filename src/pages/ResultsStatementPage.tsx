@@ -273,13 +273,13 @@ function MarketSurveySection({ table }: { table: MarketSurveyTable }) {
       {table.note ? (
         <p data-testid="statement-market-survey-note" className="px-3 py-2 text-sm text-black">{table.note}</p>
       ) : (
-        // ⚠ THE STATEMENT'S WIDTH, NOT WIDER: nine columns, so the heads wrap rather than push Market share off the page.
+        // ⚠ THE STATEMENT'S WIDTH, NOT WIDER: eight columns, so the heads wrap rather than push Market share off the page.
         <table className="w-full text-sm text-black border-collapse">
           <thead>
             <tr data-row-kind="header">
               {table.heads.map((h, k) => (
-                <th key={h} data-testid={k === 6 ? 'statement-market-survey-cr-head' : undefined}
-                  className={`px-2 py-1 align-bottom font-semibold text-black ${k < 2 ? 'text-left' : 'text-right'}`} style={headBox}>{h}</th>
+                <th key={h} data-testid={k === 5 ? 'statement-market-survey-cr-head' : undefined}
+                  className={`px-2 py-1 align-bottom font-semibold text-black ${k < 1 ? 'text-left' : 'text-right'}`} style={headBox}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -291,7 +291,6 @@ function MarketSurveySection({ table }: { table: MarketSurveyTable }) {
               return (
                 <tr key={r.team} data-testid={`statement-market-survey-row-${r.team}`} data-own={r.own ? 'true' : undefined}
                   className={r.own ? 'bg-blue-50 font-semibold' : undefined}>
-                  <td className="px-2 py-1 whitespace-nowrap" style={cellStyle}>{r.teamNumber}</td>
                   <td className="px-2 py-1 whitespace-nowrap" style={cellStyle}>{r.team}</td>
                   {'absent' in f || 'pending' in f ? (
                     <td colSpan={6} className={`px-2 py-1 text-xs ${'absent' in f ? 'italic' : 'text-amber-700'}`} style={cellStyle}>

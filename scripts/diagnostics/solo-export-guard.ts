@@ -1428,7 +1428,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // text; with the key normalised all 48 are identical to the control. The
 // statement workbooks are byte-identical. New-only is hosted room creation; no
 // single-player or Test player figure moves.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v151.json');
+// v155: THE MARKET SURVEY SECTION LOSES ITS TEAM NUMBER COLUMN
+// (pr/market-survey-order, from aws 6e602f8; numbered past every export and
+// render baseline on any branch — v153 and v154 are pr/statement-history-
+// underwriting's). The control: aws 6e602f8 reproduced v151 on all 48 keys.
+// 24 of 48 move — the 24 Annual Statement workbooks, both arms; the 24
+// Results workbooks are byte-identical. Text-diffed against 6e602f8's own text
+// (GUARD_TEXT_DIR), every changed line is one of three:
+//   THE SECTION'S HEADER (84 lines, one per sheet): "Team number,Team,…" now
+//     "Team,…", the rest of the row unchanged.
+//   THE SECTION'S ROW (84): single player's one row lost its first cell, "—"
+//     (the number it never had); every other cell unchanged.
+//   THE BORDERS (42 per-sheet border records): the header's and the row's
+//     column-J cells (rows 160–161) are gone, the section now B to I; no
+//     border added or restyled.
+//   And every line of those sheets ends one empty cell shorter: the section
+//   was the sheet's widest, so the sheet narrows from J to I.
+// With trailing empty cells stripped, no other line differs. The row order is
+// unchanged here: single player has one row.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v155.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

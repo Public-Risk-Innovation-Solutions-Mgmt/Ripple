@@ -2035,7 +2035,17 @@ const BASELINE = process.env.RENDER_BASELINE
 // normalised all 26 are identical to the control. The host's setup and Game
 // Setup screens that changed are not in this baseline (it plays single-player
 // configurations); market-new-version.cjs checks them. 148 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v152.json');
+// v156: THE MARKET SURVEY SECTION LOSES ITS TEAM NUMBER COLUMN
+// (pr/market-survey-order, from aws 6e602f8; numbered past every export and
+// render baseline on any branch — v154 is pr/statement-history-underwriting's).
+// The control: aws 6e602f8's own build reproduced v152, 174 of 174. 26 of 174
+// move, every one an Annual Statement screen, and word-diffed against
+// 6e602f8's own text (RENDER_TEXT_DIR) each in exactly two deletions: the
+// section's head "Team number" (the words "Team number Team Ripple…" now read
+// "Team Ripple…") and its one row's "—" number cell. The harness plays single
+// player — one row, so no order to change, and no Market Survey tab or year
+// selector. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v156.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

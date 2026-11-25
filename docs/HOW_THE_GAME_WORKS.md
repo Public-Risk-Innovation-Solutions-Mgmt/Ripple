@@ -23,9 +23,9 @@ Both show: Introduction · Rate Indication · Annual Statement · Decisions · D
 **The Annual Statement** (every mode) lays out the template's sections — Net Income Statement, Balance Sheet,
 Underwriting, Contributions, Program Year Totals, Reinsurance — over Prior and five years, then a **Market Survey**
 section and a **Decisions** section. The Market Survey is the Market Survey tab's table for the statement's year and
-view: in a hosted game every team in the room, the viewing team's row highlighted, from the same standings (when the
-statement is turned back to an earlier year it says the room's standings are for its latest year); in single player
-and Test player one row, the player's own pool. The Decisions section runs over the same years as the statement: funding level, Non-Renewal, New Members, per-claim cover, aggregate cover, risk control
+view: in a hosted game every team in the room, the viewing team's row highlighted, from the same standings, for the
+statement's own year (turned back to an earlier year, it shows that year's standings and shares), in Ripple Ranking
+order with no Team number column; in single player and Test player one row, the player's own pool. The Decisions section runs over the same years as the statement: funding level, Non-Renewal, New Members, per-claim cover, aggregate cover, risk control
 and dividend / (assessment) per line, and on the Pool view the asset mix and each line's. Every value is the year's
 recorded decision; the history years before play show the prior board's. A sticky index links each section and
 marks the one in view. The Excel and PDF downloads carry the Market Survey and Decisions sections too.
@@ -100,9 +100,9 @@ opens with no history, as before. Test player's Advanced setup works the same wa
 characters, and must differ from every other team's in the room regardless of case ("Harbour Mutual" and
 "harbour mutual" are one name); the join screen says so as it is typed, and the server refuses it otherwise. It is
 the team's pool name: the team's own game calls its pool by it (welcome memo, statements, downloads) and its top bar
-reads "Team 1 | Harbour Mutual". Teams are numbered in join order, and every screen pairs the number with the name:
-viewers, the Market Survey and the Annual Statement's Market Survey section (screen, Excel and PDF), and the host's
-Teams, Decisions and Charts tabs. Each new team is shown, once, a 6-digit viewer PIN and a 4-digit recovery code.
+reads "Team 1 | Harbour Mutual". Teams are numbered in join order, and the screens pair the number with the name:
+viewers and the host's Decisions and Charts tabs and Game Setup roster. The Market Survey, the host's Teams tab and
+the Annual Statement's Market Survey section (screen, Excel and PDF) show the name alone, in Ripple Ranking order. Each new team is shown, once, a 6-digit viewer PIN and a 4-digit recovery code.
 Teams can join until the host's first advance; after that only rejoins and viewers.
 
 - **Renaming a team.** The host's Teams tab has a rename button on each row (e.g. for an inappropriate name). The
@@ -181,9 +181,20 @@ figures, the decisions played). Full results, claims and the worlds are never st
 
 ## 4. What teams and the host see of each other
 
-**Market Survey (teams, viewers) and the Teams tab (host)** are one table, for the latest known year, on the pool
-or a line: team, Ripple Ranking, premium to surplus, rate and change, admin expense, combined ratio, net surplus,
-market share. A team's own row is highlighted.
+**Market Survey (teams, viewers) and the Teams tab (host)** are one table, on the pool or a line: team, Ripple
+Ranking, premium to surplus, rate and change, admin expense, combined ratio, net surplus, market share. A team's own
+row is highlighted.
+
+- **Order:** rows run by Ripple Ranking, 1st at the top. Teams tied on a rank stay together, by name; a team with
+  nothing posted for the year comes last.
+- **No team number:** the table shows the team's name alone (the number is still on the other screens above).
+- **A year selector:** year 0 (the opening, e.g. "2026 (opening)") through the latest played year, opening on, and
+  following, the latest. Every column — the ranking, premium to surplus, rate and change, admin, combined ratio,
+  net surplus and market share — shows the chosen year, from the summaries teams posted for it; year 0 shows the
+  opening position. The line view works the same on every year.
+- **What a team receives:** every known year's standings, slimmed to these figures, and every year's shares, so the
+  selector needs no further request. The server reads every team's posted results for this (one query), a read
+  that grows with teams × years.
 
 **Ripple Ranking** is a placeholder until the real ranking is designed: rank by the pool's net surplus ("1st",
 "2nd"…), ties sharing a rank, the same on every line view (`utils/rippleScore.ts`).

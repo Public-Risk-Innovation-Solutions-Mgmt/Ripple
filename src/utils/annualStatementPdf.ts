@@ -217,11 +217,12 @@ function drawDecisions(doc: Doc, table: DecisionsTable, lines: PdfDecisionLine[]
 }
 
 /**
- * THE MARKET SURVEY SECTION'S NINE COLUMNS, 732pt across as the statement's
- * eight: Team number, Team, Ripple Ranking, Premium to surplus, Rate, Admin
- * expense, Combined ratio, Net surplus, Market share.
+ * THE MARKET SURVEY SECTION'S EIGHT COLUMNS, 732pt across as the statement's
+ * eight: Team, Ripple Ranking, Premium to surplus, Rate, Admin expense,
+ * Combined ratio, Net surplus, Market share. The Team number column is gone
+ * (pr/market-survey-order); its 56pt went to the team's name.
  */
-export const PDF_SURVEY_WIDTHS = [56, 128, 56, 66, 144, 66, 84, 70, 62] as const;
+export const PDF_SURVEY_WIDTHS = [184, 56, 66, 144, 66, 84, 70, 62] as const;
 const surveyX = (k: number) => MARGIN_X + PDF_SURVEY_WIDTHS.slice(0, k).reduce((a, b) => a + b, 0);
 
 /** The Market Survey section's lines as the PDF lays them out: its title, the header, each team, the note. */
@@ -238,9 +239,9 @@ export function pdfSurveyPlan(table: MarketSurveyTable): PdfSurveyLine[][] {
   if (table.shareNote) pages[pages.length - 1].push({ kind: 'note', text: table.shareNote });
   return pages;
 }
-/** One Market Survey cell's text, column k (0 = Team number … 8 = Market share), as the PDF writes it; the rate's lines joined. */
+/** One Market Survey cell's text, column k (0 = Team … 7 = Market share), as the PDF writes it; the rate's lines joined. */
 export function pdfSurveyCellText(table: MarketSurveyTable, line: PdfSurveyLine, k: number): string {
-  if (line.kind === 'title') return k === 0 ? `${MARKET_SURVEY_TITLE} - ${table.scopeName}` : k === 8 ? table.yearText : '';
+  if (line.kind === 'title') return k === 0 ? `${MARKET_SURVEY_TITLE} - ${table.scopeName}` : k === 7 ? table.yearText : '';
   if (line.kind === 'note') return k === 0 ? pdfFigureText(line.text) : '';
   if (line.kind === 'header') return table.heads[k];
   return pdfFigureText(marketSurveyCells(table.rows[line.n], ' · ')[k]);
@@ -271,14 +272,14 @@ function drawMarketSurvey(doc: Doc, table: MarketSurveyTable, lines: PdfSurveyLi
       if (!text) continue;
       const bold = line.kind === 'title' || line.kind === 'header' || !!row?.own;
       doc.setFont('helvetica', bold ? 'bold' : 'normal');
-      doc.setTextColor(...(k === 7 && row?.surplus !== undefined && row.surplus < 0 ? red : [0, 0, 0] as [number, number, number]));
+      doc.setTextColor(...(k === 6 && row?.surplus !== undefined && row.surplus < 0 ? red : [0, 0, 0] as [number, number, number]));
       const x = surveyX(k);
       // The title, a note and a team's words run across the row; every other cell keeps to its column, drawn smaller to fit, never cut.
-      const across = line.kind === 'title' || line.kind === 'note' || (words && k === 2);
+      const across = line.kind === 'title' || line.kind === 'note' || (words && k === 1);
       const w = across ? PDF_PAGE.width - 2 * MARGIN_X - (x - MARGIN_X) : PDF_SURVEY_WIDTHS[k];
       const size = Math.min(PDF_FONT_SIZE, PDF_FONT_SIZE * (w - 2 * PAD) / Math.max(1, doc.getTextWidth(text)));
       doc.setFontSize(across ? Math.min(PDF_FONT_SIZE, size) : size);
-      if (k < 2 || across) doc.text(text, x + PAD, base);
+      if (k < 1 || across) doc.text(text, x + PAD, base);
       else doc.text(text, x + w - PAD, base, { align: 'right' });
       doc.setFontSize(PDF_FONT_SIZE);
     }

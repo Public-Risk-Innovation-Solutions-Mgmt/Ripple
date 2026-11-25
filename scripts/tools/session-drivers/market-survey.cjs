@@ -22,15 +22,31 @@
 //     price passes through in the rate and, with no shocks, recovers nothing.
 // And the tab is absent in single player and in Test player.
 //
+// pr/market-survey-order, on the host's table and every team's survey, at
+// every phase:
+//   - ORDER: rows run by Ripple Ranking, 1st at the top, ties by name;
+//   - NO TEAM NUMBER: the first column is "Team", and "Team number" is nowhere
+//     in the heads (nor on the statement's section and its downloads);
+//   - THE YEAR SELECTOR offers 2026 (opening) through the latest played year
+//     and opens on the latest. After year 2, choosing each earlier year — on
+//     the host's table and on every team's survey — shows exactly the table
+//     that showed when that year was the latest (recorded at the time), every
+//     column and view; year 0 is the opening (every team 1st); each year's
+//     figures are its own (the net surplus column differs from the latest's).
+//     CONTROLS: rows out of rank order, and a year's table set against
+//     another year's, are refused.
+//
 // THE ANNUAL STATEMENT'S MARKET SURVEY SECTION (pr/statement-market-survey), on
 // every team's and the viewer's page at each phase, on the pool and each line:
 //   - it is that page's Market Survey tab, cell for cell — the same heads, year
 //     heading and rows in the same order — for the statement's year;
 //   - the same row (the page's own team) is highlighted, and no other;
 //   - it sits just before the Decisions section;
-//   - turned back a year, it shows no other year's standings and says so.
-// In single player and Test player it is one row, the player's own pool: no
-// team number, the pool's name, ranked 1st, its premium to surplus and the
+//   - turned back a year, it shows THAT year's standings: the tab's table as it
+//     showed when that year was the latest (pr/market-survey-order; until then
+//     it said the room's standings were for the latest year).
+// In single player and Test player it is one row, the player's own pool: the
+// pool's name, ranked 1st, its premium to surplus and the
 // year's combined ratio the statement's own, no market share.
 // And after year 2, for a team and the viewer, on the pool and a line: the
 // Excel and PDF downloads carry the same section — the Excel sheet's rows cell
@@ -53,7 +69,7 @@ const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability']];
 const ORDINAL = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] ?? 'th'}`;
 const readRanks = (page, scope) => page.$eval(scope, root => [...root.querySelectorAll('[data-testid="teams-table"] tr')].map(r => {
   const rc = r.querySelector('[data-testid^="ripple-"]'), sc = r.querySelector('[data-testid^="surplus-"]');
-  return { name: r.children[1]?.textContent.trim(), rank: rc?.getAttribute('data-rank') ? Number(rc.getAttribute('data-rank')) : null,
+  return { name: r.children[0]?.textContent.trim(), rank: rc?.getAttribute('data-rank') ? Number(rc.getAttribute('data-rank')) : null,
     text: rc?.textContent.trim() ?? null, surplus: sc?.getAttribute('data-value') ? Number(sc.getAttribute('data-value')) : null };
 }));
 const wantRanks = rows => {
@@ -129,9 +145,9 @@ async function excelSection(bytes, sheetName) {
   ws.eachRow((row, r) => { if (!at && String(row.getCell(2).value ?? '').startsWith('Market Survey — ')) at = r; });
   if (!at) return null;
   const text = v => (v === null || v === undefined ? '' : String(v)).replace(/\n/g, '');
-  const heads = Array.from({ length: 9 }, (_, k) => text(ws.getCell(at + 2, 2 + k).value));
+  const heads = Array.from({ length: 8 }, (_, k) => text(ws.getCell(at + 2, 2 + k).value));
   const rows = [];
-  for (let r = at + 3; text(ws.getCell(r, 3).value) !== ''; r++) rows.push(Array.from({ length: 9 }, (_, k) => text(ws.getCell(r, 2 + k).value)));
+  for (let r = at + 3; text(ws.getCell(r, 3).value) !== ''; r++) rows.push(Array.from({ length: 8 }, (_, k) => text(ws.getCell(r, 2 + k).value)));
   return { year: text(ws.getCell(at, 4).value), heads, rows };
 }
 async function pdfSection(bytes, scopeName) {
@@ -223,6 +239,7 @@ async function viewOf(page, scope, label) {
     await host.waitForFunction(y => document.querySelector('[data-testid="teams-year"]')?.textContent.includes(y), wantYear, { timeout: 60000 }).catch(() => {});
     await host.waitForFunction(n => document.querySelectorAll('[data-testid^="surplus-"]').length >= n, 2, { timeout: 60000 }).catch(() => {});
     const hostT = await hostTables();
+    hostHistory[wantYear] = hostT;
     ok(hostT.Pool.year === `Results for ${wantYear}`, `${phase}: the host's table shows ${wantYear}`, hostT.Pool.year);
     // THE RIPPLE SCORE on the host's table: the pool's rank, the same on every line view.
     await viewOf(host, HOST_SCOPE, 'Pool');
@@ -253,7 +270,7 @@ async function viewOf(page, scope, label) {
         ok(JSON.stringify(got) === JSON.stringify(want), `${phase}, ${who}, ${v}: the Market Survey is the host's table, cell for cell`,
           JSON.stringify(got) === JSON.stringify(want) ? `${got.rows.length} teams, ${got.year}` : `got ${JSON.stringify(got).slice(0, 300)} | want ${JSON.stringify(want).slice(0, 300)}`);
         const owns = s[v].rows.map((r, i) => (r.own ? i : -1)).filter(i => i >= 0);
-        ok(owns.length === 1 && s[v].rows[owns[0]].cells[1] === own, `${phase}, ${who}, ${v}: its own row, ${own}, is highlighted and no other`, owns.map(i => s[v].rows[i].cells[1]).join(', '));
+        ok(owns.length === 1 && s[v].rows[owns[0]].cells[0] === own, `${phase}, ${who}, ${v}: its own row, ${own}, is highlighted and no other`, owns.map(i => s[v].rows[i].cells[0]).join(', '));
       }
       ok(!/Funding|Confidence|Reinsurance|xs \$|Dividend|Assessment|Non-renewal|New members|Risk control|Stop-Loss|Decision/i.test(s.text),
         `${phase}, ${who}: no decision shows on the Market Survey`);
@@ -264,36 +281,134 @@ async function viewOf(page, scope, label) {
           `${phase}, ${who}, ${v}: the statement's Market Survey section is the tab, cell for cell`,
           sameTable(sec, s[v]) ? `${sec.rows.length} teams, ${sec.year}` : `got ${JSON.stringify(sec).slice(0, 300)} | tab ${JSON.stringify(strip(s[v])).slice(0, 300)}`);
         const owns = sec.rows.map((r, i) => (r.own ? i : -1)).filter(i => i >= 0);
-        ok(owns.length === 1 && sec.rows[owns[0]].cells[1] === own && sec.beforeDecisions,
+        ok(owns.length === 1 && sec.rows[owns[0]].cells[0] === own && sec.beforeDecisions,
           `${phase}, ${who}, ${v}: its own row, ${own}, is highlighted and no other; the section sits just before Decisions`,
-          owns.map(i => sec.rows[i].cells[1]).join(', '));
+          owns.map(i => sec.rows[i].cells[0]).join(', '));
         // CONTROLS, once: another team's own row, and one cell changed, are refused.
         if (!controlsRun && sec.rows.length > 1) {
           controlsRun = true;
           const moved = { ...sec, rows: sec.rows.map((r, i) => ({ ...r, own: i === (owns[0] + 1) % sec.rows.length })) };
           const mOwns = moved.rows.map((r, i) => (r.own ? i : -1)).filter(i => i >= 0);
-          ok(!(mOwns.length === 1 && moved.rows[mOwns[0]].cells[1] === own), 'control — a section highlighting another team\'s row is refused');
+          ok(!(mOwns.length === 1 && moved.rows[mOwns[0]].cells[0] === own), 'control — a section highlighting another team\'s row is refused');
           const changed = { ...sec, rows: sec.rows.map((r, i) => (i === 0 ? { ...r, cells: r.cells.map((c, k) => (k === 3 ? c + '0' : c)) } : r)) };
           ok(!sameTable(changed, s[v]), 'control — a section with one cell changed is refused');
         }
       }
-      // Turned back to an earlier year, the section shows no standings of another year, and says so.
+      // Turned back to an earlier year, the section shows THAT year's standings:
+      // the tab as it showed when that year was the latest (recorded then).
+      surveyHistory[wantYear] ??= {};
+      surveyHistory[wantYear][who] = s;
       const options = await page.$$eval('[data-testid="statement-year"] option', os => os.map(o => o.value));
-      if (options.length > 1) {
-        await page.selectOption('[data-testid="statement-year"]', options[0]);
+      const earlier = options.map(Number).filter(y => y >= 0 && y < Number(wantYear) - 2026);
+      for (const y of earlier) {
+        const was = surveyHistory[String(2026 + y)]?.[who];
+        if (!was) continue;
+        await page.selectOption('[data-testid="statement-year"]', String(y));
         await page.waitForTimeout(400);
-        const back = await readSection(page);
-        ok(back.rows.length === 0 && !!back.note && back.note.includes(wantYear),
-          `${phase}, ${who}: the statement turned back to an earlier year shows no other year's standings, and says the room's are for ${wantYear}`, back.note ?? `${back.rows.length} rows`);
+        const back = await statementSection(page, 'Pool');
+        ok(back.note === null && sameTable(back, was.Pool),
+          `${phase}, ${who}: the statement turned back to ${2026 + y} shows ${2026 + y}'s standings — the tab as it showed then, cell for cell`,
+          back.note ?? (sameTable(back, was.Pool) ? `${back.rows.length} teams, ${back.year}` : `got ${JSON.stringify(back.rows.map(r => r.cells)).slice(0, 240)} | then ${JSON.stringify(was.Pool.rows.map(r => r.cells)).slice(0, 240)}`));
+      }
+      if (options.length > 1) {
         await page.selectOption('[data-testid="statement-year"]', options[options.length - 1]);
         await page.waitForTimeout(300);
       }
     }
   }
 
+  // ---- pr/market-survey-order: ORDER, NO TEAM NUMBER, THE YEAR SELECTOR -------
+  const surveyHistory = {};
+  const hostHistory = {};
+  // Rows by Ripple Ranking, 1st at the top, ties by name (the rows' first cell).
+  const orderProblems = rows => {
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const a = rows[i - 1], b = rows[i];
+      if (a.rank === null && b.rank !== null) out.push(`${a.name} (unranked) above ${b.name} (${b.text})`);
+      else if (a.rank !== null && b.rank !== null && a.rank > b.rank) out.push(`${a.name} (${a.text}) above ${b.name} (${b.text})`);
+      else if (a.rank === b.rank && a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) > 0) out.push(`${a.name} before ${b.name} on a tie`);
+    }
+    return out;
+  };
+  const selectYear = async (page, scope, y) => {
+    await page.locator(scope).locator('[data-testid="standings-year"]').first().selectOption(String(y));
+    await page.waitForTimeout(300);
+  };
+  const yearOptions = (page, scope) => page.locator(scope).locator('[data-testid="standings-year"]').first()
+    .evaluate(sel => ({ value: sel.value, options: [...sel.options].map(o => [o.value, o.textContent.trim()]) }));
+  async function orderAndColumns(phase, wantYear) {
+    const latest = Number(wantYear) - 2026;
+    const wantOptions = Array.from({ length: latest + 1 }, (_, y) => [String(y), y === 0 ? '2026 (opening)' : String(2026 + y)]);
+    const surveys = [...teams.map((p, i) => [TEAMS[i], p]), ...(hasViewer ? [['viewer of ' + TEAMS[1], viewer]] : [])];
+    for (const [who, page, scope] of [['host', host, HOST_SCOPE], ...surveys.map(([w, p]) => [w, p, '[data-testid="market-survey"]'])]) {
+      if (page === host) await host.click('[data-testid="host-tab-teams"]');
+      else await page.getByRole('button', { name: 'Market Survey', exact: true }).first().click();
+      await page.waitForSelector('[data-testid="teams-table"] tr', { timeout: 30000 });
+      const t = await viewOf(page, scope, 'Pool');
+      ok(t.heads[0] === 'Team' && !t.heads.includes('Team number') && !t.rows.some(r => /^Team \d+$/.test(r.cells[0])),
+        `${phase}, ${who}: no Team number column — the first column is the team's name`, t.heads.slice(0, 3).join(' | '));
+      for (const v of VIEWS) {
+        await viewOf(page, scope, v);
+        const rr = await readRanks(page, scope);
+        const probs = orderProblems(rr);
+        ok(probs.length === 0, `${phase}, ${who}, ${v}: rows by Ripple Ranking, 1st at the top, ties by name`, probs.join('; ') || rr.map(r => `${r.text} ${r.name}`).join(', '));
+      }
+      const yo = await yearOptions(page, scope);
+      ok(JSON.stringify(yo.options) === JSON.stringify(wantOptions) && yo.value === String(latest),
+        `${phase}, ${who}: the year selector offers 2026 (opening) to ${wantYear} and shows ${wantYear}`, `${JSON.stringify(yo.options)} on ${yo.value}`);
+    }
+    // CONTROL: rows out of rank order, and a tie out of name order, are refused.
+    ok(orderProblems([{ name: 'B', rank: 2, text: '2nd' }, { name: 'A', rank: 1, text: '1st' }]).length > 0
+      && orderProblems([{ name: 'B', rank: 1, text: '1st' }, { name: 'A', rank: 1, text: '1st' }]).length > 0,
+      'control — rows out of rank order, and a tie out of name order, are refused');
+  }
+  // After the last phase: each earlier year, chosen, is the table that showed then — host and every team.
+  async function earlierYears(latestYear) {
+    const surveys = [...teams.map((p, i) => [TEAMS[i], p]), ...(hasViewer ? [['viewer of ' + TEAMS[1], viewer]] : [])];
+    for (let y = 0; y < Number(latestYear) - 2026; y++) {
+      const cal = String(2026 + y);
+      await host.click('[data-testid="host-tab-teams"]');
+      await selectYear(host, HOST_SCOPE, y);
+      for (const v of VIEWS) {
+        const got = strip(await viewOf(host, HOST_SCOPE, v)), was = strip(hostHistory[cal][v]);
+        ok(JSON.stringify(got) === JSON.stringify(was), `year selector, host, ${cal}, ${v}: the table that showed in ${cal}, cell for cell`,
+          JSON.stringify(got) === JSON.stringify(was) ? `${got.rows.length} teams, ${got.year}` : `got ${JSON.stringify(got).slice(0, 260)} | then ${JSON.stringify(was).slice(0, 260)}`);
+      }
+      if (y === 0) {
+        await viewOf(host, HOST_SCOPE, 'Pool');
+        const rr = await readRanks(host, HOST_SCOPE);
+        ok(rr.length > 0 && rr.every(r => r.rank === 1) && new Set(rr.map(r => r.surplus)).size === 1,
+          'year selector, host, 2026 (opening): the opening position — every team 1st on the same opening surplus', rr.map(r => `${r.text} ${r.surplus}`).join(', '));
+      }
+      // Each year its own figures: the net surplus column differs from the latest's.
+      const now = strip(hostHistory[latestYear].Pool), then = strip(hostHistory[cal].Pool);
+      const surplusOf = t => t.rows.map(r => r.cells[t.heads.indexOf('Net surplus')]).join('|');
+      ok(surplusOf(now) !== surplusOf(then), `year selector, host, ${cal}: its own figures — the net surplus column is not ${latestYear}'s`, `${surplusOf(then)} vs ${surplusOf(now)}`);
+      ok(JSON.stringify(then) !== JSON.stringify(now), `control — ${cal}'s table set against ${latestYear}'s is refused`);
+      for (const [who, page] of surveys) {
+        await page.getByRole('button', { name: 'Market Survey', exact: true }).first().click();
+        await selectYear(page, '[data-testid="market-survey"]', y);
+        for (const v of VIEWS) {
+          const got = strip(await viewOf(page, '[data-testid="market-survey"]', v)), was = strip(surveyHistory[cal][who][v]);
+          ok(JSON.stringify(got) === JSON.stringify(was), `year selector, ${who}, ${cal}, ${v}: the survey that showed in ${cal}, cell for cell`,
+            JSON.stringify(got) === JSON.stringify(was) ? `${got.rows.length} teams` : `got ${JSON.stringify(got).slice(0, 260)} | then ${JSON.stringify(was).slice(0, 260)}`);
+        }
+      }
+    }
+    // Back to the latest everywhere.
+    await host.click('[data-testid="host-tab-teams"]');
+    await selectYear(host, HOST_SCOPE, Number(latestYear) - 2026);
+    for (const [, page] of surveys) {
+      await page.getByRole('button', { name: 'Market Survey', exact: true }).first().click();
+      await selectYear(page, '[data-testid="market-survey"]', Number(latestYear) - 2026);
+    }
+  }
+
   const rippleSeen = [];
   let controlsRun = false;
   await compareAll('opening', '2026');
+  await orderAndColumns('opening', '2026');
 
   for (const [y, next] of [[1, '2027'], [2, '2028']]) {
     for (const p of teams) {
@@ -321,7 +436,9 @@ async function viewOf(page, scope, label) {
       await p.waitForFunction(n => document.querySelector('[data-testid="session-strip"]')?.dataset.postedYear === String(n), y, { timeout: 180000 });
     }
     await compareAll(`after year ${y}`, next);
+    await orderAndColumns(`after year ${y}`, next);
   }
+  await earlierYears('2028');
 
   // THE DOWNLOADS (after year 2): the Excel and the PDF carry the section the tab shows.
   for (const [who, page] of [[TEAMS[0], teams[0]], ...(hasViewer ? [['viewer of ' + TEAMS[1], viewer]] : [])]) {
@@ -337,11 +454,14 @@ async function viewOf(page, scope, label) {
       // The PDF writes each cell as a run, the pool's rate lines joined by " · " (the tab's run them together).
       const pdf = await pdfSection(await downloaded(page, 'statement-download-pdf'), scope);
       // RENAMED (wip/ripple-ranking): the column is "Ripple Ranking" on the tab, the Excel and the PDF; "Ripple Score" nowhere.
-      ok(want.heads[2] === 'Ripple Ranking' && (xl?.heads ?? [])[2] === 'Ripple Ranking' && (pdf?.heads ?? [])[2] === 'Ripple Ranking'
+      ok(want.heads[1] === 'Ripple Ranking' && (xl?.heads ?? [])[1] === 'Ripple Ranking' && (pdf?.heads ?? [])[1] === 'Ripple Ranking'
         && ![...want.heads, ...(xl?.heads ?? []), ...(pdf?.heads ?? [])].some(h => /Ripple Score/.test(h))
         && !/Ripple Score/.test(await page.locator('main').innerText()),
         `downloads, ${who}, ${v}: the column reads "Ripple Ranking" on the tab, the Excel and the PDF, and "Ripple Score" appears nowhere`,
-        `${want.heads[2]} | ${(xl?.heads ?? [])[2]} | ${(pdf?.heads ?? [])[2]}`);
+        `${want.heads[1]} | ${(xl?.heads ?? [])[1]} | ${(pdf?.heads ?? [])[1]}`);
+      ok(want.heads[0] === 'Team' && (xl?.heads ?? [])[0] === 'Team' && (pdf?.heads ?? [])[0] === 'Team'
+        && ![...want.heads, ...(xl?.heads ?? []), ...(pdf?.heads ?? [])].includes('Team number'),
+        `downloads, ${who}, ${v}: no Team number column on the tab, the Excel or the PDF`, `${want.heads[0]} | ${(xl?.heads ?? [])[0]} | ${(pdf?.heads ?? [])[0]}`);
       const flat = c => c.replace(/ · /g, '').replace(/−/g, '-');
       const pdfRows = pdf ? pdf.rows.map(r => r.map(flat)) : null;
       const wantPdf = want.rows.map(r => r.filter(c => c !== '').map(c => c.replace(/−/g, '-')));
@@ -377,12 +497,12 @@ async function viewOf(page, scope, label) {
     const stPts = await page.$$eval('[data-testid="statement-balance"] tr[data-row-label="Premium to Surplus Ratio"] td', tds => tds.map(t => t.textContent.trim()));
     const r = sec.rows[0]?.cells ?? [];
     const ptsShown = stPts.filter(x => /^[\d.]+$/.test(x)).at(-1);
-    ok(sec.rows.length === 1 && r[0] === '—' && r[2] === '1st' && r[r.length - 1] === '—' && sec.beforeDecisions && !sec.rows[0].own,
-      `${mode}: the statement's Market Survey section is one row, the player's own pool — no team number, ranked 1st, no market share`, JSON.stringify(sec.rows.map(x => x.cells)));
-    ok(ptsShown !== undefined && Number(r[3]).toFixed(2) === Number(ptsShown).toFixed(2),
-      `${mode}: its premium to surplus is the statement's Balance Sheet row for the year`, `${r[3]} vs ${ptsShown} (${pool.trim()})`);
-    ok(/^Results for 2026$/.test(sec.year ?? '') && /^Combined ratio 2026$/.test(sec.heads[6] ?? ''),
-      `${mode}: the section stands at the statement's year (the opening)`, `${sec.year} | ${sec.heads[6]}`);
+    ok(sec.rows.length === 1 && sec.heads[0] === 'Team' && !sec.heads.includes('Team number') && r[0] !== '' && r[0] !== '—' && r[1] === '1st' && r[r.length - 1] === '—' && sec.beforeDecisions && !sec.rows[0].own,
+      `${mode}: the statement's Market Survey section is one row, the player's own pool — no Team number column, ranked 1st, no market share`, JSON.stringify(sec.rows.map(x => x.cells)));
+    ok(ptsShown !== undefined && Number(r[2]).toFixed(2) === Number(ptsShown).toFixed(2),
+      `${mode}: its premium to surplus is the statement's Balance Sheet row for the year`, `${r[2]} vs ${ptsShown} (${pool.trim()})`);
+    ok(/^Results for 2026$/.test(sec.year ?? '') && /^Combined ratio 2026$/.test(sec.heads[5] ?? ''),
+      `${mode}: the section stands at the statement's year (the opening)`, `${sec.year} | ${sec.heads[5]}`);
     await page.context().close();
   }
 

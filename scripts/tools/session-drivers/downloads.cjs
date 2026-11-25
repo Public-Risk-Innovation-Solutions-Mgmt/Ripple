@@ -100,6 +100,8 @@ async function downloadsByView(page, tag, lines) {
       let got = [];
       // THE DECISIONS SECTION (statementDecisions.ts): each sheet / statement ends with one, below the template.
       const withDecisions = [];
+      // THE MARKET SURVEY SECTION (pr/market-survey-order): its heads open on "Team", with no "Team number".
+      const surveyNoNumber = [];
       if (ext === 'xlsx') {
         const wb = XLSX.read(fs.readFileSync(file), { type: 'buffer' });
         got = wb.SheetNames;
@@ -111,20 +113,28 @@ async function downloadsByView(page, tag, lines) {
           const rows = [];
           for (let r = at + 3; at >= 0 && r <= range.e.r; r++) rows.push(String(ws[XLSX.utils.encode_cell({ r, c: 1 })]?.v ?? '').trim());
           if (at > 150 && rows.includes('Funding Level') && rows.includes('Aggregate Cover')) withDecisions.push(sh);
+          let ms = -1;
+          for (let r = 0; r <= range.e.r; r++) if (String(ws[XLSX.utils.encode_cell({ r, c: 1 })]?.v ?? '').startsWith('Market Survey — ')) ms = r;
+          const heads = ms < 0 ? [] : Array.from({ length: 10 }, (_, k) => String(ws[XLSX.utils.encode_cell({ r: ms + 2, c: 1 + k })]?.v ?? '').trim());
+          if (heads[0] === 'Team' && heads[1] === 'Ripple Ranking' && !heads.includes('Team number')) surveyNoNumber.push(sh);
         }
       } else {
         const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(file)), standardFontDataUrl: fonts, isEvalSupported: false }).promise;
+        let cur = '?'; // the statement the pages belong to: a continuation page carries no title of its own
         for (let p = 1; p <= doc.numPages; p++) {
           const text = (await (await doc.getPage(p)).getTextContent()).items.map(it => it.str).join(' ');
           const m = text.match(/ - (Pool|Workers' Compensation|General Liability|Property) - Annual Statement as of 12\/31\/(\d{4})/);
           const sh = m ? VIEW_SHORT[m[1]] : '?';
           if (got.at(-1) !== sh) got.push(sh);
           if (/Decisions Program Year:/.test(text) && /Funding Level/.test(text) && withDecisions.at(-1) !== sh) withDecisions.push(sh);
+          if (m) cur = sh;
+          if (/Market Survey - /.test(text) && /\bTeam\s+Ripple Ranking\b/.test(text) && !/Team number/.test(text) && surveyNoNumber.at(-1) !== cur) surveyNoNumber.push(cur);
         }
       }
       ok(dl.suggestedFilename() === `Annual_Statement_${v}_${year}.${ext}` && got.join(',') === want.join(','),
         `${tag}, ${view} view: "${button}" holds the view's statements (${want.join(', ')})`, `${dl.suggestedFilename()}: ${got.join(', ')}`);
       ok(withDecisions.join(',') === want.join(','), `${tag}, ${view} view: "${button}" ends each statement with its Decisions section`, withDecisions.join(', ') || 'none');
+      ok(surveyNoNumber.join(',') === want.join(','), `${tag}, ${view} view: "${button}": each statement's Market Survey opens on "Team", with no Team number column`, surveyNoNumber.join(', ') || 'none');
     }
   }
 }
