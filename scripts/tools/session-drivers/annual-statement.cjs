@@ -24,6 +24,10 @@
 //     scrolls. At the bottom, Decisions is the one marked. On a phone-width
 //     screen the same, with the page not scrolling sideways.
 //
+// THE MARKET SURVEY SECTION (pr/market-survey-order), in every mode: its heads
+// open on "Team" with no "Team number" column, and its rows run by Ripple
+// Ranking, 1st at the top, ties by name (CONTROL: rows out of order refused).
+//
 // ⚠ AND IT CAN FAIL: Non-Renewal is moved every year, so a column one year off
 // fails the record check; a section the index skips, or a link that lands
 // elsewhere, fails the index check.
@@ -129,6 +133,30 @@ async function bumpNonRenewal(page, steps = 1) {
 }
 
 /** The index, at the page's current width: every link, each landing its section, the current marked, sticky. */
+// The statement's Market Survey section: heads, and each row's name and rank.
+const readSurvey = page => page.$eval('[data-testid="statement-market-survey"]', root => ({
+  heads: [...root.querySelectorAll('thead th')].map(h => h.textContent.trim()),
+  rows: [...root.querySelectorAll('[data-testid="statement-market-survey-rows"] tr')].map(r => {
+    const rank = r.querySelector('[data-testid^="statement-market-survey-ripple-"]')?.textContent.trim() ?? null;
+    return { name: r.children[0]?.textContent.trim(), rank: rank && /^\d+/.test(rank) ? parseInt(rank, 10) : null };
+  }),
+}));
+const surveyOrderProblems = rows => rows.slice(1).flatMap((b, i) => {
+  const a = rows[i];
+  if (a.rank === null && b.rank !== null) return [`${a.name} (unranked) above ${b.name}`];
+  if (a.rank !== null && b.rank !== null && a.rank > b.rank) return [`${a.name} (${a.rank}) above ${b.name} (${b.rank})`];
+  if (a.rank === b.rank && a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) > 0) return [`${a.name} before ${b.name} on a tie`];
+  return [];
+});
+async function surveyChecks(page, tag) {
+  const sv = await readSurvey(page);
+  ok(sv.heads[0] === 'Team' && sv.heads[1] === 'Ripple Ranking' && !sv.heads.includes('Team number') && sv.rows.length > 0 && sv.rows.every(r => !/^Team \d+$/.test(r.name)),
+    `${tag}: the Market Survey section opens on "Team", with no Team number column`, sv.heads.slice(0, 3).join(' | '));
+  const probs = surveyOrderProblems(sv.rows);
+  ok(probs.length === 0, `${tag}: the Market Survey's rows run by Ripple Ranking, 1st at the top, ties by name`, probs.join('; ') || sv.rows.map(r => `${r.rank ?? '—'} ${r.name}`).join(', '));
+  ok(surveyOrderProblems([{ name: 'B', rank: 2 }, { name: 'A', rank: 1 }]).length > 0, `${tag}: control — rows out of rank order are refused`);
+}
+
 async function indexChecks(page, tag) {
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(300);
@@ -239,6 +267,7 @@ async function soloGame(browser, testPlayer, errs) {
   ok(tableDiffs(shifted, save.setup.activeLines, true, record).length > 0, `${tag}: control — the table one year off fails the record check`);
 
   await openStatement(page);
+  await surveyChecks(page, tag);
   await indexChecks(page, `${tag}, desktop`);
   await page.context().close();
 }
@@ -325,6 +354,7 @@ async function soloGame(browser, testPlayer, errs) {
     const tt = await screenTable(team);
     const d = tableDiffs(tt, t.lines, true, record);
     ok(d.length === 0, `hosted team, Pool view after two years: every played year's decisions are the room's stored decisions (${t.lines.join(', ')})`, d.slice(0, 3).join(' · ') || tt.years.join(', '));
+    await surveyChecks(team, 'hosted team');
     await indexChecks(team, 'hosted team, desktop');
     await browser.close();
   }

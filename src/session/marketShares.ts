@@ -140,6 +140,29 @@ export function shownShares(
 }
 
 /**
+ * EVERY KNOWN YEAR'S SET, for the Market Survey's and the Teams tab's year
+ * selector (pr/market-survey-order): each stored year up to the latest known
+ * year (as shownShares), keyed by year as a string, the pool share re-derived
+ * as there. Undefined with none stored.
+ */
+export function sharesByYearShown(
+  room: { currentYear: number; yearCount: number },
+  stored: RoomSharesByYear | undefined,
+): Record<string, RoomMarketShares> | undefined {
+  if (!stored) return undefined;
+  const known = Math.max(0, Math.min(latestKnownRoomYear(room), room.currentYear - 1));
+  const out: Record<string, RoomMarketShares> = {};
+  for (const k of Object.keys(stored)) {
+    const y = Number(k);
+    if (!Number.isFinite(y) || y > known) continue;
+    const byTeam = structuredClone(stored[k]);
+    for (const t of Object.values(byTeam)) t.pool = poolShareOf(t.byLine);
+    out[String(y)] = { year: y, byTeam };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
  * A HOSTED TEAM'S ROOM SHARE FOR ONE YEAR ON ONE VIEW, as a result screen shows
  * it — the same figure as the top-bar chip and the host's Market share column.
  * The team holds its share for the latest known year only (CallerView), so a

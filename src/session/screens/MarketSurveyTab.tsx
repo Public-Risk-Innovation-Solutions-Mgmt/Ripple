@@ -23,6 +23,7 @@ export default function MarketSurveyTab({ room, ownTeam }: { room: RoomView; own
         <StandingsTable
           teams={room.standings.teams}
           marketShares={room.standings.marketShares}
+          marketSharesByYear={room.standings.marketSharesByYear}
           startingYear={room.startingYear}
           currentYear={room.currentYear}
           yearCount={room.yearCount}

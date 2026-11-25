@@ -6,11 +6,24 @@
 // takes. The host passes its TeamViews and the room's shares; a team passes
 // RoomView.standings, the same figures slimmed to the table's (session/
 // standings) — StandingTeam is the shape both are read through.
+//
+// pr/market-survey-order:
+//   ORDER     rows by Ripple Ranking, 1st at the top; teams tied on a rank stay
+//             together, by the name shown; a team with no rank for the year
+//             last (standingsRows.orderByRanking).
+//   NO NUMBER the "Team number" column is gone; the name alone. Everywhere else
+//             "Team N | Name" is unchanged.
+//   A YEAR    a selector, year 0 (the opening) to the latest known year,
+//             opening on — and following — the latest. Every column reads the
+//             chosen year's posted summaries and that year's shares; the line
+//             view works as before.
 // ============================================================================
 
 import { useState } from 'react';
-import { POOL_SHARE_NOTE, rateText, reportingYearOf, rowState, shareOf } from '../standingsRows';
-import { ordinal, rippleScoreRanks } from '../../utils/rippleScore';
+import {
+  POOL_SHARE_NOTE, orderByRanking, ranksFor, rateText, reportingYearOf, rowState, selectableYears, shareOf, sharesForYear, yearLabel,
+} from '../standingsRows';
+import { ordinal } from '../../utils/rippleScore';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -31,6 +44,8 @@ const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
 export interface StandingsTableProps {
   teams: readonly StandingTeam[];
   marketShares?: RoomMarketShares;
+  /** Every known year's shares, for the year selector (RoomView / RoomStandings.marketSharesByYear). */
+  marketSharesByYear?: Record<string, RoomMarketShares>;
   startingYear: number;
   currentYear: number;
   yearCount: number;
@@ -42,9 +57,11 @@ export interface StandingsTableProps {
 }
 
 export default function StandingsTable({
-  teams, marketShares, startingYear, currentYear, yearCount, ownTeam, actionHead, renderAction,
+  teams, marketShares, marketSharesByYear, startingYear, currentYear, yearCount, ownTeam, actionHead, renderAction,
 }: StandingsTableProps) {
   const [view, setView] = useState<LineView>('pool');
+  // The year chosen; null follows the latest known year as each is played.
+  const [chosenYear, setChosenYear] = useState<number | null>(null);
 
   // Only the lines SOMEBODY writes are worth offering: a room where nobody took
   // Property has no Property column to compare.
@@ -52,14 +69,18 @@ export default function StandingsTable({
   const effectiveView: LineView = view !== 'pool' && !linesInPlay.includes(view) ? 'pool' : view;
 
   // The latest known year (utils/knownYears): the year just completed — the
-  // opening before the first advance, then each year as it is played.
-  const reportingYear = reportingYearOf(currentYear, yearCount);
+  // opening before the first advance, then each year as it is played. The
+  // table opens on it; the selector offers 0 (the opening) through it.
+  const latestYear = reportingYearOf(currentYear, yearCount);
+  const years = selectableYears(latestYear);
+  const reportingYear = chosenYear !== null && chosenYear >= 0 && chosenYear <= latestYear ? chosenYear : latestYear;
 
   // ⚠ THE RIPPLE SCORE IS A PLACEHOLDER (utils/rippleScore): each team's rank by
   // the pool's net surplus for the year shown, ties sharing a rank — the pool's
   // rank on every line view. From the standings already posted; nothing else.
-  const rippleRanks = rippleScoreRanks(Object.fromEntries(teams.map(t =>
-    [t.name, reportingYear < 0 ? undefined : t.resultsByYear?.[String(reportingYear)]?.pool?.endingSurplus])));
+  const rippleRanks = ranksFor(teams, reportingYear);
+  const ordered = orderByRanking(teams, rippleRanks);
+  const yearShares = sharesForYear(reportingYear, latestYear, marketShares, marketSharesByYear);
 
   if (teams.length === 0) {
     return (
@@ -88,15 +109,26 @@ export default function StandingsTable({
           <p className="text-sm font-medium text-slate-700">
             {effectiveView === 'pool' ? 'Pool' : LINE_FULL_NAME[effectiveView]}
           </p>
-          <p data-testid="teams-year" className="text-xs text-black">
-            {reportingYear < 0 ? 'No results known yet' : `Results for ${startingYear + reportingYear - 1}`}
-          </p>
+          <div className="flex items-center gap-3">
+            {years.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-black">
+                Year
+                <select data-testid="standings-year" value={reportingYear}
+                  onChange={e => { const y = Number(e.target.value); setChosenYear(y === latestYear ? null : y); }}
+                  className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs text-slate-800">
+                  {years.map(y => <option key={y} value={y}>{yearLabel(y, startingYear)}</option>)}
+                </select>
+              </label>
+            )}
+            <p data-testid="teams-year" data-year={reportingYear} className="text-xs text-black">
+              {reportingYear < 0 ? 'No results known yet' : `Results for ${startingYear + reportingYear - 1}`}
+            </p>
+          </div>
         </div>
 
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-black">
-              <th data-testid="teams-number-head" className="px-5 py-2 font-medium">Team number</th>
               <th className="px-5 py-2 font-medium">Team</th>
               <th className="px-5 py-2 font-medium">Ripple Ranking</th>
               <th className="px-5 py-2 font-medium">Premium to surplus</th>
@@ -110,8 +142,8 @@ export default function StandingsTable({
               {renderAction && <th className="px-5 py-2 text-right font-medium">{actionHead}</th>}
             </tr>
           </thead>
-          <tbody data-testid="teams-table">
-            {teams.map(t => {
+          <tbody data-testid="teams-table" data-year={reportingYear}>
+            {ordered.map(t => {
               const state = rowState(t, effectiveView, reportingYear);
               return (
                 <tr key={t.name} data-testid={`row-${t.name}`} data-own={t.name === ownTeam ? 'true' : undefined}
@@ -119,8 +151,6 @@ export default function StandingsTable({
                   {/* ⚠ THE NAME ALONE. The team's lines used to follow it in a second
                       span with no space between them in the text, so a team named
                       "T" read "TWC+GL+Property"; the line view shows the lines. */}
-                  {/* The team's number in the room (contract teamNumbers), before its name. */}
-                  <td data-testid={`number-${t.name}`} className="whitespace-nowrap px-5 py-2.5 text-black">Team {t.teamNumber}</td>
                   <td data-testid={`name-${t.name}`} className="px-5 py-2.5 text-slate-700">{teamDisplayName(t)}</td>
                   {state.kind === 'absent' && (
                     // ⚠ ONE CELL, IN WORDS. Nothing here can be read as a
@@ -178,7 +208,7 @@ export default function StandingsTable({
                       (marketShares.poolShareOf). */}
                   <td data-testid={`share-${t.name}`} className="px-5 py-2.5 font-mono text-sky-700">
                     {(() => {
-                      const share = shareOf(marketShares, t.name, effectiveView);
+                      const share = shareOf(yearShares, t.name, effectiveView);
                       if (!share) return <span className="text-black">—</span>;
                       // The heading names the results' year; a share worked out for an
                       // earlier one (a locked team not yet posted) says which.

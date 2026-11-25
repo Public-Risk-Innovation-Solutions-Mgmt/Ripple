@@ -34,10 +34,12 @@
 // A row in any of the three is still a row: the team is always listed, because
 // "which teams exist" is not the question any of these three answers.
 //
-// ⚠ IT SHOWS THE LAST COMPLETED YEAR, NOT THE CURRENT ONE. Results describe a
-// year already played, so the host advances to year N and teams then report
+// ⚠ IT OPENS ON THE LAST COMPLETED YEAR, NOT THE CURRENT ONE. Results describe
+// a year already played, so the host advances to year N and teams then report
 // N-1. Between advances that is the newest thing there is, and a host waiting on
-// a slow team should be reading it rather than a blank.
+// a slow team should be reading it rather than a blank. A year selector shows
+// any earlier year, 0 (the opening) included (pr/market-survey-order), and the
+// rows run by Ripple Ranking, 1st at the top, ties by name.
 // ============================================================================
 
 import { useEffect, useState } from 'react';
@@ -244,6 +246,7 @@ export default function HostTeamsTab({ room, code, hostToken }: Props) {
       <StandingsTable
         teams={room.teams}
         marketShares={room.marketShares}
+        marketSharesByYear={room.marketSharesByYear}
         startingYear={room.startingYear}
         currentYear={room.currentYear}
         yearCount={room.yearCount}

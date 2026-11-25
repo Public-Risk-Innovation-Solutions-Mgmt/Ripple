@@ -467,19 +467,22 @@ export class DynamoSessionTransport implements SessionTransport {
         fetched.decisions.set(item.teamId, held);
       }
       resultItems.push(...await this.queryPrefix(pk, resultPrefix(teamId)));
-      // ⚠ EVERY TEAM'S RESULT FOR THE YEAR THE STANDINGS SHOW, AND ONLY THAT
-      // YEAR (the Market Survey tab; keys.ts READ, point 4). The table shows the
-      // latest known year alone — the year just played, currentYear - 1, as the
-      // host's — so one item per team is fetched by key, not every team's
-      // history: a read that grows with the teams, not the teams x the years.
-      // They reach the view only through buildStandings, which keeps the host's
-      // table's figures and drops the rest — decisions above all.
+      // ⚠ EVERY TEAM'S RESULTS FOR EVERY YEAR UP TO THE ONE THE STANDINGS
+      // SHOW (the Market Survey tab; keys.ts READ, point 4). The table opens on
+      // the latest known year — the year just played, currentYear - 1, as the
+      // host's — and its year selector shows any year from 0 to it
+      // (pr/market-survey-order), so the read is the host's own R# query: it
+      // grows with the teams x the years. They reach the view only through
+      // buildStandings, which keeps the host's table's figures and drops the
+      // rest — decisions above all.
       const shown = standingsYear(header.currentYear);
       fetched.standings = new Map();
       if (shown !== null) {
-        const keys = Object.keys(header.roster ?? {}).map(id => ({ pk, sk: resultSk(id, shown) }));
-        for (const item of await this.getItems(keys) as unknown as YearItem[]) {
-          fetched.standings.set(item.teamId, { [String(item.year)]: JSON.parse(item.body) as TeamYearSummary });
+        for (const item of await this.queryPrefix(pk, RESULT_PREFIX)) {
+          if (item.year > shown) continue;
+          const held = fetched.standings.get(item.teamId) ?? {};
+          held[String(item.year)] = JSON.parse(item.body) as TeamYearSummary;
+          fetched.standings.set(item.teamId, held);
         }
       }
     }

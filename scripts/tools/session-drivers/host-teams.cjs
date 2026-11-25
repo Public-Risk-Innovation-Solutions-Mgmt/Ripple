@@ -14,22 +14,27 @@ async function join(ctx, code, name, line) {
   return p;
 }
 
-// Read the Teams table as {team: cells}. The first cell is the team's number
-// ("Team 1"), the second its name alone; cells are the rest.
+// Read the Teams table as {team: cells}. The first cell is the team's name
+// alone (the "Team number" column went in pr/market-survey-order); cells are the rest.
 const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   Object.fromEntries(rows.map(r => {
     const cells = [...r.children].map(c => c.textContent.trim());
-    return [cells[1], cells.slice(2)];
+    return [cells[0], cells.slice(1)];
   })));
-// The Teams table's first two cells per row: [number, name], in the table's order.
-const readPairs = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
-  rows.map(r => [...r.children].slice(0, 2).map(c => c.textContent.trim())));
+// The Teams table's first cell per row — the team's name — in the table's order.
+const readNames = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
+  rows.map(r => r.children[0]?.textContent.trim()));
+// The year selector (pr/market-survey-order): its options and the year shown.
+const readYears = page => page.$eval('[data-testid="standings-year"]', sel => ({ value: sel.value, options: [...sel.options].map(o => [o.value, o.textContent.trim()]) }));
+const chooseYear = async (page, y) => { await page.selectOption('[data-testid="standings-year"]', String(y)); await page.waitForTimeout(300); };
+const surplusOf = (page, team) => page.getAttribute(`[data-testid="surplus-${team}"]`, 'data-value').then(v => (v === null ? null : Number(v))).catch(() => null);
+const shareText = (page, team) => page.textContent(`[data-testid="share-${team}"]`).then(t => t.trim()).catch(() => null);
 // The combined ratio is headed with the year the table shows — read here after the second advance, 2028
 // (wip/newest-year-combined-ratio: the year's own, as on the team's statement and top bar).
 // The room is created at the default, Market competition Medium. ⚠ THE MARKET'S TWO HOST-ONLY COLUMNS
 // (Exposure moved, Book risk — pr/market-competition) WERE TAKEN OFF THE SCREEN (pr/pool-share-average):
 // the host's table is the Market Survey's, with Rename / Hand off after Market share.
-const COLUMNS = ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Rename / Hand off'];
+const COLUMNS = ['Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share', 'Rename / Hand off'];
 // Rename / Hand off (7fc44f9's hand-off; wip/team-chosen-names's rename) is the host's action column, after the figures.
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
@@ -43,7 +48,7 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
 // surplus (data-value) — on the Pool view the pool's.
 const ORDINAL = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] ?? 'th'}`;
 const readRanks = page => page.$$eval('[data-testid="teams-table"] tr', rows => rows.map(r => {
-  const name = r.children[1]?.textContent.trim();
+  const name = r.children[0]?.textContent.trim();
   const rc = r.querySelector('[data-testid^="ripple-"]'), sc = r.querySelector('[data-testid^="surplus-"]');
   return { name, rank: rc?.getAttribute('data-rank') ? Number(rc.getAttribute('data-rank')) : null, text: rc?.textContent.trim() ?? null,
     surplus: sc?.getAttribute('data-value') ? Number(sc.getAttribute('data-value')) : null };
@@ -105,12 +110,15 @@ function rankProblems(rows, want = wantRanks(rows)) {
   await host.waitForFunction(() => document.querySelectorAll('[data-testid="teams-table"] tr').length === 3, null, { timeout: 30000 });
 
   // TEAM NUMBERS: the first team to join is Team 1, the next Team 2 — in the
-  // Teams table's "Team number" column before "Team", in the Game Setup roster
-  // the same, and on each team's own screen beside its name.
+  // Game Setup roster ("Team number" before "Team") and on each team's own
+  // screen beside its name. THE TEAMS TABLE SHOWS THE NAME ALONE
+  // (pr/market-survey-order): no "Team number" column, no "Team N" cell.
   const JOINED = [['Team 1', 'Harbour Mutual'], ['Team 2', 'Cedar Valley'], ['Team 3', 'Tri-County']];
-  const pairs = await readPairs(host);
-  ok(JSON.stringify(pairs) === JSON.stringify(JOINED),
-    `Teams: numbered in join order, "Team number" before "Team" (${pairs.map(p => p.join(' | ')).join(', ')})`);
+  const names = await readNames(host);
+  const headsNow = await host.$$eval('[data-testid="teams-table"]', ([t]) => [...t.closest('table').querySelectorAll('thead th')].map(h => h.textContent.trim()));
+  ok(JSON.stringify([...names].sort()) === JSON.stringify(JOINED.map(j => j[1]).sort()) && headsNow[0] === 'Team' && !headsNow.includes('Team number')
+    && !(await host.$$eval('[data-testid="teams-table"] td', tds => tds.some(td => /^Team \d+$/.test(td.textContent.trim())))),
+    `Teams: the name alone, no Team number column (${headsNow.slice(0, 2).join(' · ')}; ${names.join(', ')})`);
   await host.click('[data-testid="host-tab-setup"]');
   await host.waitForSelector('[data-testid="team-table"] tr');
   const setupPairs = await host.$$eval('[data-testid="team-table"] tr', rows =>
@@ -143,7 +151,13 @@ function rankProblems(rows, want = wantRanks(rows)) {
     const p0 = rankProblems(r0);
     ok(p0.length === 0 && r0.length === 3 && r0.every(r => r.rank === 1 && r.text === '1st'),
       `Ripple Ranking at the opening: the three teams tie on surplus and all read "1st" (${r0.map(r => `${r.name} ${r.text}`).join(', ')})`, p0.join('; '));
+    // ORDER: all tied 1st, so by name.
+    ok(JSON.stringify(r0.map(r => r.name)) === JSON.stringify(['Cedar Valley', 'Harbour Mutual', 'Tri-County']),
+      `the opening's rows: all 1st, so by name (${r0.map(r => r.name).join(', ')})`);
   }
+  // Recorded for the year selector: the opening's figures as shown now.
+  const seen = { 2026: { surplus: await surplusOf(host, 'Harbour Mutual'), share: await shareText(host, 'Harbour Mutual'), tri: await surplusOf(host, 'Tri-County') } };
+  ok(seen[2026].surplus !== null && seen[2026].tri === seen[2026].surplus, 'the opening: every team on the same opening surplus (recorded for the year selector)', `${seen[2026].surplus} / ${seen[2026].tri}`);
 
   // Two teams lock and play; the third is closed so it never computes or posts.
   for (const p of [wcTeam, glTeam]) {
@@ -176,6 +190,11 @@ function rankProblems(rows, want = wantRanks(rows)) {
   const y1 = await host.textContent('[data-testid="teams-year"]');
   ok(/^Results for 2027$/.test(y1.trim()), `after one advance the year just played, 2027, is the latest known year: "${y1.trim()}"`);
   ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'and the teams that played it show its figures');
+  // The year's own share: the 2027 set is stored once both teams that locked have posted; until then the
+  // table shows the last complete set with its year beside it ("33.3% (2026)"). Wait for 2027's own.
+  await host.waitForFunction(() => !/\(\d{4}\)$/.test(document.querySelector('[data-testid="share-Harbour Mutual"]')?.textContent.trim() ?? '('), null, { timeout: 30000 }).catch(() => {});
+  seen[2027] = { surplus: await surplusOf(host, 'Harbour Mutual'), share: await shareText(host, 'Harbour Mutual') };
+  ok(!/\(\d{4}\)$/.test(seen[2027].share ?? ''), `2027's own market share is shown once its set is stored (${seen[2027].share})`);
 
   // A second year: the two live teams lock and post year 2, known at once.
   for (const p of [wcTeam, glTeam]) {
@@ -283,6 +302,50 @@ function rankProblems(rows, want = wantRanks(rows)) {
       ok(await host.$('[data-testid="pending-Tri-County"]') !== null, 'Pool view: the non-reporter is still pending');
     }
   }
+
+  // ---- pr/market-survey-order: ORDER AND THE YEAR SELECTOR, at 2028 ------------
+  // ORDER on every view: Harbour Mutual and Cedar Valley tie 1st (same decisions), so by name;
+  // Tri-County, which never reported, has no rank and comes last.
+  for (const sel of ['Pool', "Workers' Compensation", 'General Liability']) {
+    await host.getByRole('button', { name: sel, exact: true }).first().click();
+    await host.waitForTimeout(250);
+    const order = await readNames(host);
+    ok(JSON.stringify(order) === JSON.stringify(['Cedar Valley', 'Harbour Mutual', 'Tri-County']),
+      `${sel} view: rows by Ripple Ranking, the tied 1st by name, the unranked last (${order.join(', ')})`);
+  }
+  // CONTROL: join order (Harbour, Cedar, Tri) is not the ranking's order.
+  ok(JSON.stringify(JOINED.map(j => j[1])) !== JSON.stringify(['Cedar Valley', 'Harbour Mutual', 'Tri-County']), 'control — join order is refused as the ranking order');
+  await host.getByRole('button', { name: 'Pool', exact: true }).first().click();
+  await host.waitForTimeout(250);
+  const ys = await readYears(host);
+  ok(JSON.stringify(ys.options) === JSON.stringify([['0', '2026 (opening)'], ['1', '2027'], ['2', '2028']]) && ys.value === '2',
+    `the year selector offers 2026 (opening), 2027 and 2028, and shows 2028 (${JSON.stringify(ys)})`);
+  seen[2028] = { surplus: await surplusOf(host, 'Harbour Mutual'), share: await shareText(host, 'Harbour Mutual') };
+  // Year 0: the opening position — every team, Tri-County too, on its opening figures, all 1st.
+  await chooseYear(host, 0);
+  const h0 = (await host.textContent('[data-testid="teams-year"]')).trim();
+  const r0b = await readRanks(host);
+  ok(h0 === 'Results for 2026' && r0b.length === 3 && r0b.every(r => r.rank === 1 && r.surplus === seen[2026].surplus),
+    `2026 chosen: the opening position — every team 1st on the opening surplus, Tri-County included (${r0b.map(r => `${r.name} ${r.text} ${r.surplus}`).join(', ')})`, h0);
+  ok(await shareText(host, 'Harbour Mutual') === seen[2026].share, `2026 chosen: the opening's market share, as shown then (${seen[2026].share})`, await shareText(host, 'Harbour Mutual'));
+  // Year 1: 2027's own figures, as shown then; Tri-County pending.
+  await chooseYear(host, 1);
+  const h1 = (await host.textContent('[data-testid="teams-year"]')).trim();
+  ok(h1 === 'Results for 2027' && await surplusOf(host, 'Harbour Mutual') === seen[2027].surplus && await host.$('[data-testid="pending-Tri-County"]') !== null,
+    `2027 chosen: 2027's figures as shown then (surplus ${seen[2027].surplus}), Tri-County pending`, `${h1} ${await surplusOf(host, 'Harbour Mutual')}`);
+  ok(await shareText(host, 'Harbour Mutual') === seen[2027].share, `2027 chosen: 2027's market share, as shown then (${seen[2027].share})`, await shareText(host, 'Harbour Mutual'));
+  // Each year its own: the three surpluses differ (and the comparison refuses a year set against another).
+  ok(new Set([seen[2026].surplus, seen[2027].surplus, seen[2028].surplus]).size === 3,
+    `each year its own figures: Harbour Mutual's surplus 2026 / 2027 / 2028 all differ (${seen[2026].surplus} / ${seen[2027].surplus} / ${seen[2028].surplus})`);
+  // A line view on an earlier year works as now: WC on 2027.
+  await host.getByRole('button', { name: "Workers' Compensation", exact: true }).first().click();
+  await host.waitForTimeout(250);
+  ok((await host.textContent('[data-testid="teams-year"]')).trim() === 'Results for 2027' && await host.$('[data-testid="surplus-Harbour Mutual"]') !== null,
+    'WC view on 2027: the line view keeps the chosen year');
+  await host.getByRole('button', { name: 'Pool', exact: true }).first().click();
+  await chooseYear(host, 2);
+  ok((await host.textContent('[data-testid="teams-year"]')).trim() === 'Results for 2028' && await surplusOf(host, 'Harbour Mutual') === seen[2028].surplus,
+    'back on 2028: the latest again');
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   await browser.close();

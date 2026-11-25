@@ -761,7 +761,7 @@ export default function PlayScreen({ code, role }: Props) {
       marketSurvey={<MarketSurveyTab room={room} ownTeam={you.teamName} />}
       // The Annual Statement's Market Survey section — the same standings, the same own row.
       statementStandings={room.standings ? {
-        teams: room.standings.teams, marketShares: room.standings.marketShares,
+        teams: room.standings.teams, marketShares: room.standings.marketShares, marketSharesByYear: room.standings.marketSharesByYear,
         startingYear: room.startingYear, currentYear: room.currentYear, yearCount: room.yearCount, ownTeam: you.teamName,
       } : undefined}
       lineView={lineView}

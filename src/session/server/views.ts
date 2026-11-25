@@ -33,7 +33,7 @@ import { teamNumbers } from '../contract';
 import type { MarketLevel, MarketTeamLineResult, StoredMarketYear } from '../contract';
 import { marketLevelOf, marketScaleOf, marketVersionOf } from '../market';
 import type { CoverageLine } from '../../types/simulation';
-import { shownShares, type RoomSharesByYear } from '../marketShares';
+import { sharesByYearShown, shownShares, type RoomSharesByYear } from '../marketShares';
 import { buildStandings } from '../standings';
 
 /** Canonical order, and the fallback for a header written before the host
@@ -299,6 +299,9 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     // Host only, the latest known year's, as in localTransport: a player gets its own on CallerView.
     ...(role === 'host' && shownShares(header, header.marketSharesByYear)
       ? { marketShares: shownShares(header, header.marketSharesByYear) } : {}),
+    // Host only: every known year's, for the Teams tab's year selector.
+    ...(role === 'host' && sharesByYearShown(header, header.marketSharesByYear)
+      ? { marketSharesByYear: sharesByYearShown(header, header.marketSharesByYear) } : {}),
     // EVERY TEAM'S STANDING, a player's or a viewer's (the Market Survey tab):
     // the host's table's figures alone (session/standings), as localTransport.
     ...((role === 'player' || role === 'viewer') && fetched.standings
@@ -311,6 +314,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
           })),
           header.currentYear,
           shownShares(header, header.marketSharesByYear),
+          sharesByYearShown(header, header.marketSharesByYear),
         );
       })() } : {}),
     createdAt: header.createdAt,

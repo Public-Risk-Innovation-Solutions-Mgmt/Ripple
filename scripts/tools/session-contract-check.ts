@@ -1169,12 +1169,14 @@ async function main(): Promise<void> {
   // ---- THE STANDINGS: A TEAM READS THE ROOM (the Market Survey tab) ------
   //
   // A player and a viewer get every team's standing (RoomView.standings): the
-  // host's Teams table's figures, per team, for the year the table shows —
-  // the latest known year, currentYear - 1 — and the room's shares, exactly the
-  // host's. READ ONLY AND NOTHING ELSE: no decisions (the marker is searched for
-  // in the whole serialised standings), no result field the table does not
-  // show, no year but the one shown; the team rows' resultsByYear stay the
-  // caller's own. The host and an anonymous caller get no standings.
+  // host's Teams table's figures, per team, for EVERY KNOWN YEAR up to the one
+  // the table opens on — the latest known year, currentYear - 1 — for its year
+  // selector (pr/market-survey-order), and the room's shares, the latest and
+  // every year's, exactly the host's. READ ONLY AND NOTHING ELSE: no decisions
+  // (the marker is searched for in the whole serialised standings), no result
+  // field the table does not show, no year past the latest known; the team
+  // rows' resultsByYear stay the caller's own. The host and an anonymous caller
+  // get no standings.
   {
     const t = transport();
     const LINES2: CoverageLine[] = ['WC', 'GL'];
@@ -1227,21 +1229,29 @@ async function main(): Promise<void> {
       if (!st) continue;
       for (const team of st.teams) {
         const hostRow = host.room.teams.find(x => x.name === team.name)!;
-        same(Object.keys(team.resultsByYear ?? {}), ['1'], `standings (${who}): ${team.name} carries the year shown alone`);
-        const mine = team.resultsByYear!['1'];
-        const want = hostRow.resultsByYear!['1'];
-        for (const [scope, got, from] of [
-          ['pool', mine.pool, want.pool], ['WC', mine.byLine.WC, want.byLine.WC], ['GL', mine.byLine.GL, want.byLine.GL],
-        ] as const) {
-          same(Object.keys(got ?? {}).sort(), [...TABLE_FIELDS].sort(), `standings (${who}): ${team.name} ${scope} carries the table's fields and no other`);
-          for (const f of TABLE_FIELDS) {
-            eq((got as unknown as Record<string, number>)[f], (from as unknown as Record<string, number>)[f], `standings (${who}): ${team.name} ${scope} ${f} is the host's`);
+        same(Object.keys(team.resultsByYear ?? {}).sort(), ['0', '1'], `standings (${who}): ${team.name} carries every known year, the opening (0) and 1, and none later`);
+        for (const y of ['0', '1']) {
+          const mine = team.resultsByYear![y];
+          const want = hostRow.resultsByYear![y];
+          for (const [scope, got, from] of [
+            ['pool', mine.pool, want.pool], ['WC', mine.byLine.WC, want.byLine.WC], ['GL', mine.byLine.GL, want.byLine.GL],
+          ] as const) {
+            same(Object.keys(got ?? {}).sort(), [...TABLE_FIELDS].sort(), `standings (${who}): ${team.name} year ${y} ${scope} carries the table's fields and no other`);
+            for (const f of TABLE_FIELDS) {
+              eq((got as unknown as Record<string, number>)[f], (from as unknown as Record<string, number>)[f], `standings (${who}): ${team.name} year ${y} ${scope} ${f} is the host's`);
+            }
           }
+          ok(!('decisions' in mine) && !('developed' in mine) && !('surplusRange' in mine), `standings (${who}): ${team.name} year ${y} carries no decisions, developed column or range`);
         }
-        ok(!('decisions' in mine) && !('developed' in mine) && !('surplusRange' in mine), `standings (${who}): ${team.name} carries no decisions, developed column or range`);
+        // Each year its own figures: the opening's and year 1's differ (post(0) and post(1) are not the same summary).
+        ok(team.resultsByYear!['0'].pool.endingSurplus !== team.resultsByYear!['1'].pool.endingSurplus || team.resultsByYear!['0'].calendarYear !== team.resultsByYear!['1'].calendarYear,
+          `standings (${who}): ${team.name}'s opening and year 1 are each their own year`);
       }
       ok(!JSON.stringify(st).includes(String(DECISION_MARKER)) && !JSON.stringify(st).includes('"decisions"'), `standings (${who}): no decision anywhere in them`);
       same(st.marketShares, host.room.marketShares, `standings (${who}): the room's shares are the host's`);
+      same(st.marketSharesByYear, host.room.marketSharesByYear, `standings (${who}): every year's shares are the host's`);
+      same(Object.keys(st.marketSharesByYear ?? {}).sort(), ['0', '1'], `standings (${who}): shares for the opening and year 1, each complete year's`);
+      eq(st.marketSharesByYear?.['1']?.year, st.marketShares?.year, `standings (${who}): the latest year's set is the one marketShares shows`);
       // The team rows themselves are unchanged: the caller's own results, nobody else's.
       for (const row of r.room.teams) {
         const own = row.name === (who === 'player' ? TEAMS[0] : TEAMS[1]);

@@ -71,7 +71,7 @@ import {
   teamNameProblem, teamNameTaken, sameTeamName, teamDisplayName,
 } from './contract';
 import { Faults } from './faults';
-import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
+import { mayStoreShares, roomSharesFor, sharesByYearShown, shownShares, type RoomSharesByYear } from './marketShares';
 import { buildStandings } from './standings';
 import type { CoverageLine } from '../types/simulation';
 import { applyGameEdit, GameEditError, startingEdits, startingLevelsByYear } from '../utils/gameEdits';
@@ -632,6 +632,9 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     // Host only, the latest known year's: every other caller gets its own team's on CallerView.
     ...(role === 'host' && shownShares(room, room.marketSharesByYear)
       ? { marketShares: shownShares(room, room.marketSharesByYear) } : {}),
+    // Host only: every known year's, for the Teams tab's year selector.
+    ...(role === 'host' && sharesByYearShown(room, room.marketSharesByYear)
+      ? { marketSharesByYear: sharesByYearShown(room, room.marketSharesByYear) } : {}),
     // EVERY TEAM'S STANDING, a player's or a viewer's (the Market Survey tab):
     // the host's table's figures alone, built as the server builds them.
     ...(role === 'player' || role === 'viewer'
@@ -639,6 +642,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
         room.teams.map(t => ({ name: t.name, displayName: t.displayName, teamNumber: t.teamNumber ?? 0, lines: t.lines, results: t.resultsByYear })),
         room.currentYear,
         shownShares(room, room.marketSharesByYear),
+        sharesByYearShown(room, room.marketSharesByYear),
       ) } : {}),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,

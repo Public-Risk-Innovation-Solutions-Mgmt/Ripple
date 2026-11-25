@@ -160,12 +160,12 @@ export function fillDecisions(ws: Worksheet, table: DecisionsTable, firstRow: nu
 }
 
 /** The Market Survey's nine columns, B to J: J is the one column the statement above leaves unused. */
-const SURVEY_FIRST = 2, SURVEY_LAST = 10;
+const SURVEY_FIRST = 2, SURVEY_LAST = 9;
 
 /**
  * THE MARKET SURVEY SECTION, below the template's last row and before
  * Decisions (utils/statementMarketSurvey): a blank row, its title with the year
- * it shows, a blank, the header of its nine columns, then a row per team — the
+ * it shows, a blank, the header of its eight columns, then a row per team — the
  * Market Survey tab's text in each cell, as the Decisions section writes a
  * cover's name; the pool's rate a line per line. Every column lined down the
  * section, the header and the foot closed, as the Decisions section; the
@@ -197,7 +197,7 @@ export function fillMarketSurvey(ws: Worksheet, table: MarketSurveyTable, firstR
     const cell = ws.getCell(header, SURVEY_FIRST + k);
     cell.value = h;
     cell.font = { bold: true };
-    cell.alignment = { horizontal: k < 2 ? 'left' : 'right', wrapText: true };
+    cell.alignment = { horizontal: k < 1 ? 'left' : 'right', wrapText: true };
   });
   table.rows.forEach((row, n) => {
     const at = header + 1 + n;
@@ -207,9 +207,9 @@ export function fillMarketSurvey(ws: Worksheet, table: MarketSurveyTable, firstR
       if (!text) return;
       const cell = ws.getCell(at, SURVEY_FIRST + k);
       cell.value = text;
-      cell.alignment = { horizontal: k < 2 || (words && k === 2) ? 'left' : 'right', wrapText: k === 4 };
+      cell.alignment = { horizontal: k < 1 || (words && k === 1) ? 'left' : 'right', wrapText: k === 3 };
       if (row.own) cell.font = { bold: true };
-      if (k === 7 && row.surplus !== undefined && row.surplus < 0) cell.font = { ...(row.own ? { bold: true } : {}), color: { argb: 'FFDC2626' } };
+      if (k === 6 && row.surplus !== undefined && row.surplus < 0) cell.font = { ...(row.own ? { bold: true } : {}), color: { argb: 'FFDC2626' } };
     });
   });
   ws.getCell(last + 1, 2).value = table.footnote;

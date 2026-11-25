@@ -12,8 +12,10 @@
 
 import { latestKnownRoomYear } from '../utils/knownYears';
 import { formatPct } from '../utils/formatters';
+import { rippleScoreRanks } from '../utils/rippleScore';
 import type { CoverageLine, LineView } from '../types/simulation';
 import type { RoomMarketShares, StandingFigures, StandingSummary, StandingTeam } from './contract';
+import { teamDisplayName } from './contract';
 
 export type RowState =
   | { kind: 'absent' }
@@ -103,4 +105,60 @@ export function shareText(
 ): string {
   if (!share) return '—';
   return share.year === reportingYear ? formatPct(share.value) : `${formatPct(share.value)} (${startingYear + share.year - 1})`;
+}
+
+// ----------------------------------------------------------------------------
+// pr/market-survey-order — THE ORDER, THE YEARS ON OFFER, AND A YEAR'S SHARES.
+// The Market Survey, the host's Teams tab and the Annual Statement's Market
+// Survey section all read these, so the three order their rows alike.
+// ----------------------------------------------------------------------------
+
+/**
+ * Each team's Ripple Ranking for a year: its rank by the pool's net surplus for
+ * that year, ties sharing a rank (utils/rippleScore) — the pool's rank on every
+ * line view. A team with nothing posted for the year has none.
+ */
+export function ranksFor(teams: readonly StandingTeam[], year: number): Record<string, number> {
+  return rippleScoreRanks(Object.fromEntries(teams.map(t =>
+    [t.name, year < 0 ? undefined : t.resultsByYear?.[String(year)]?.pool?.endingSurplus])));
+}
+
+/**
+ * THE ROWS' ORDER: by Ripple Ranking, 1st at the top; teams tied on a rank stay
+ * together, in the order of the name shown (teamDisplayName); a team with no
+ * rank for the year (nothing posted) after every ranked one, by name. The same
+ * on every line view, since the ranking is the pool's.
+ */
+export function orderByRanking<T extends StandingTeam>(teams: readonly T[], ranks: Record<string, number | undefined>): T[] {
+  const name = (t: StandingTeam) => teamDisplayName(t);
+  return [...teams].sort((a, b) => {
+    const ra = ranks[a.name], rb = ranks[b.name];
+    if (ra !== rb) {
+      if (ra === undefined) return 1;
+      if (rb === undefined) return -1;
+      return ra - rb;
+    }
+    return name(a).localeCompare(name(b), undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name);
+  });
+}
+
+/** The years the selector offers: 0 (the opening) through the latest known year; none before any is known. */
+export const selectableYears = (latest: number): number[] =>
+  latest < 0 ? [] : Array.from({ length: latest + 1 }, (_, y) => y);
+
+/** A year's label: "2026 (opening)" for year 0, else the calendar year. */
+export const yearLabel = (year: number, startingYear: number): string =>
+  year === 0 ? `${startingYear - 1} (opening)` : String(startingYear + year - 1);
+
+/**
+ * THE ROOM'S SHARES FOR A YEAR: that year's own set (marketSharesByYear); for
+ * the latest year with its set not complete yet, the newest complete set the
+ * room shows (marketShares), which says its own year beside each figure
+ * (shareText). An earlier year with no set has none.
+ */
+export function sharesForYear(
+  year: number, latest: number,
+  marketShares: RoomMarketShares | undefined, marketSharesByYear: Record<string, RoomMarketShares> | undefined,
+): RoomMarketShares | undefined {
+  return marketSharesByYear?.[String(year)] ?? (year === latest ? marketShares : undefined);
 }

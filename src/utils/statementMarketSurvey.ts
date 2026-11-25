@@ -6,11 +6,17 @@
 //
 // ⚠ HOSTED TEAMS AND VIEWERS READ THE ROOM'S OWN STANDINGS AND NOTHING ELSE —
 // RoomView.standings, the same figures the Market Survey tab shows (session/
-// standings: the host's Teams-table fields alone, for the room's latest known
-// year), with the viewing team's row marked. Nothing extra about other teams
-// is fetched or derived: the room keeps one year of standings for a team, so
-// a statement turned back to an earlier year says the room's standings are
-// for its latest year rather than inventing another's.
+// standings: the host's Teams-table fields alone, for every known year), with
+// the viewing team's row marked. Nothing extra about other teams is fetched or
+// derived. The section follows the STATEMENT'S OWN YEAR: since
+// pr/market-survey-order the standings carry every known year (the tab's year
+// selector), so a statement turned back to an earlier year shows that year's
+// rows and that year's shares. A year past the room's latest known one (none
+// can be chosen) says so rather than inventing figures.
+//
+// pr/market-survey-order: the rows run by Ripple Ranking, 1st at the top, ties
+// by name (standingsRows.orderByRanking), and the "Team number" column is gone
+// — on the page, in the Excel file and in the PDF.
 //
 // ⚠ SINGLE PLAYER AND TEST PLAYER HAVE NO ROOM: one row, the player's own pool,
 // built from its own game by the SAME summary a hosted team posts (session/
@@ -25,11 +31,13 @@
 // ============================================================================
 
 import { buildStandings } from '../session/standings';
-import { POOL_SHARE_NOTE, rateLines, reportingYearOf, rowState, shareOf, shareText } from '../session/standingsRows';
+import {
+  POOL_SHARE_NOTE, orderByRanking, ranksFor, rateLines, reportingYearOf, rowState, shareOf, shareText, sharesForYear,
+} from '../session/standingsRows';
 import { summarize } from '../session/client/results';
 import { gameHistory } from './gameHistory';
 import { lineDisplayName } from './lineDisplay';
-import { ordinal, rippleScoreRanks } from './rippleScore';
+import { ordinal } from './rippleScore';
 import { formatCurrency, formatPct } from './formatters';
 import type { RoomMarketShares, StandingTeam } from '../session/contract';
 import { teamDisplayName } from '../session/contract';
@@ -42,6 +50,8 @@ export const MARKET_SURVEY_TITLE = 'Market Survey';
 export interface MarketSurveyStandings {
   teams: readonly StandingTeam[];
   marketShares?: RoomMarketShares;
+  /** Every known year's shares (RoomStandings.marketSharesByYear). */
+  marketSharesByYear?: Record<string, RoomMarketShares>;
   startingYear: number;
   currentYear: number;
   yearCount: number;
@@ -60,8 +70,6 @@ export interface MarketSurveyFigures {
 }
 
 export interface MarketSurveyRow {
-  /** "Team 3"; "—" for the one pool of single player and Test player. */
-  teamNumber: string;
   team: string;
   own: boolean;
   /** The figures, or the tab's words for a team that does not write the line or has not reported. */
@@ -76,7 +84,7 @@ export interface MarketSurveyTable {
   scopeName: string;
   /** The tab's "Results for 2028", or "No results known yet". */
   yearText: string;
-  /** The nine column heads, the tab's own. */
+  /** The eight column heads, the tab's own. */
   heads: string[];
   rows: MarketSurveyRow[];
   /** Said in place of the rows when the room's standings are for another year than the statement's. */
@@ -101,18 +109,21 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
   const startingYear = standings?.startingYear ?? gs.setup.startingYear;
   let teams: readonly StandingTeam[];
   let reportingYear: number;
+  let latestYear: number;
   let note: string | undefined;
   if (standings) {
-    reportingYear = reportingYearOf(standings.currentYear, standings.yearCount);
+    // The statement's own year, from the room's standings for every known year.
+    latestYear = reportingYearOf(standings.currentYear, standings.yearCount);
+    reportingYear = ts.asOf;
     teams = standings.teams;
-    if (reportingYear !== ts.asOf) {
-      note = reportingYear < 0
-        ? 'The room has no results known yet.'
-        : `The room's standings are for its latest year, ${startingYear + reportingYear - 1}. Choose that year to see them here, or open the Market Survey tab.`;
+    if (latestYear < 0) note = 'The room has no results known yet.';
+    else if (ts.asOf > latestYear || ts.asOf < 0) {
+      note = `The room's standings run to its latest year, ${startingYear + latestYear - 1}. Choose a year up to it to see them here, or open the Market Survey tab.`;
     }
   } else {
     // The player's own pool, for the statement's year, as a hosted team would post it.
     reportingYear = ts.asOf;
+    latestYear = ts.asOf;
     const r = gameHistory(gs).find(y => y.yearNumber === ts.asOf);
     teams = buildStandings([{
       name: gs.setup.poolName, teamNumber: 0, lines: [...gs.setup.activeLines],
@@ -120,13 +131,11 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
     }], ts.asOf + 1).teams;
   }
   const calendar = startingYear + reportingYear - 1;
-  const shares = standings?.marketShares;
-  const ranks = rippleScoreRanks(Object.fromEntries(teams.map(t =>
-    [t.name, reportingYear < 0 ? undefined : t.resultsByYear?.[String(reportingYear)]?.pool?.endingSurplus])));
-  const rows: MarketSurveyRow[] = note ? [] : teams.map(t => {
+  const shares = standings ? sharesForYear(reportingYear, latestYear, standings.marketShares, standings.marketSharesByYear) : undefined;
+  const ranks = ranksFor(teams, reportingYear);
+  const rows: MarketSurveyRow[] = note ? [] : orderByRanking(teams, ranks).map(t => {
     const state = rowState(t, view, reportingYear);
     const base = {
-      teamNumber: standings ? `Team ${t.teamNumber}` : '—',
       team: teamDisplayName(t),
       own: !!standings?.ownTeam && t.name === standings.ownTeam,
       marketShare: shareText(shareOf(shares, t.name, view), reportingYear, startingYear),
@@ -152,7 +161,7 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
   return {
     scopeName: view === 'pool' ? 'Pool' : lineDisplayName(view),
     yearText: reportingYear < 0 ? 'No results known yet' : `Results for ${calendar}`,
-    heads: ['Team number', 'Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense',
+    heads: ['Team', 'Ripple Ranking', 'Premium to surplus', 'Rate', 'Admin expense',
       reportingYear < 0 ? 'Combined ratio' : `Combined ratio ${calendar}`, 'Net surplus', 'Market share'],
     rows,
     ...(note ? { note } : {}),
@@ -164,11 +173,11 @@ export function buildMarketSurveyTable(gs: GameState, ts: TemplateStatement, sta
   };
 }
 
-/** A row's nine cells as text, in the heads' order — the downloads' reading; the rate's lines joined. */
+/** A row's eight cells as text, in the heads' order — the downloads' reading; the rate's lines joined. */
 export function marketSurveyCells(row: MarketSurveyRow, joinRate = '\n'): string[] {
   const f = row.figures;
   const figures = 'absent' in f ? [f.absent, '', '', '', '', '']
     : 'pending' in f ? [f.pending, '', '', '', '', '']
     : [f.ripple, f.premiumToSurplus, f.rate.join(joinRate), f.admin, f.combinedRatio, f.netSurplus];
-  return [row.teamNumber, row.team, ...figures, row.marketShare];
+  return [row.team, ...figures, row.marketShare];
 }

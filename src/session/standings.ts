@@ -12,8 +12,14 @@
 // sees.
 //
 // ⚠ A YEAR'S FIGURES APPEAR ONCE IT HAS BEEN PLAYED: a summary is posted only
-// for a played year (and the opening, year 0), and the table shows the room's
-// latest known year (utils/knownYears) exactly as the host's does.
+// for a played year (and the opening, year 0), and the table opens on the
+// room's latest known year (utils/knownYears) exactly as the host's does.
+//
+// ⚠ EVERY KNOWN YEAR, NOT THE LATEST ALONE (pr/market-survey-order). The
+// table's year selector shows any year from 0 (the opening) to the latest, so
+// the standings carry every posted year up to it, each slimmed to the table's
+// figures, and every year's shares. The read grows with teams x years: about
+// 6 figures x 4 slices x years x teams, a few KB for 16 teams over five years.
 // ============================================================================
 
 import type {
@@ -58,24 +64,35 @@ export interface StandingSource {
 export const standingsYear = (currentYear: number): number | null => (currentYear - 1 >= 0 ? currentYear - 1 : null);
 
 /**
- * The standings a player or viewer reads: every team, its result for the year
- * shown (standingsYear) slimmed to the table's figures, and the room's shares.
- * ⚠ THAT YEAR ALONE: the table shows no other, and the server fetches no other
- * (rooms.viewFor), so a poll grows with the teams and not with the years.
+ * The standings a player or viewer reads: every team, each result it has posted
+ * for a year from 0 to the year shown (standingsYear) slimmed to the table's
+ * figures, and the room's shares — the latest known year's and every year's.
+ * ⚠ NO YEAR PAST THE ONE SHOWN: a later summary (none is posted before its
+ * year is played) would not reach the table either way.
  */
-export function buildStandings(teams: readonly StandingSource[], currentYear: number, marketShares?: RoomMarketShares): RoomStandings {
+export function buildStandings(
+  teams: readonly StandingSource[], currentYear: number, marketShares?: RoomMarketShares,
+  marketSharesByYear?: Record<string, RoomMarketShares>,
+): RoomStandings {
   const y = standingsYear(currentYear);
   return {
     teams: teams.map((t): StandingTeam => {
-      const s = y === null ? undefined : t.results?.[String(y)];
+      const byYear: Record<string, StandingSummary> = {};
+      if (y !== null) {
+        for (const [k, s] of Object.entries(t.results ?? {})) {
+          const n = Number(k);
+          if (Number.isInteger(n) && n >= 0 && n <= y && s) byYear[k] = standingSummary(s);
+        }
+      }
       return {
         name: t.name,
         ...(t.displayName !== undefined ? { displayName: t.displayName } : {}),
         teamNumber: t.teamNumber,
         lines: [...t.lines],
-        ...(s ? { resultsByYear: { [String(y)]: standingSummary(s) } } : {}),
+        ...(Object.keys(byYear).length ? { resultsByYear: byYear } : {}),
       };
     }),
     ...(marketShares ? { marketShares } : {}),
+    ...(marketSharesByYear ? { marketSharesByYear } : {}),
   };
 }

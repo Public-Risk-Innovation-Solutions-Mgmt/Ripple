@@ -69,7 +69,8 @@
 //      from the template file itself (exceljs), never from the table the app
 //      draws from. Each listed label change must be one the template has.
 //      Below the template: the Market Survey section (pr/statement-market-
-//      survey) — its title and year, its nine heads in B to J, each team's row
+//      survey) — its title and year, its eight heads in B to I (nine, B to J,
+//      until pr/market-survey-order dropped Team number), each team's row
 //      the section's table's own text, the tab's note — then the Decisions
 //      section, each cell for cell. Controls: the Market Survey's premium to
 //      surplus changed, and the sheet read as if it had no Market Survey.
@@ -725,11 +726,11 @@ const decisionsRowCount = (t: DecisionsTable) => 4 + t.rows.length;
 /**
  * THE MARKET SURVEY SECTION, between the template's last row and Decisions
  * (utils/statementMarketSurvey; pr/statement-market-survey): a blank, its title
- * in B and the year it shows in D, a blank, the header of its nine columns in B
- * to J, a row per team — each cell the table's own text (the tab's), the pool's
- * rate lines joined by line breaks — and the tab's note in B. With a note in
- * place of the rows (a room's standings for another year): the note, then the
- * tab's. Rows of the sheet it occupies: 5 + the table's rows.
+ * in B and the year it shows in D, a blank, the header of its eight columns in
+ * B to I, a row per team — each cell the table's own text (the tab's), the
+ * pool's rate lines joined by line breaks — and the tab's note in B. With a
+ * note in place of the rows (a year the room does not know yet): the note, then
+ * the tab's. Rows of the sheet it occupies: 5 + the table's rows.
  */
 // A hosted game's Pool view adds the share note on the row after the tab's note (MarketSurveyTable.shareNote).
 const surveyRowCount = (t: MarketSurveyTable) => 5 + t.rows.length + (t.shareNote ? 1 : 0);
@@ -950,7 +951,8 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   check(layoutDiffs(shifted(all), ts, table, survey).length > 0, 'B control — the Market Survey and Decisions sections cut off: the check fails', layoutDiffs(shifted(all), ts, table, survey)[0] ?? 'NOTHING FIRED');
   // THE MARKET SURVEY SECTION (pr/statement-market-survey): one cell changed, and the section read as missing, must each fail.
   const ptsAt = expectedRows.length + 4;
-  const offSurvey: XLSX.WorkSheet = { ...base, [XLSX.utils.encode_cell({ r: ptsAt, c: 4 })]: { t: 's', v: '9.99' } };
+  // Premium to surplus is column D (c 3): Team, Ripple Ranking, Premium to surplus, … since pr/market-survey-order.
+  const offSurvey: XLSX.WorkSheet = { ...base, [XLSX.utils.encode_cell({ r: ptsAt, c: 3 })]: { t: 's', v: '9.99' } };
   check(layoutDiffs(offSurvey, ts, table, survey).some(d => /Premium to surplus/.test(d)), 'B control — the Market Survey\'s premium to surplus changed: the check fails, on that cell', layoutDiffs(offSurvey, ts, table, survey)[0] ?? 'NOTHING FIRED');
   check(layoutDiffs(base, ts, table).length > 0, 'B control — the sheet read as if it had no Market Survey section: the check fails', layoutDiffs(base, ts, table)[0] ?? 'NOTHING FIRED');
   // Each deliberate label change undone (the template's old text kept), and an undeclared one: every one must fail.
