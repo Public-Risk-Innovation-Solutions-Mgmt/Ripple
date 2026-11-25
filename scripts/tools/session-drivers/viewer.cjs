@@ -1,6 +1,6 @@
 // THE VIEWER IS THE PLAYER'S SCREEN, READ-ONLY — and its numbers are the
 // driver's numbers because they are the same computation, not a copy.
-const { BASE, launchBrowser, requireServer, statementPdfDiffs, lockAndConfirm } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, statementPdfDiffs, lockAndConfirm, checkLobbyButtons } = require('./_shared.cjs');
 const crypto = require('crypto');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley'];
 // Three played years, checked after each; the room runs one more so year 3 is not its last.
@@ -55,6 +55,7 @@ async function tabText(page, tab) {
   // viewer watches the SAME team — already claimed, which must be allowed
   await viewer.goto(`/view/${code}`);
   await viewer.waitForSelector(`[data-testid="watch-${TEAMS[0]}"]`, { timeout: 30000 });
+  await checkLobbyButtons(ok, [['a viewer choosing a team', viewer]], null);
   const watchBtn = viewer.locator(`[data-testid="watch-${TEAMS[0]}"]`);
   ok(await watchBtn.isEnabled(), 'a claimed team is still watchable — a viewer claims nothing');
   await watchBtn.click();
@@ -206,6 +207,7 @@ async function tabText(page, tab) {
      `the team's posted results are the DRIVER's opening and its ${PLAYED} played years (years ${posted.join(',') || 'none'})`);
   ok(await viewer.$('[data-testid="submit-error"]') === null, 'no transport error on the viewer screen');
   ok(await viewer.$('[data-testid="game-error"]') === null, 'no game error on the viewer screen');
+  await checkLobbyButtons(ok, [['the team', driver], ['the viewer', viewer]], host);
 
   await browser.close();
   console.log(`\nviewer: ${checks - fails.length}/${checks} checks passed`);

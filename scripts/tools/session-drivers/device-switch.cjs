@@ -21,7 +21,7 @@
 // show team-moved (PlayScreen.tsx), not a generic error, which is the other
 // gap this driver and that screen change close together.
 // ============================================================================
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, checkLobbyButtons } = require('./_shared.cjs');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 const fs = require('node:fs');
@@ -215,6 +215,7 @@ function startStub() {
   })).json();
   const team = b.room.teams.find(t => t.name === TEAM_NAME);
   ok(!!team && team.joined, 'the team is still joined and in the room, under its new device');
+  await checkLobbyButtons(ok, [['the team on device B', deviceB], ['the team\'s old device A ("moved")', deviceA]], host);
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');

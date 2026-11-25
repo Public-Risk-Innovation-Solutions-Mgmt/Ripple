@@ -287,4 +287,27 @@ async function lockAndConfirm(page) {
   await box.waitFor({ state: 'detached', timeout: 10000 });
 }
 
-module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin, statementPdfDiffs, lockAndConfirm };
+/**
+ * NO "BACK TO LOBBY" FOR A TEAM OR A VIEWER (pr/no-lobby-for-teams). Counts every
+ * control on the page that would take its user to the lobby by that name — the
+ * old testid, and any button or link reading "Back to Lobby" / "Back to the
+ * Lobby" — so a renamed testid cannot hide one.
+ */
+async function lobbyButtonCount(page) {
+  const byId = await page.locator('[data-testid="back-to-lobby"]').count();
+  const byText = await page.locator('button, a, [role="button"]').filter({ hasText: /back to (the )?lobby/i }).count();
+  return byId + byText;
+}
+/** `ok` the driver's own; `pages` [label, page] pairs for teams and viewers; `host` the host's page, or null. */
+async function checkLobbyButtons(ok, pages, host) {
+  for (const [label, page] of pages) {
+    const n = await lobbyButtonCount(page);
+    ok(n === 0, `no Back to Lobby button for ${label} (${n})`);
+  }
+  if (host) {
+    const link = host.locator('[data-testid="host-main-page-link"]');
+    ok(await link.count() === 1 && await link.isVisible(), 'the host still has its way back to the lobby ("Main page")');
+  }
+}
+
+module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin, statementPdfDiffs, lockAndConfirm, lobbyButtonCount, checkLobbyButtons };

@@ -2,7 +2,7 @@
 // REAL game UI, not a four-slider panel.
 // One context: localStorage is the server here, so separate contexts would give
 // four private universes in which everything passes and nothing is shared.
-const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm, checkLobbyButtons } = require('./_shared.cjs');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley', 'Tri-County'];
 const YEARS = 3;
 const SKIP_YEAR = 2;
@@ -78,6 +78,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
   for (let i = 0; i < 3; i++) {
     await players[i].goto(`/join/${code}`);
     await players[i].waitForSelector('[data-testid="team-picker"]');
+    if (i === 0) await checkLobbyButtons(ok, [['a team on the join screen', players[i]]], null);
     // Teams name themselves and pick their own lines now.
     await players[i].fill('[data-testid="team-name"]', TEAMS[i]);
     // ⚠ TEAM 3 PLAYS A DIFFERENT BOOK. Teams in one room now choose their own
@@ -296,6 +297,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
 
   for (let i = 0; i < 3; i++) await players[i].waitForSelector('[data-testid="session-strip"][data-lock="complete"]', { timeout: 40000 });
   ok(true, 'every player tab reports the session complete');
+  await checkLobbyButtons(ok, players.map((p, i) => [`team ${i + 1} at the session's end`, p]), host);
 
   await browser.close();
   console.log(`\nfull-session: ${checks - fails.length}/${checks} checks passed`);

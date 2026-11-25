@@ -65,6 +65,11 @@ room code, year, lock state, "Saved", who is still deciding or which year is pos
 room code, year, locked or still deciding, who is still deciding and the computed year), as that is how a viewer
 follows the team.
 
+**No way back to the lobby for a team or a viewer.** Their screens (joining, the status strip, the game's end, a
+failed hand-off link) have no "Back to Lobby" button. A team that wants to leave closes the tab, and comes back as
+before: the join link, its recovery code, or the host's hand-off. The host keeps its "Main page" link; single
+player and Test player keep theirs.
+
 The lobby (`/`) lists open and running events with Join or Watch. Only a signed-in admin sees "Play Solo" and
 "Host an Event", but `/solo` itself is open to anyone.
 
