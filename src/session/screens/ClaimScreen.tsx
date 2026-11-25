@@ -75,13 +75,9 @@ export default function ClaimScreen({ code, handoffToken }: Props) {
         <p className="text-xs text-slate-500">
           Ask your host for a new link — this one can&rsquo;t be retried.
         </p>
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="mt-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-        >
-          Back to the Lobby
-        </button>
+        {/* ⚠ NO "BACK TO THE LOBBY" (pr/no-lobby-for-teams): this is a team's
+            device, and a hosted game sends a team nowhere but its own game. A
+            dead link needs a new one from the host; the tab can be closed. */}
       </div>
     );
   }

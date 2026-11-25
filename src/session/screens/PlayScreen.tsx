@@ -45,7 +45,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
+import { CheckCircle2, Clock, Copy, Eye, KeyRound, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { newSessionToken, eventStatusOf, mayCreateTeam, teamLabel, teamDisplayName, teamNameProblem, teamNameTaken, sameTeamName, TEAM_NAME_MAX, TEAM_NAME_MIN, SessionError as SessionErrorClass, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
@@ -492,14 +492,11 @@ export default function PlayScreen({ code, role }: Props) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 p-6">
         <div className="mx-auto w-full max-w-[480px] pt-10">
-          <button
-            type="button"
-            data-testid="back-to-lobby"
-            onClick={() => navigate('/')}
-            className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <ArrowLeft size={14} /> Back to Lobby
-          </button>
+          {/* ⚠ NO "BACK TO LOBBY" FOR A TEAM OR A VIEWER (pr/no-lobby-for-teams),
+              here or on the status strip below. A hosted game keeps its people in
+              it: one that wants to leave closes the tab, and comes back by the join
+              link, its recovery code or the host's hand-off. The host keeps its
+              "Main page" (HostShell); single player and Test player their own. */}
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Room {code}</p>
           <h1 className="text-2xl font-semibold text-slate-800">{room.eventName}</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -894,14 +891,7 @@ export default function PlayScreen({ code, role }: Props) {
               <span data-testid="game-error" className="text-red-600">{game.error}</span>
             )}
 
-            <button
-              type="button"
-              data-testid="back-to-lobby"
-              onClick={() => navigate('/')}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              <ArrowLeft size={13} /> Back to Lobby
-            </button>
+            {/* No "Back to Lobby" for a team or a viewer — see the join screen above. */}
           </div>
         </div>
       }

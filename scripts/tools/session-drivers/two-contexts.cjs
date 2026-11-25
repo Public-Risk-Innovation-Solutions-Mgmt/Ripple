@@ -8,7 +8,7 @@
 // the right unit: separate storage, separate identity, separate everything but
 // the wire. Host in one, teams in the other, which is the actual topology.
 // ============================================================================
-const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm, checkLobbyButtons } = require('./_shared.cjs');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 // ⚠ A PORT THE OS HANDS OUT, NOT ONE CHOSEN BY HAND. A fixed port survives a
@@ -237,6 +237,8 @@ const anyKeys = page => page.evaluate(() =>
   const marks = await host.$$eval('[data-testid="chart-surplus"] circle', els =>
     els.filter(e => e.getAttribute('r') === '4').length);
   ok(marks === 10, `and the charts draw every point for both teams (${marks} of 10)`);
+
+  await checkLobbyButtons(ok, (await teamCtx.pages()).map((p, i) => [`team ${i + 1} in its own context`, p]), host);
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');
